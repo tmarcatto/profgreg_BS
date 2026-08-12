@@ -1,0 +1,391 @@
+#!/usr/bin/env python3
+from __future__ import annotations
+
+import argparse
+import json
+import re
+from dataclasses import asdict, dataclass
+from pathlib import Path
+
+from greg_security import assert_safe_write_path
+
+
+@dataclass
+class Finding:
+    status: str
+    check: str
+    note: str
+
+
+def read_text(path: Path) -> str:
+    if not path.exists():
+        return ""
+    return path.read_text(encoding="utf-8", errors="replace")
+
+
+def extract_pages(pdf_path: Path) -> list[str]:
+    try:
+        from pypdf import PdfReader
+    except ImportError as exc:
+        raise SystemExit(
+            "Missing pypdf. Run this tool with the Codex bundled Python runtime or install pypdf."
+        ) from exc
+
+    reader = PdfReader(str(pdf_path))
+    return [(page.extract_text() or "") for page in reader.pages]
+
+
+def norm(text: str) -> str:
+    return re.sub(r"\s+", " ", text).strip()
+
+
+def find_page(pages: list[str], pattern: str, min_page: int = 1, heading_only: bool = False) -> int | None:
+    compiled = re.compile(pattern, re.IGNORECASE)
+    for index, text in enumerate(pages, start=1):
+        if index < min_page:
+            continue
+        if heading_only:
+            lines = [line.strip() for line in text.splitlines() if line.strip()]
+            if any(compiled.fullmatch(line) or compiled.match(line) for line in lines):
+                return index
+            continue
+        if compiled.search(text):
+            return index
+    return None
+
+
+def contains(text: str, pattern: str) -> bool:
+    return bool(re.search(pattern, text, re.IGNORECASE))
+
+
+def meaningful_lines(text: str) -> list[str]:
+    lines = [line.strip() for line in text.splitlines() if line.strip()]
+    return [
+        line
+        for line in lines
+        if not re.fullmatch(r"\d{1,3}", line)
+        and not re.fullmatch(r"Construction .+", line)
+        and line not in {"STUDY GUIDE", "BuildStak Learning Series"}
+    ]
+
+
+def word_count(text: str) -> int:
+    return len(re.findall(r"[A-Za-z0-9][A-Za-z0-9'-]*", text))
+
+
+def is_heading_line(line: str) -> bool:
+    return bool(
+        re.match(r"Section\s+\d{2}\s+-", line, flags=re.I)
+        or line in {"Summary and Key Takeaways", "Glossary", "References", "Lesson Roadmap", "Introduction", "Learning Objectives"}
+        or re.fullmatch(r"(KEY TERM|FIELD NOTE|DID YOU KNOW\?|WATCH OUT|APPLY IT|KEY PRINCIPLE|HANDS-ON EXAMPLE|SCENARIO|CALLBACK|BRIDGE)", line, flags=re.I)
+    )
+
+
+def figure_numbers(text: str) -> list[str]:
+    return re.findall(r"\bFigure\s+(\d+\.\d+)\b", text)
+
+
+def content_page_range(sequence: dict[str, int | None], page_count: int) -> range:
+    start = sequence.get("section_01") or 4
+    end = (sequence.get("summary") or page_count + 1) - 1
+    return range(start, max(start, end) + 1)
+
+
+def run_checks(pdf_path: Path, qa_path: Path | None = None) -> dict:
+    qa_path = qa_path or pdf_path.with_name(re.sub(r"_study_guide\.pdf$|\.pdf$", "_render_qa.md", pdf_path.name))
+    findings: list[Finding] = []
+
+    if not pdf_path.exists():
+        findings.append(Finding("fail", "pdf_exists", "PDF file is missing."))
+        pages: list[str] = []
+    else:
+        findings.append(Finding("pass", "pdf_exists", "PDF file exists."))
+        pages = extract_pages(pdf_path)
+
+    qa_text = read_text(qa_path)
+    page_count = len(pages)
+    all_text = "\n".join(pages)
+    all_norm = norm(all_text)
+
+    if page_count >= 7:
+        findings.append(Finding("pass", "page_count", f"PDF has {page_count} pages."))
+    else:
+        findings.append(Finding("fail", "page_count", f"PDF has {page_count} pages; expected at least 7 for the approved sequence."))
+
+    if pages:
+        cover = pages[0]
+        cover_requirements = ["STUDY GUIDE", "Lesson", "Level", "BuildStak Learning Series"]
+        missing = [item for item in cover_requirements if item.lower() not in cover.lower()]
+        if missing:
+            findings.append(Finding("fail", "cover_template", f"Cover missing expected elements: {missing}."))
+        else:
+            findings.append(Finding("pass", "cover_template", "Cover includes expected BuildStak study-guide elements."))
+
+    roadmap_page = find_page(pages, r"Lesson Roadmap", heading_only=True)
+    intro_page = find_page(pages, r"Introduction", min_page=3, heading_only=True)
+    objectives_page = find_page(pages, r"Learning Objectives", min_page=3, heading_only=True)
+    section_01_page = find_page(pages, r"Section\s+01\s+-.*", min_page=4, heading_only=True)
+    summary_page = find_page(pages, r"Summary and Key Takeaways", min_page=4, heading_only=True)
+    glossary_page = find_page(pages, r"Glossary", min_page=4, heading_only=True)
+    references_page = find_page(pages, r"References", min_page=4, heading_only=True)
+
+    sequence = {
+        "roadmap": roadmap_page,
+        "introduction": intro_page,
+        "learning_objectives": objectives_page,
+        "section_01": section_01_page,
+        "summary": summary_page,
+        "glossary": glossary_page,
+        "references": references_page,
+    }
+    missing_sequence = [name for name, page in sequence.items() if page is None]
+    if missing_sequence:
+        findings.append(Finding("fail", "required_sections", f"Missing required structural sections: {missing_sequence}."))
+    else:
+        findings.append(Finding("pass", "required_sections", "All required structural sections were found."))
+
+    if roadmap_page == 2:
+        findings.append(Finding("pass", "roadmap_page", "Lesson Roadmap is on page 2."))
+    elif roadmap_page:
+        findings.append(Finding("warn", "roadmap_page", f"Lesson Roadmap found on page {roadmap_page}; approved template expects page 2."))
+
+    if intro_page and objectives_page and intro_page == objectives_page:
+        findings.append(Finding("pass", "intro_objectives_same_page", "Introduction and Learning Objectives are on the same page."))
+    elif intro_page and objectives_page:
+        findings.append(Finding("warn", "intro_objectives_same_page", f"Introduction page {intro_page}, objectives page {objectives_page}; approved template expects both together."))
+
+    if objectives_page and section_01_page and section_01_page > objectives_page:
+        findings.append(Finding("pass", "body_starts_after_objectives", "Lesson body starts after the front matter page."))
+    elif objectives_page and section_01_page:
+        findings.append(Finding("fail", "body_starts_after_objectives", "Lesson body starts before or on the Learning Objectives page."))
+
+    ordered_pages = [page for page in [roadmap_page, intro_page, section_01_page, summary_page, glossary_page, references_page] if page is not None]
+    if ordered_pages == sorted(ordered_pages) and len(ordered_pages) >= 6:
+        findings.append(Finding("pass", "page_sequence", "Core sections appear in approved order."))
+    else:
+        findings.append(Finding("fail", "page_sequence", f"Core section order is unexpected: {sequence}."))
+
+    for name, page in [("summary", summary_page), ("glossary", glossary_page), ("references", references_page)]:
+        if page is not None and page > 1:
+            previous = pages[page - 2]
+            current = pages[page - 1]
+            if contains(current, rf"\b{name.replace('_', ' ')}\b"):
+                findings.append(Finding("pass", f"{name}_own_page", f"{name.title()} starts on page {page}."))
+
+    forbidden_patterns = [
+        ("sec_abbreviation", r"\bSEC\.\s*\d+"),
+        ("learning_line_caption", r"\blearning line\b"),
+        ("student_access_dates", r"\bAccessed\s+(January|February|March|April|May|June|July|August|September|October|November|December)\b"),
+        ("local_file_paths", r"/Users/|/private/|file://|\.codex/"),
+        ("internal_reference_rationale", r"Practitioner discussion sources|context signals|technical authority unless supported|source ledger|reliability"),
+    ]
+    for check, pattern in forbidden_patterns:
+        if contains(all_text, pattern):
+            findings.append(Finding("fail", check, f"Found forbidden student-facing pattern `{pattern}`."))
+        else:
+            findings.append(Finding("pass", check, "Forbidden pattern not found."))
+
+    section_heading_questions = []
+    for page_number, text in enumerate(pages, start=1):
+        lines = [line.strip() for line in text.splitlines() if line.strip()]
+        for index, line in enumerate(lines[:-1]):
+            if re.match(r"Section\s+\d{2}\s+-", line, flags=re.IGNORECASE) and lines[index + 1].endswith("?"):
+                section_heading_questions.append((page_number, line, lines[index + 1]))
+    if section_heading_questions:
+        findings.append(Finding("fail", "section_heading_questions", f"Section headings followed by question subtitles: {section_heading_questions[:3]}."))
+    else:
+        findings.append(Finding("pass", "section_heading_questions", "No question subtitle directly after a section heading found."))
+
+    if summary_page and references_page:
+        structural_tail = "\n".join(pages[summary_page - 1 : references_page])
+        callout_labels = re.findall(r"\b(KEY TERM|FIELD NOTE|DID YOU KNOW\?|WATCH OUT|APPLY IT|KEY PRINCIPLE)\b", structural_tail, flags=re.IGNORECASE)
+        if callout_labels:
+            findings.append(Finding("fail", "callouts_in_structural_sections", f"Callout labels found in structural tail sections: {sorted(set(callout_labels))}."))
+        else:
+            findings.append(Finding("pass", "callouts_in_structural_sections", "No callout labels found in summary/glossary/references sections."))
+
+    content_pages = list(content_page_range(sequence, page_count))
+    sparse_pages = []
+    orphan_endings = []
+    heading_openings = []
+    split_callout_labels = []
+    figures_by_page: dict[int, list[str]] = {}
+    for page_number in content_pages:
+        if page_number < 1 or page_number > page_count:
+            continue
+        text = pages[page_number - 1]
+        lines = meaningful_lines(text)
+        figures = figure_numbers(text)
+        if figures:
+            figures_by_page[page_number] = figures
+        words = word_count(text)
+        is_last_content_page = page_number == content_pages[-1]
+        sparse_threshold = 70 if is_last_content_page else 110
+        if words < sparse_threshold and not figures:
+            sparse_pages.append((page_number, words))
+        if lines:
+            last = lines[-1]
+            if is_heading_line(last):
+                orphan_endings.append((page_number, last))
+            if re.match(r"Section\s+\d{2}\s+-", lines[0], flags=re.I) and len(lines) <= 2:
+                heading_openings.append((page_number, lines[:2]))
+        for index, line in enumerate(lines):
+            if re.fullmatch(r"(KEY TERM|FIELD NOTE|DID YOU KNOW\?|WATCH OUT|APPLY IT|KEY PRINCIPLE|HANDS-ON EXAMPLE|SCENARIO|CALLBACK|BRIDGE)", line, flags=re.I):
+                remaining = " ".join(lines[index + 1 : index + 3])
+                if len(remaining.split()) < 6:
+                    split_callout_labels.append((page_number, line))
+
+    if sparse_pages:
+        findings.append(Finding("warn", "sparse_content_pages", f"Content pages with very little extracted text and no figure: {sparse_pages}."))
+    else:
+        findings.append(Finding("pass", "sparse_content_pages", "No sparse body-content pages found."))
+
+    if orphan_endings:
+        findings.append(Finding("fail", "orphan_heading_endings", f"Pages end with likely orphan headings: {orphan_endings[:5]}."))
+    else:
+        findings.append(Finding("pass", "orphan_heading_endings", "No content page ends with a likely orphan heading."))
+
+    if heading_openings:
+        findings.append(Finding("fail", "one_line_section_openings", f"Section openings with too little body text: {heading_openings[:5]}."))
+    else:
+        findings.append(Finding("pass", "one_line_section_openings", "No section opening is limited to only a heading/one line."))
+
+    if split_callout_labels:
+        findings.append(Finding("fail", "split_callout_labels", f"Callout labels appear separated from body text: {split_callout_labels[:5]}."))
+    else:
+        findings.append(Finding("pass", "split_callout_labels", "No isolated callout labels found in content pages."))
+
+    if content_pages:
+        figure_pages = sorted(figures_by_page)
+        long_gaps = []
+        previous = content_pages[0] - 1
+        for figure_page in figure_pages:
+            if figure_page - previous > 4:
+                long_gaps.append((previous + 1, figure_page - 1))
+            previous = figure_page
+        if figure_pages and content_pages[-1] - figure_pages[-1] > 4:
+            long_gaps.append((figure_pages[-1] + 1, content_pages[-1]))
+        if not figure_pages:
+            findings.append(Finding("warn", "figure_cadence", "No figures found in body content pages."))
+        elif long_gaps:
+            findings.append(Finding("warn", "figure_cadence", f"Potential long body-content gaps without figures: {long_gaps}."))
+        else:
+            findings.append(Finding("pass", "figure_cadence", "Body figures appear at a reasonable cadence."))
+
+    expected_figures = []
+    lesson_match_for_figures = re.search(r"lesson_(\d{2})_", pdf_path.name)
+    if lesson_match_for_figures:
+        spec_path = pdf_path.parent / f"lesson_{lesson_match_for_figures.group(1)}_study_guide_spec.json"
+        if spec_path.exists():
+            try:
+                spec = json.loads(spec_path.read_text(encoding="utf-8"))
+                expected_figures = [
+                    match.group(1)
+                    for visual in spec.get("visuals", [])
+                    for match in [re.search(r"Figure\s+(\d+\.\d+)", str(visual.get("caption") or ""))]
+                    if match
+                ]
+            except json.JSONDecodeError:
+                expected_figures = []
+    actual_figures = sorted({figure for figures in figures_by_page.values() for figure in figures})
+    if expected_figures:
+        missing_figures = sorted(set(expected_figures) - set(actual_figures))
+        extra_figures = sorted(set(actual_figures) - set(expected_figures))
+        if missing_figures or extra_figures:
+            findings.append(Finding("fail", "figure_caption_alignment", f"Figure captions mismatch spec. Missing: {missing_figures}; extra: {extra_figures}."))
+        else:
+            findings.append(Finding("pass", "figure_caption_alignment", "Rendered figure captions match the study-guide spec."))
+
+    revision_match = re.search(r"_(r\d+)\.pdf$", pdf_path.name)
+    lesson_match = re.search(r"lesson_(\d{2})_", pdf_path.name)
+    lesson_rendered_dir = pdf_path.parent / f"rendered_pages_lesson_{lesson_match.group(1)}" if lesson_match else None
+    if lesson_rendered_dir and not lesson_rendered_dir.exists() and lesson_match:
+        lesson_rendered_dir = pdf_path.parent / f"rendered_pages_lesson_{int(lesson_match.group(1))}"
+    revision_rendered_dir = pdf_path.parent / f"rendered_pages_{revision_match.group(1)}" if revision_match else None
+    if revision_rendered_dir and revision_rendered_dir.exists():
+        rendered_dir = revision_rendered_dir
+    elif lesson_rendered_dir and lesson_rendered_dir.exists():
+        rendered_dir = lesson_rendered_dir
+    else:
+        rendered_dir = pdf_path.parent / "rendered_pages"
+    rendered_pages = sorted(rendered_dir.glob("page-*.png"))
+    if rendered_pages:
+        if len(rendered_pages) == page_count:
+            findings.append(Finding("pass", "rendered_pages_count", "Rendered PNG page count matches PDF page count."))
+        else:
+            findings.append(Finding("warn", "rendered_pages_count", f"Rendered PNG count {len(rendered_pages)} does not match PDF page count {page_count}."))
+    else:
+        findings.append(Finding("warn", "rendered_pages_count", "No rendered page PNGs found for visual inspection."))
+
+    qa_requirements = [
+        ("qa_cover", "Cover"),
+        ("qa_roadmap", "roadmap"),
+        ("qa_references_no_access_dates", "access dates"),
+        ("qa_orphans", "orphan"),
+        ("qa_status", "Passed"),
+    ]
+    for check, needle in qa_requirements:
+        if needle.lower() in qa_text.lower():
+            findings.append(Finding("pass", check, f"Render QA mentions `{needle}`."))
+        else:
+            findings.append(Finding("warn", check, f"Render QA does not mention `{needle}`."))
+
+    fail_count = sum(1 for item in findings if item.status == "fail")
+    warn_count = sum(1 for item in findings if item.status == "warn")
+    return {
+        "pdf": str(pdf_path),
+        "qa": str(qa_path),
+        "page_count": page_count,
+        "section_pages": sequence,
+        "passed": fail_count == 0,
+        "fail_count": fail_count,
+        "warn_count": warn_count,
+        "findings": [asdict(item) for item in findings],
+    }
+
+
+def render_markdown(data: dict) -> str:
+    lines = [
+        f"PDF layout QA passed: {'yes' if data['passed'] else 'no'}",
+        f"Pages: {data['page_count']}",
+        f"Failures: {data['fail_count']}",
+        f"Warnings: {data['warn_count']}",
+        "",
+        f"PDF: {data['pdf']}",
+        f"QA: {data['qa']}",
+        "",
+        "Section pages:",
+    ]
+    for name, page in data["section_pages"].items():
+        lines.append(f"- {name}: {page if page is not None else 'missing'}")
+    lines.extend(["", "Findings:"])
+    for item in data["findings"]:
+        lines.append(f"- {item['status'].upper()} {item['check']}: {item['note']}")
+    return "\n".join(lines)
+
+
+def main() -> int:
+    parser = argparse.ArgumentParser(description="Run Prof Greg study-guide PDF layout checks.")
+    parser.add_argument("pdf", help="Path to the final study-guide PDF.")
+    parser.add_argument("--qa", help="Path to render QA Markdown. Defaults beside the PDF.")
+    parser.add_argument("--output", help="Optional path to write the Markdown report.")
+    parser.add_argument("--json", action="store_true", help="Print JSON.")
+    args = parser.parse_args()
+
+    pdf_path = Path(args.pdf).expanduser().resolve()
+    qa_path = Path(args.qa).expanduser().resolve() if args.qa else None
+    data = run_checks(pdf_path, qa_path)
+    markdown = render_markdown(data)
+    if args.output:
+        output = assert_safe_write_path(args.output)
+        output.parent.mkdir(parents=True, exist_ok=True)
+        output.write_text(markdown + "\n", encoding="utf-8")
+    if args.json:
+        print(json.dumps(data, indent=2, ensure_ascii=False))
+    else:
+        print(markdown)
+    return 0 if data["passed"] else 1
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

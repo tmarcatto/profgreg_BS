@@ -1,0 +1,60 @@
+#!/usr/bin/env python3
+from __future__ import annotations
+
+import importlib.util
+import sys
+import tempfile
+import unittest
+from pathlib import Path
+
+
+ROOT = Path(__file__).resolve().parents[1]
+MODULE_PATH = ROOT / "tools" / "greg_pdf_layout_check.py"
+
+spec = importlib.util.spec_from_file_location("greg_pdf_layout_check", MODULE_PATH)
+assert spec and spec.loader
+pdf_qa = importlib.util.module_from_spec(spec)
+sys.modules["greg_pdf_layout_check"] = pdf_qa
+spec.loader.exec_module(pdf_qa)
+
+
+class PdfLayoutCheckUnitTests(unittest.TestCase):
+    def test_find_page(self) -> None:
+        pages = ["Cover", "Lesson Roadmap", "Introduction\nLearning Objectives", "Section 01 - Start"]
+        self.assertEqual(pdf_qa.find_page(pages, r"Lesson Roadmap"), 2)
+        self.assertEqual(pdf_qa.find_page(pages, r"Section\s+01\s+-"), 4)
+
+    def test_forbidden_patterns(self) -> None:
+        self.assertTrue(pdf_qa.contains("References Accessed August 9, 2026", r"\bAccessed\s+August\b"))
+        self.assertTrue(pdf_qa.contains("/Users/name/file.pdf", r"/Users/"))
+        self.assertFalse(pdf_qa.contains("References AIA Contract Documents", r"/Users/"))
+
+    def test_norm(self) -> None:
+        self.assertEqual(pdf_qa.norm("A\n  B\tC"), "A B C")
+
+    def test_missing_pdf_fails(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            result = pdf_qa.run_checks(Path(tmp) / "missing.pdf", Path(tmp) / "missing_qa.md")
+            self.assertFalse(result["passed"])
+            self.assertGreaterEqual(result["fail_count"], 1)
+
+    def test_meaningful_lines_ignores_footer_noise(self) -> None:
+        lines = pdf_qa.meaningful_lines("Construction Schedule Management\n4\nSection 01 - Start\nBody")
+        self.assertEqual(lines, ["Section 01 - Start", "Body"])
+
+    def test_heading_detection_is_conservative(self) -> None:
+        self.assertTrue(pdf_qa.is_heading_line("Section 02 - Schedule Logic"))
+        self.assertTrue(pdf_qa.is_heading_line("KEY TERM"))
+        self.assertFalse(pdf_qa.is_heading_line("Path B is procurement:"))
+        self.assertFalse(pdf_qa.is_heading_line("turned over clean.'"))
+
+    def test_figure_numbers(self) -> None:
+        self.assertEqual(pdf_qa.figure_numbers("Figure 2.1. Text\nFigure 2.3. More"), ["2.1", "2.3"])
+
+    def test_content_page_range(self) -> None:
+        sequence = {"section_01": 4, "summary": 10}
+        self.assertEqual(list(pdf_qa.content_page_range(sequence, 12)), [4, 5, 6, 7, 8, 9])
+
+
+if __name__ == "__main__":
+    unittest.main()

@@ -1,0 +1,340 @@
+{
+  "version": "0.1.0",
+  "updated": "2026-07-10",
+  "policy": {
+    "no_hardcoded_models_in_skills": true,
+    "log_model_usage": true,
+    "default_optimization": "best_cost_return",
+    "premium_models_require_reason": true,
+    "default_usage_log": "runs/[course-slug]/ops/model_usage_log.jsonl",
+    "secrets_location": "environment_variables_only"
+  },
+  "providers": {
+    "openai": {
+      "kind": "llm_and_image_api",
+      "api_key_env": "OPENAI_API_KEY",
+      "base_url_env": "OPENAI_BASE_URL",
+      "notes": "Use for GPT reasoning models, Responses API workflows, and GPT Image generation."
+    },
+    "anthropic": {
+      "kind": "llm_api",
+      "api_key_env": "ANTHROPIC_API_KEY",
+      "base_url_env": "ANTHROPIC_BASE_URL",
+      "notes": "Use for long-context technical drafting, curriculum architecture, and independent review when configured."
+    },
+    "google": {
+      "kind": "llm_media_api",
+      "api_key_env": "GOOGLE_API_KEY",
+      "base_url_env": "GOOGLE_BASE_URL",
+      "notes": "Candidate provider for low-latency multimodal tasks, alternate reasoning, TTS, and future media workflows."
+    },
+    "xai": {
+      "kind": "llm_image_video_api",
+      "api_key_env": "XAI_API_KEY",
+      "base_url_env": "XAI_BASE_URL",
+      "notes": "Candidate provider for cost-aware agentic text tasks and low-cost image/video experiments. Not default for student-facing images until safety and output QA are validated."
+    },
+    "deepseek": {
+      "kind": "llm_api",
+      "api_key_env": "DEEPSEEK_API_KEY",
+      "base_url_env": "DEEPSEEK_BASE_URL",
+      "notes": "Candidate low-cost provider for draft, extraction, classification, and first-pass source organization. Do not use for sensitive/private material unless deployment and data policy are approved."
+    },
+    "local_deterministic": {
+      "kind": "local_engine",
+      "api_key_env": null,
+      "base_url_env": null,
+      "notes": "Use for deterministic SVG, Mermaid, Graphviz, PPTX shapes, DOCX/PDF rendering, and validation tools."
+    },
+    "openalex": {
+      "kind": "academic_metadata_api",
+      "api_key_env": "OPENALEX_API_KEY",
+      "base_url_env": "OPENALEX_BASE_URL",
+      "notes": "Optional source discovery and academic metadata. Many requests can work without a key."
+    },
+    "crossref": {
+      "kind": "citation_metadata_api",
+      "api_key_env": null,
+      "base_url_env": "CROSSREF_BASE_URL",
+      "notes": "Optional DOI and citation metadata lookup."
+    },
+    "semantic_scholar": {
+      "kind": "academic_search_api",
+      "api_key_env": "SEMANTIC_SCHOLAR_API_KEY",
+      "base_url_env": "SEMANTIC_SCHOLAR_BASE_URL",
+      "notes": "Optional academic search for peer-reviewed or technical literature."
+    }
+  },
+  "bindings": {
+    "course_architect": {
+      "primary": {
+        "provider": "anthropic",
+        "model": "claude-opus-4-8",
+        "reasoning": "high"
+      },
+      "fallbacks": [
+        {
+          "provider": "anthropic",
+          "model": "claude-sonnet-5",
+          "reasoning": "high"
+        },
+        {
+          "provider": "openai",
+          "model": "gpt-5.6-sol",
+          "reasoning": "high"
+        }
+      ],
+      "premium_escalation": {
+        "provider": "anthropic",
+        "model": "claude-fable-5",
+        "reasoning": "highest",
+        "allowed_when": "Course architecture is failing QA repeatedly, source set is unusually complex, or human explicitly authorizes premium spend."
+      },
+      "quality_gate": "course_map_qa"
+    },
+    "source_research": {
+      "primary": {
+        "provider": "openai",
+        "model": "gpt-5.6-terra",
+        "tools": ["web_search", "file_search"]
+      },
+      "fallbacks": [
+        {
+          "provider": "google",
+          "model": "gemini-2.5-pro"
+        }
+      ],
+      "metadata_helpers": ["openalex", "crossref", "semantic_scholar"],
+      "cost_optimization_candidates": [
+        {
+          "provider": "deepseek",
+          "model": "deepseek-v4-flash",
+          "allowed_for": ["source triage", "outline extraction", "classification", "low-risk summaries"],
+          "requires_review_by": "source_ledger_validation"
+        },
+        {
+          "provider": "xai",
+          "model": "grok-4.5",
+          "allowed_for": ["web-aware research triage", "low-risk comparison", "source discovery"],
+          "requires_review_by": "source_ledger_validation"
+        }
+      ],
+      "quality_gate": "source_ledger_validation"
+    },
+    "technical_content": {
+      "primary": {
+        "provider": "anthropic",
+        "model": "claude-opus-4-8",
+        "reasoning": "high"
+      },
+      "fallbacks": [
+        {
+          "provider": "anthropic",
+          "model": "claude-sonnet-5",
+          "reasoning": "high"
+        },
+        {
+          "provider": "openai",
+          "model": "gpt-5.6-sol",
+          "reasoning": "high"
+        }
+      ],
+      "premium_escalation": {
+        "provider": "anthropic",
+        "model": "claude-fable-5",
+        "reasoning": "highest",
+        "allowed_when": "Advanced technical drafting fails review repeatedly or human explicitly authorizes premium spend."
+      },
+      "cost_optimization_candidates": [
+        {
+          "provider": "deepseek",
+          "model": "deepseek-v4-pro",
+          "allowed_for": ["first-pass draft fragments", "glossary expansion", "exercise variants"],
+          "requires_review_by": "technical_content"
+        },
+        {
+          "provider": "xai",
+          "model": "grok-4.5",
+          "allowed_for": ["first-pass examples", "outline variants", "plain-language rewrites"],
+          "requires_review_by": "technical_content"
+        }
+      ],
+      "quality_gate": "study_guide_reviews"
+    },
+    "pedagogy_review": {
+      "primary": {
+        "provider": "openai",
+        "model": "gpt-5.6-sol",
+        "reasoning": "high"
+      },
+      "fallbacks": [
+        {
+          "provider": "anthropic",
+          "model": "claude-sonnet-5",
+          "reasoning": "high"
+        }
+      ],
+      "quality_gate": "review_must_identify_issues_or_rationale"
+    },
+    "citation_review": {
+      "primary": {
+        "provider": "openai",
+        "model": "gpt-5.6-sol",
+        "reasoning": "high"
+      },
+      "fallbacks": [
+        {
+          "provider": "anthropic",
+          "model": "claude-sonnet-5",
+          "reasoning": "high"
+        }
+      ],
+      "quality_gate": "source_traceability"
+    },
+    "design_review": {
+      "primary": {
+        "provider": "openai",
+        "model": "gpt-5.6-terra",
+        "reasoning": "medium"
+      },
+      "fallbacks": [
+        {
+          "provider": "anthropic",
+          "model": "claude-sonnet-5",
+          "reasoning": "medium"
+        }
+      ],
+      "quality_gate": "render_readiness"
+    },
+    "visual_planning": {
+      "primary": {
+        "provider": "anthropic",
+        "model": "claude-opus-4-8",
+        "reasoning": "high"
+      },
+      "fallbacks": [
+        {
+          "provider": "anthropic",
+          "model": "claude-sonnet-5",
+          "reasoning": "high"
+        },
+        {
+          "provider": "openai",
+          "model": "gpt-5.6-sol",
+          "reasoning": "high"
+        }
+      ],
+      "premium_escalation": {
+        "provider": "anthropic",
+        "model": "claude-fable-5",
+        "reasoning": "highest",
+        "allowed_when": "Visual pedagogy is unusually complex or human explicitly authorizes premium spend."
+      },
+      "quality_gate": "visual_qa"
+    },
+    "diagram_planning": {
+      "primary": {
+        "provider": "anthropic",
+        "model": "claude-opus-4-8",
+        "reasoning": "high"
+      },
+      "fallbacks": [
+        {
+          "provider": "anthropic",
+          "model": "claude-sonnet-5",
+          "reasoning": "high"
+        },
+        {
+          "provider": "openai",
+          "model": "gpt-5.6-sol",
+          "reasoning": "high"
+        }
+      ],
+      "premium_escalation": {
+        "provider": "anthropic",
+        "model": "claude-fable-5",
+        "reasoning": "highest",
+        "allowed_when": "Diagram logic fails technical QA repeatedly or human explicitly authorizes premium spend."
+      },
+      "quality_gate": "diagram_claim_accuracy"
+    },
+    "diagram_rendering": {
+      "primary": {
+        "provider": "local_deterministic",
+        "engine": "svg_pptx_shapes_mermaid_graphviz"
+      },
+      "fallbacks": [],
+      "quality_gate": "visual_render_qa"
+    },
+    "image_generation": {
+      "primary": {
+        "provider": "openai",
+        "model": "gpt-image-2",
+        "quality": "medium"
+      },
+      "fallbacks": [
+        {
+          "provider": "openai",
+          "model": "gpt-image-1.5",
+          "quality": "medium"
+        }
+      ],
+      "cost_optimization_candidates": [
+        {
+          "provider": "xai",
+          "model": "grok-imagine-api",
+          "allowed_for": ["internal visual exploration", "non-technical concept mockups"],
+          "not_allowed_for": ["precise technical diagrams", "final student-facing images until safety QA is validated"],
+          "requires_review_by": "image_source_and_caption_review"
+        }
+      ],
+      "quality_gate": "image_source_and_caption_review"
+    },
+    "pptx_generation": {
+      "primary": {
+        "provider": "local_deterministic",
+        "engine": "artifact_tool_pptx"
+      },
+      "fallbacks": [],
+      "quality_gate": "rendered_slide_qa"
+    },
+    "docx_pdf_generation": {
+      "primary": {
+        "provider": "local_deterministic",
+        "engine": "python_docx_reportlab_poppler"
+      },
+      "fallbacks": [],
+      "quality_gate": "rendered_page_qa"
+    },
+    "localization": {
+      "primary": {
+        "provider": "openai",
+        "model": "gpt-5.6-terra",
+        "reasoning": "medium"
+      },
+      "fallbacks": [
+        {
+          "provider": "anthropic",
+          "model": "claude-sonnet-5",
+          "reasoning": "medium"
+        }
+      ],
+      "quality_gate": "localization_qa"
+    },
+    "localization_review": {
+      "primary": {
+        "provider": "openai",
+        "model": "gpt-5.6-sol",
+        "reasoning": "high"
+      },
+      "fallbacks": [
+        {
+          "provider": "anthropic",
+          "model": "claude-sonnet-5",
+          "reasoning": "high"
+        }
+      ],
+      "quality_gate": "meaning_and_market_preservation"
+    }
+  }
+}

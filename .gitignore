@@ -1,0 +1,33 @@
+.DS_Store
+
+# Local secrets
+.env
+.env.*
+!.env.example
+!*.env.example
+
+# Local caches and generated runtime folders
+.npm-cache/
+runtime/
+home/
+tmp/
+**/__pycache__/
+*.pyc
+workspace/.cache/
+
+# Local/cloned runtime dependency tree; keep deployment strategy explicit.
+openclaw/
+
+# Historical one-off scripts stay local unless deliberately promoted into reusable tools.
+tools/legacy/one_offs/
+
+# User-supplied source files and generated heavy artifacts should be promoted deliberately.
+analysis/
+runs/*
+!runs/_system/
+!runs/_system/*.md
+runs/_system/api_smoke_tests/
+runs/**/input/*.pdf
+runs/**/input/*.docx
+runs/**/docx_pdf/rendered_pages*/
+runs/**/deck/rendered_slides*/
