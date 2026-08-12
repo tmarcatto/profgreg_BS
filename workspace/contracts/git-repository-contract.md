@@ -27,7 +27,6 @@ If a generated artifact later needs to become a permanent product asset, promote
 
 Before pushing changes to the shared repository, run:
 
-- security QA;
-- code quality QA;
-- model-routing and renderer-reuse QA when relevant;
-- unit tests for `tools/test_greg_*.py`.
+```bash
+python3 tools/greg_pre_push_check.py
+```

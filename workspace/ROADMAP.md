@@ -182,7 +182,7 @@ Phase 3 technical-pause findings:
 
 ## Phase 4 - 24/7 Server Deployment
 
-Status: not started.
+Status: preparing.
 
 Goal: move Prof Greg from local bench to a secure always-on environment.
 
@@ -194,6 +194,15 @@ Original plan:
 - Secrets outside code.
 - Docker deployment.
 - 24/7 runtime.
+
+Preparation completed:
+
+- Created the GitHub repository `tmarcatto/profgreg_BS`.
+- Initialized the local Git repository.
+- Published the first clean commit to `main`.
+- Added Git repository rules and generated-artifact exclusion rules.
+- Added the deployment environment contract.
+- Added a pre-push QA command that runs security QA, code quality QA, model-routing QA, renderer-reuse QA, and unit tests.
 
 Updated rule:
 

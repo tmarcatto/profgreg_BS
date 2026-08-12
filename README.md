@@ -17,11 +17,17 @@ The repository does not track local secrets, OpenClaw/runtime installs, generate
 Run these before committing meaningful changes:
 
 ```bash
-python3 tools/greg_security_check.py --output runs/_system/security_qa.md
-python3 tools/greg_code_quality_check.py --output runs/_system/code_quality_qa.md
-PYTHONPYCACHEPREFIX=/private/tmp/prof-greg-pycache python3 -m unittest discover -s tools -p 'test_greg_*.py'
+python3 tools/greg_pre_push_check.py
 ```
 
 ## Configuration
 
 Copy `workspace/config/model-routing.env.example` into a local `.env.local` file and fill in provider keys locally. Do not commit `.env.local`.
+
+## GitHub
+
+Canonical remote:
+
+`https://github.com/tmarcatto/profgreg_BS.git`
+
+`main` is the deployable branch. Generated course artifacts stay local unless promoted deliberately through a release/artifact-storage process.
