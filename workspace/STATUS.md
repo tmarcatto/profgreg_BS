@@ -83,11 +83,14 @@ Phase 3 technical pause is complete for the planned blocks:
 - Server job-state contract and operator readiness checks now exist through `tools/greg_server_status.py --jobs-only`.
 - Scheduled backup service/timer policy files now exist, are checked by server operations QA, and were installed on the live server.
 - Live scheduled backup validation passed on 2026-08-13 with `profgreg-backup.service` returning `Result=success`.
-- Next start the runtime worker foundation so queued server jobs can be executed by a controlled background process.
+- Runtime worker foundation now exists inside `tools/greg_server_status.py --worker` with a least-privilege systemd policy file.
+- The worker currently executes only safe `backup` jobs; unsupported request types fail with a short operator-safe error summary.
+- Next install and validate `profgreg-worker.service` on the live server, then expand the worker to gated lesson lifecycle jobs.
 
 Latest verification:
 
 - Full local Greg test suite passed after scheduled-backup consolidation: 104 tests, 0 failures.
+- Full local Greg test suite passed after worker-foundation consolidation: 107 tests, 0 failures.
 - Code quality QA passed: 0 failures, 0 warnings.
 - Security QA passed: 0 failures, 0 warnings.
 - Model routing QA passed: 0 failures, 0 warnings.

@@ -69,10 +69,13 @@ class GregServerStatusTests(unittest.TestCase):
     def test_backup_systemd_policy_detection(self) -> None:
         service = (ROOT / "workspace" / "ops" / "profgreg-backup.service").read_text(encoding="utf-8")
         timer = (ROOT / "workspace" / "ops" / "profgreg-backup.timer").read_text(encoding="utf-8")
+        worker = (ROOT / "workspace" / "ops" / "profgreg-worker.service").read_text(encoding="utf-8")
         self.assertTrue(checker.backup_service_policy_ok(service))
         self.assertTrue(checker.backup_timer_policy_ok(timer))
+        self.assertTrue(checker.worker_service_policy_ok(worker))
         self.assertFalse(checker.backup_service_policy_ok("User=root"))
         self.assertFalse(checker.backup_timer_policy_ok("OnCalendar=weekly"))
+        self.assertFalse(checker.worker_service_policy_ok("User=root"))
 
     def test_ops_only_current_repo_passes_local(self) -> None:
         data = checker.run_ops_checks(ROOT, mode="local")
@@ -123,6 +126,36 @@ class GregServerStatusTests(unittest.TestCase):
             with patch.object(sys, "argv", argv):
                 with redirect_stdout(io.StringIO()):
                     self.assertEqual(checker.main(), 0)
+
+    def test_worker_once_without_jobs_is_successful_noop(self) -> None:
+        (ROOT / "tmp" / "jobs").mkdir(parents=True, exist_ok=True)
+        with tempfile.TemporaryDirectory(dir=ROOT / "tmp" / "jobs") as tmp:
+            result = checker.process_one_worker_job(Path(tmp), backup_root=ROOT / "tmp" / "worker-backups", dry_run=True)
+            self.assertFalse(result["processed"])
+
+    def test_worker_backup_job_completes_with_artifacts(self) -> None:
+        (ROOT / "tmp" / "jobs").mkdir(parents=True, exist_ok=True)
+        with tempfile.TemporaryDirectory(dir=ROOT / "tmp" / "jobs") as tmp:
+            root = Path(tmp)
+            job = checker.create_job(job_root=root, request_type="backup", input_summary="worker unit backup")
+            result = checker.process_one_worker_job(root, backup_root=ROOT / "tmp" / "worker-backups", dry_run=True)
+            self.assertTrue(result["processed"])
+            self.assertEqual(result["job_id"], job["job_id"])
+            self.assertEqual(result["state"], "completed")
+            updated = checker.list_jobs(root)[0]
+            self.assertEqual(updated["state"], "completed")
+            self.assertTrue(updated["artifacts"])
+
+    def test_worker_unsupported_job_fails_without_stack_dump(self) -> None:
+        (ROOT / "tmp" / "jobs").mkdir(parents=True, exist_ok=True)
+        with tempfile.TemporaryDirectory(dir=ROOT / "tmp" / "jobs") as tmp:
+            root = Path(tmp)
+            checker.create_job(job_root=root, request_type="course_status")
+            result = checker.process_one_worker_job(root, backup_root=ROOT / "tmp" / "worker-backups", dry_run=True)
+            self.assertEqual(result["state"], "failed")
+            updated = checker.list_jobs(root)[0]
+            self.assertEqual(updated["state"], "failed")
+            self.assertLessEqual(len(updated["last_error"]), 500)
 
 
 if __name__ == "__main__":

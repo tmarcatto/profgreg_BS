@@ -80,3 +80,11 @@ The first persistent worker should be systemd-based and conservative:
 - write events;
 - stop cleanly;
 - never expose a network port.
+
+The first worker implementation is intentionally narrow:
+
+- command: `tools/greg_server_status.py --worker`;
+- service policy: `workspace/ops/profgreg-worker.service`;
+- first executable request type: `backup`;
+- unsupported request types fail with a short operator-safe error summary;
+- course-production jobs remain gated until their execution contracts are explicit.

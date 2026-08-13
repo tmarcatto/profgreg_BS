@@ -70,3 +70,15 @@ For server job-state readiness:
 ```bash
 python3 tools/greg_server_status.py --jobs-only --output tmp/job_operator_qa.md
 ```
+
+The first conservative worker is:
+
+```bash
+python3 tools/greg_server_status.py --worker --once
+```
+
+The server systemd policy file is:
+
+```bash
+workspace/ops/profgreg-worker.service
+```

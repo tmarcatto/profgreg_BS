@@ -10,5 +10,6 @@ Findings:
 - PASS logrotate_sample: Repository logrotate sample has required rotation policy.
 - PASS backup_service_sample: Repository backup service has required least-privilege policy.
 - PASS backup_timer_sample: Repository backup timer has required schedule policy.
+- PASS worker_service_sample: Repository worker service has required least-privilege policy.
 - PASS server_logrotate: Server logrotate check skipped outside server mode.
 - PASS backup_manifest: Backup manifest check skipped outside server mode.

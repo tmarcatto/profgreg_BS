@@ -9,6 +9,7 @@ import os
 import re
 import subprocess
 import tarfile
+import time
 from dataclasses import asdict, dataclass
 from datetime import datetime, timezone
 from pathlib import Path
@@ -22,6 +23,7 @@ CONTRACT = "workspace/contracts/server-operations-contract.md"
 LOGROTATE_SAMPLE = "workspace/ops/logrotate-profgreg.conf"
 BACKUP_SERVICE_SAMPLE = "workspace/ops/profgreg-backup.service"
 BACKUP_TIMER_SAMPLE = "workspace/ops/profgreg-backup.timer"
+WORKER_SERVICE_SAMPLE = "workspace/ops/profgreg-worker.service"
 SERVER_BACKUP_ROOT = Path("/srv/profgreg/backups")
 SERVER_UPLOADS = Path("/srv/profgreg/uploads")
 SERVER_OUTPUTS = Path("/srv/profgreg/outputs")
@@ -242,6 +244,78 @@ def transition_job(job_root: Path, job_id: str, to_state: str, *, note: str = ""
     return data
 
 
+def summarize_worker_error(error: Exception) -> str:
+    return f"{type(error).__name__}: {error}".replace("\n", " ")[:500]
+
+
+def update_job(job_root: Path, job: dict[str, Any], **updates: Any) -> dict[str, Any]:
+    data = dict(job)
+    data.update(updates)
+    data["updated_at"] = iso_now()
+    write_job(job_root / data["job_id"], data)
+    return data
+
+
+def next_queued_job(job_root: Path) -> dict[str, Any] | None:
+    for job in list_jobs(job_root):
+        if job.get("state") == "queued":
+            return job
+    return None
+
+
+def execute_worker_job(job_root: Path, job: dict[str, Any], *, backup_root: Path, dry_run: bool = False) -> dict[str, Any]:
+    request_type = job.get("request_type")
+    if request_type != "backup":
+        raise ValueError(f"Worker does not support request_type yet: {request_type}")
+    result = create_backup(ROOT, backup_root=backup_root, label=job["job_id"], dry_run=dry_run)
+    artifacts = [
+        {"kind": "backup_archive", "path": result.get("archive"), "created": result.get("backup_created")},
+        {"kind": "backup_manifest", "path": result.get("manifest"), "created": result.get("backup_created")},
+    ]
+    return update_job(job_root, job, artifacts=artifacts, last_error=None)
+
+
+def process_one_worker_job(job_root: Path, *, backup_root: Path = SERVER_BACKUP_ROOT, dry_run: bool = False) -> dict[str, Any]:
+    root = safe_job_root(job_root)
+    backup_root = safe_backup_root(backup_root)
+    job = next_queued_job(root)
+    if not job:
+        return {"processed": False, "job_id": None, "state": None}
+    job_id = job["job_id"]
+    try:
+        running = transition_job(root, job_id, "running", note="worker claimed job")
+        executed = execute_worker_job(root, running, backup_root=backup_root, dry_run=dry_run)
+        completed = transition_job(root, job_id, "completed", note="worker completed job")
+        return {"processed": True, "job_id": job_id, "state": completed["state"], "artifacts": executed.get("artifacts", [])}
+    except Exception as error:
+        message = summarize_worker_error(error)
+        current = next((item for item in list_jobs(root) if item.get("job_id") == job_id), job)
+        if current.get("state") in {"queued", "running"}:
+            transition_job(root, job_id, "failed", note=message)
+        return {"processed": True, "job_id": job_id, "state": "failed", "error": message}
+
+
+def run_worker_loop(
+    *,
+    job_root: Path = SERVER_JOB_ROOT,
+    backup_root: Path = SERVER_BACKUP_ROOT,
+    once: bool = False,
+    max_jobs: int | None = None,
+    poll_interval: float = 10.0,
+    dry_run: bool = False,
+) -> list[dict[str, Any]]:
+    results: list[dict[str, Any]] = []
+    processed = 0
+    while True:
+        result = process_one_worker_job(job_root, backup_root=backup_root, dry_run=dry_run)
+        results.append(result)
+        if result["processed"]:
+            processed += 1
+        if once or (max_jobs is not None and processed >= max_jobs):
+            return results
+        time.sleep(poll_interval)
+
+
 def add_tree_to_archive(archive: tarfile.TarFile, source: Path, arc_prefix: str) -> list[dict[str, Any]]:
     included: list[dict[str, Any]] = []
     if not source.exists():
@@ -362,6 +436,19 @@ def backup_timer_policy_ok(text: str) -> bool:
     return all(item in text for item in required)
 
 
+def worker_service_policy_ok(text: str) -> bool:
+    required = [
+        "User=profgreg",
+        "EnvironmentFile=/etc/profgreg/profgreg.env",
+        "greg_server_status.py --worker --job-root /srv/profgreg/jobs",
+        "Restart=on-failure",
+        "NoNewPrivileges=true",
+        "ProtectSystem=strict",
+        "ReadWritePaths=/srv/profgreg/jobs /srv/profgreg/backups",
+    ]
+    return all(item in text for item in required)
+
+
 def server_ops_findings(root: Path, *, server_mode: bool) -> tuple[list[Finding], list[dict[str, Any]]]:
     findings: list[Finding] = []
     path_infos: list[dict[str, Any]] = []
@@ -403,6 +490,12 @@ def server_ops_findings(root: Path, *, server_mode: bool) -> tuple[list[Finding]
     else:
         findings.append(Finding("fail", "backup_timer_sample", "Repository backup timer is missing required schedule policy."))
 
+    worker_text = read_text(root / WORKER_SERVICE_SAMPLE)
+    if worker_service_policy_ok(worker_text):
+        findings.append(Finding("pass", "worker_service_sample", "Repository worker service has required least-privilege policy."))
+    else:
+        findings.append(Finding("fail", "worker_service_sample", "Repository worker service is missing required least-privilege policy."))
+
     if not server_mode:
         findings.append(Finding("pass", "server_logrotate", "Server logrotate check skipped outside server mode."))
         findings.append(Finding("pass", "backup_manifest", "Backup manifest check skipped outside server mode."))
@@ -432,6 +525,12 @@ def server_ops_findings(root: Path, *, server_mode: bool) -> tuple[list[Finding]
         findings.append(Finding("pass", "server_backup_timer", "Server backup timer is installed."))
     else:
         findings.append(Finding("warn", "server_backup_timer", "Server backup timer is not installed yet."))
+
+    server_worker_text = read_text(Path("/etc/systemd/system/profgreg-worker.service"))
+    if worker_service_policy_ok(server_worker_text):
+        findings.append(Finding("pass", "server_worker_service", "Server worker service is installed."))
+    else:
+        findings.append(Finding("warn", "server_worker_service", "Server worker service is not installed yet."))
 
     manifests = sorted(SERVER_BACKUP_ROOT.glob("*.manifest.json")) if SERVER_BACKUP_ROOT.exists() else []
     if manifests:
@@ -669,11 +768,18 @@ def main() -> int:
     parser.add_argument("--transition-job")
     parser.add_argument("--to", choices=sorted(JOB_STATES))
     parser.add_argument("--note", default="")
+    parser.add_argument("--worker", action="store_true", help="Run the conservative server worker.")
+    parser.add_argument("--once", action="store_true", help="With --worker, process at most one queued job.")
+    parser.add_argument("--max-jobs", type=int, help="With --worker, stop after this many processed jobs.")
+    parser.add_argument("--poll-interval", type=float, default=10.0, help="With --worker, seconds between polls.")
     parser.add_argument("--output", help="Optional Markdown output path.")
     parser.add_argument("--json", action="store_true")
     args = parser.parse_args()
 
-    if args.create_backup:
+    if args.worker:
+        data = run_worker_loop(job_root=Path(args.job_root), backup_root=Path(args.backup_root), once=args.once, max_jobs=args.max_jobs, poll_interval=args.poll_interval, dry_run=args.dry_run)
+        report = json.dumps(data, indent=2, ensure_ascii=False) + "\n"
+    elif args.create_backup:
         data = create_backup(Path(args.root), backup_root=Path(args.backup_root), label=args.backup_label, dry_run=args.dry_run)
         report = render_backup_markdown(data)
     elif args.create_job:
