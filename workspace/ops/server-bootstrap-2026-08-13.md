@@ -175,8 +175,26 @@ Policy summary:
 - ordinary artifact backups must not contain raw API keys;
 - server logs under `/var/log/profgreg` must be rotated;
 - `/srv/profgreg/backups` is the backup root for future backup jobs and restore manifests.
+- `/srv/profgreg/jobs` is the job-state root for future server workers;
 - each backup writes a `.tar.gz` archive and a `.manifest.json` restore manifest;
 - backup manifests include archive checksum, deployed commit, included roots, log inventory, secret exclusions, and restore notes.
+
+## Job State Operator
+
+Added after bootstrap:
+
+- Server job contract: `workspace/contracts/server-job-contract.md`
+- Readiness command:
+
+```bash
+python3 tools/greg_server_status.py --jobs-only --output tmp/job_operator_qa.md
+```
+
+Purpose:
+
+- define `queued`, `running`, `needs_approval`, `completed`, `failed`, and `cancelled`;
+- create/list/transition job records without executing production work;
+- prepare a conservative future systemd worker that processes one job at a time.
 
 ## Open Items Before 24/7 Operation
 

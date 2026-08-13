@@ -80,6 +80,16 @@ Steps:
   - PASS logrotate_sample: Repository logrotate sample has required rotation policy.
   - PASS server_logrotate: Server logrotate check skipped outside server mode.
   - PASS backup_manifest: Backup manifest check skipped outside server mode.
+- PASS job operator QA
+  Prof Greg job operator QA passed: yes
+  Jobs: 0
+  Failures: 0
+  Warnings: 0
+  
+  Findings:
+  - PASS job_contract: Server job contract exists.
+  - PASS job_root: Job root exists: /Users/tmarcato/prof-greg/tmp/jobs.
+  - PASS job_states: No invalid job states found.
 - PASS renderer reuse QA
   Renderer reuse QA passed: yes
   Failures: 0
@@ -94,8 +104,8 @@ Steps:
   - PASS one_off_builders: No obvious one-off build scripts found.
   - PASS hardcoded_outputs: No hardcoded output constants found.
 - PASS unit tests
-  ...................................................................................................
+  ......................................................................................................
   ----------------------------------------------------------------------
-  Ran 99 tests in 0.276s
+  Ran 102 tests in 0.266s
   
   OK

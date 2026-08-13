@@ -25,12 +25,26 @@ SERVER_UPLOADS = Path("/srv/profgreg/uploads")
 SERVER_OUTPUTS = Path("/srv/profgreg/outputs")
 SERVER_LOGS = Path("/var/log/profgreg")
 SERVER_SECRETS = Path("/etc/profgreg")
+LOCAL_JOB_ROOT = ROOT / "tmp" / "jobs"
+SERVER_JOB_ROOT = Path("/srv/profgreg/jobs")
+
+JOB_STATES = {"queued", "running", "needs_approval", "completed", "failed", "cancelled"}
+JOB_REQUEST_TYPES = {"course_status", "lesson_lifecycle", "backup", "full_flow_v1_test"}
+JOB_TRANSITIONS = {
+    "queued": {"running", "cancelled"},
+    "running": {"needs_approval", "completed", "failed", "cancelled"},
+    "needs_approval": {"running", "completed", "cancelled"},
+    "completed": set(),
+    "failed": set(),
+    "cancelled": set(),
+}
 
 SERVER_PATHS = [
     "/opt/profgreg/app",
     "/srv/profgreg/uploads",
     "/srv/profgreg/outputs",
     "/srv/profgreg/backups",
+    "/srv/profgreg/jobs",
     "/var/log/profgreg",
     "/etc/profgreg",
 ]
@@ -119,6 +133,111 @@ def safe_backup_root(path: Path) -> Path:
     if resolved == allowed_server or allowed_server in resolved.parents:
         return resolved
     raise ValueError(f"Backup root must stay under {allowed_server} or {allowed_local}: {path}")
+
+
+def safe_slug(value: str) -> str:
+    slug = re.sub(r"[^a-zA-Z0-9_-]+", "-", value.strip().lower()).strip("-")
+    return slug[:64] or "job"
+
+
+def safe_job_root(path: Path) -> Path:
+    resolved = path.expanduser().resolve()
+    local = LOCAL_JOB_ROOT.resolve()
+    server = SERVER_JOB_ROOT.resolve()
+    if resolved == local or local in resolved.parents:
+        return resolved
+    if resolved == server or server in resolved.parents:
+        return resolved
+    raise ValueError(f"Job root must stay under {server} or {local}: {path}")
+
+
+def safe_job_id(value: str) -> str:
+    if not re.fullmatch(r"job_[0-9]{8}T[0-9]{6}Z_[a-z0-9_-]{1,64}", value):
+        raise ValueError(f"Unsafe job id: {value}")
+    return value
+
+
+def job_event(job_dir: Path, event_type: str, payload: dict[str, Any]) -> None:
+    line = json.dumps({"at": iso_now(), "event": event_type, **payload}, ensure_ascii=False)
+    with (job_dir / "events.jsonl").open("a", encoding="utf-8") as handle:
+        handle.write(line + "\n")
+
+
+def read_json(path: Path) -> dict[str, Any]:
+    if not path.exists():
+        return {}
+    return json.loads(path.read_text(encoding="utf-8"))
+
+
+def write_job(job_dir: Path, data: dict[str, Any]) -> None:
+    job_dir.mkdir(parents=True, exist_ok=True)
+    (job_dir / "job.json").write_text(json.dumps(data, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
+
+
+def create_job(
+    *,
+    job_root: Path = LOCAL_JOB_ROOT,
+    request_type: str,
+    course_slug: str | None = None,
+    lesson: int | None = None,
+    requested_by: str = "operator",
+    input_summary: str = "",
+) -> dict[str, Any]:
+    if request_type not in JOB_REQUEST_TYPES:
+        raise ValueError(f"Unsupported request_type: {request_type}")
+    root = safe_job_root(job_root)
+    now = iso_now()
+    job_id = f"job_{now.replace(':', '').replace('-', '')}_{safe_slug(request_type)}"
+    job_dir = root / job_id
+    data = {
+        "job_id": job_id,
+        "created_at": now,
+        "updated_at": now,
+        "state": "queued",
+        "request_type": request_type,
+        "course_slug": course_slug,
+        "lesson": lesson,
+        "requested_by": requested_by,
+        "input_summary": input_summary[:500],
+        "artifacts": [],
+        "last_error": None,
+    }
+    write_job(job_dir, data)
+    job_event(job_dir, "created", {"state": "queued", "request_type": request_type})
+    return data
+
+
+def list_jobs(job_root: Path = LOCAL_JOB_ROOT) -> list[dict[str, Any]]:
+    root = safe_job_root(job_root)
+    if not root.exists():
+        return []
+    jobs = []
+    for path in sorted(root.glob("job_*/job.json")):
+        data = read_json(path)
+        if data:
+            jobs.append(data)
+    return jobs
+
+
+def transition_job(job_root: Path, job_id: str, to_state: str, *, note: str = "") -> dict[str, Any]:
+    root = safe_job_root(job_root)
+    job_id = safe_job_id(job_id)
+    if to_state not in JOB_STATES:
+        raise ValueError(f"Unsupported target state: {to_state}")
+    job_dir = root / job_id
+    data = read_json(job_dir / "job.json")
+    if not data:
+        raise ValueError(f"Job not found: {job_id}")
+    from_state = data.get("state")
+    if to_state not in JOB_TRANSITIONS.get(from_state, set()):
+        raise ValueError(f"Invalid transition: {from_state} -> {to_state}")
+    data["state"] = to_state
+    data["updated_at"] = iso_now()
+    if to_state == "failed" and note:
+        data["last_error"] = note[:500]
+    write_job(job_dir, data)
+    job_event(job_dir, "transition", {"from_state": from_state, "to_state": to_state, "note": note[:500]})
+    return data
 
 
 def add_tree_to_archive(archive: tarfile.TarFile, source: Path, arc_prefix: str) -> list[dict[str, Any]]:
@@ -274,6 +393,37 @@ def server_ops_findings(root: Path, *, server_mode: bool) -> tuple[list[Finding]
         findings.append(Finding("warn", "backup_manifest", "No backup manifest exists yet. Run `greg_server_status.py --create-backup` before exposing a persistent interface."))
 
     return findings, path_infos
+
+
+def run_job_checks(root: Path = ROOT, *, job_root: Path = LOCAL_JOB_ROOT) -> dict[str, Any]:
+    findings: list[Finding] = []
+    root = root.resolve()
+    job_root = safe_job_root(job_root)
+    job_root.mkdir(parents=True, exist_ok=True)
+    contract = root / "workspace" / "contracts" / "server-job-contract.md"
+    if contract.exists():
+        findings.append(Finding("pass", "job_contract", "Server job contract exists."))
+    else:
+        findings.append(Finding("fail", "job_contract", "Server job contract is missing."))
+    findings.append(Finding("pass", "job_root", f"Job root exists: {job_root}."))
+    bad_jobs = []
+    jobs = list_jobs(job_root)
+    for job in jobs:
+        if job.get("state") not in JOB_STATES:
+            bad_jobs.append(job.get("job_id", "?"))
+    if bad_jobs:
+        findings.append(Finding("fail", "job_states", f"Jobs with invalid states: {bad_jobs}."))
+    else:
+        findings.append(Finding("pass", "job_states", "No invalid job states found."))
+    fail_count = sum(1 for item in findings if item.status == "fail")
+    warn_count = sum(1 for item in findings if item.status == "warn")
+    return {
+        "passed": fail_count == 0,
+        "fail_count": fail_count,
+        "warn_count": warn_count,
+        "job_count": len(jobs),
+        "findings": [asdict(item) for item in findings],
+    }
 
 
 def run_checks(root: Path = ROOT, *, mode: str = "auto", expected_branch: str = "main") -> dict[str, Any]:
@@ -437,6 +587,20 @@ def render_backup_markdown(data: dict[str, Any]) -> str:
     return "\n".join(lines) + "\n"
 
 
+def render_job_markdown(data: dict[str, Any]) -> str:
+    lines = [
+        f"Prof Greg job operator QA passed: {'yes' if data['passed'] else 'no'}",
+        f"Jobs: {data.get('job_count', 0)}",
+        f"Failures: {data['fail_count']}",
+        f"Warnings: {data['warn_count']}",
+        "",
+        "Findings:",
+    ]
+    for item in data["findings"]:
+        lines.append(f"- {item['status'].upper()} {item['check']}: {item['note']}")
+    return "\n".join(lines) + "\n"
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description="Report Prof Greg local/server deployment status without exposing secrets.")
     parser.add_argument("--root", default=str(ROOT), help="Checkout root. Defaults to this repository.")
@@ -447,6 +611,17 @@ def main() -> int:
     parser.add_argument("--backup-root", default=str(SERVER_BACKUP_ROOT), help="Backup root. Must stay under /srv/profgreg/backups or local tmp/.")
     parser.add_argument("--backup-label", default="manual", help="Short backup label.")
     parser.add_argument("--dry-run", action="store_true", help="Preview backup job without writing archive/manifest.")
+    parser.add_argument("--jobs-only", action="store_true", help="Run only server job-operator readiness checks.")
+    parser.add_argument("--job-root", default=str(LOCAL_JOB_ROOT))
+    parser.add_argument("--create-job", choices=sorted(JOB_REQUEST_TYPES))
+    parser.add_argument("--course-slug")
+    parser.add_argument("--lesson", type=int)
+    parser.add_argument("--requested-by", default="operator")
+    parser.add_argument("--summary", default="")
+    parser.add_argument("--list-jobs", action="store_true")
+    parser.add_argument("--transition-job")
+    parser.add_argument("--to", choices=sorted(JOB_STATES))
+    parser.add_argument("--note", default="")
     parser.add_argument("--output", help="Optional Markdown output path.")
     parser.add_argument("--json", action="store_true")
     args = parser.parse_args()
@@ -454,6 +629,20 @@ def main() -> int:
     if args.create_backup:
         data = create_backup(Path(args.root), backup_root=Path(args.backup_root), label=args.backup_label, dry_run=args.dry_run)
         report = render_backup_markdown(data)
+    elif args.create_job:
+        data = create_job(job_root=Path(args.job_root), request_type=args.create_job, course_slug=args.course_slug, lesson=args.lesson, requested_by=args.requested_by, input_summary=args.summary)
+        report = json.dumps(data, indent=2, ensure_ascii=False) + "\n"
+    elif args.list_jobs:
+        data = list_jobs(Path(args.job_root))
+        report = json.dumps(data, indent=2, ensure_ascii=False) + "\n"
+    elif args.transition_job:
+        if not args.to:
+            raise SystemExit("--to is required with --transition-job")
+        data = transition_job(Path(args.job_root), args.transition_job, args.to, note=args.note)
+        report = json.dumps(data, indent=2, ensure_ascii=False) + "\n"
+    elif args.jobs_only:
+        data = run_job_checks(Path(args.root), job_root=Path(args.job_root))
+        report = render_job_markdown(data)
     else:
         data = run_ops_checks(Path(args.root), mode=args.mode) if args.ops_only else run_checks(Path(args.root), mode=args.mode, expected_branch=args.expected_branch)
         report = render_markdown(data)

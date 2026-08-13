@@ -80,6 +80,31 @@ class GregServerStatusTests(unittest.TestCase):
         self.assertIn("/etc/profgreg", manifest["excluded_secret_paths"])
         self.assertIn("/srv/profgreg/uploads", manifest["included_roots"])
 
+    def test_create_and_transition_job(self) -> None:
+        (ROOT / "tmp" / "jobs").mkdir(parents=True, exist_ok=True)
+        with tempfile.TemporaryDirectory(dir=ROOT / "tmp" / "jobs") as tmp:
+            root = Path(tmp)
+            job = checker.create_job(job_root=root, request_type="backup", input_summary="manual backup")
+            self.assertEqual(job["state"], "queued")
+            listed = checker.list_jobs(root)
+            self.assertEqual(len(listed), 1)
+            running = checker.transition_job(root, job["job_id"], "running")
+            self.assertEqual(running["state"], "running")
+            completed = checker.transition_job(root, job["job_id"], "completed")
+            self.assertEqual(completed["state"], "completed")
+
+    def test_invalid_job_transition_fails(self) -> None:
+        (ROOT / "tmp" / "jobs").mkdir(parents=True, exist_ok=True)
+        with tempfile.TemporaryDirectory(dir=ROOT / "tmp" / "jobs") as tmp:
+            root = Path(tmp)
+            job = checker.create_job(job_root=root, request_type="backup")
+            with self.assertRaises(ValueError):
+                checker.transition_job(root, job["job_id"], "completed")
+
+    def test_job_root_must_be_safe(self) -> None:
+        with self.assertRaises(ValueError):
+            checker.safe_job_root(Path("/tmp/not-profgreg"))
+
 
 if __name__ == "__main__":
     unittest.main()

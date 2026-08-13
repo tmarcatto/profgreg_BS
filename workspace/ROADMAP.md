@@ -223,6 +223,7 @@ Preparation completed:
 - Added `workspace/contracts/server-operations-contract.md` for backup and log operations policy.
 - Added `workspace/ops/logrotate-profgreg.conf` and connected backup/log readiness checks to `tools/greg_server_status.py --ops-only`.
 - Added the first backup job through `tools/greg_server_status.py --create-backup`, with archive checksum and restore manifest.
+- Added `workspace/contracts/server-job-contract.md` and job-state operations in `tools/greg_server_status.py --jobs-only`.
 
 Updated rule:
 
@@ -241,7 +242,8 @@ Proceed to Phase 4A server operator hardening:
 1. Keep server status and deploy-safe QA passing from `main`.
 2. Install backup root and logrotate config on the live server.
 3. Validate the first manual backup on the live server, then add a scheduled backup timer.
-4. Then run a fresh full-flow v1 test from the operator path.
+4. Install `/srv/profgreg/jobs` on the live server and validate a no-op job lifecycle.
+5. Then run a fresh full-flow v1 test from the operator path.
 
 ### Phase 3B Started - Renderer Reuse
 

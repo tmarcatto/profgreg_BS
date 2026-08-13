@@ -14,6 +14,7 @@ Server runtime paths:
 - upload staging: `/srv/profgreg/uploads`
 - generated outputs: `/srv/profgreg/outputs`
 - backup root: `/srv/profgreg/backups`
+- job state root: `/srv/profgreg/jobs`
 - runtime logs: `/var/log/profgreg`
 - server config/secrets root: `/etc/profgreg`
 

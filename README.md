@@ -57,3 +57,9 @@ For the first server backup job:
 ```bash
 python3 tools/greg_server_status.py --mode server --create-backup --backup-label manual
 ```
+
+For server job-state readiness:
+
+```bash
+python3 tools/greg_server_status.py --jobs-only --output tmp/job_operator_qa.md
+```
