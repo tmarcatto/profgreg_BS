@@ -63,6 +63,23 @@ class GregUiServerTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             ui.safe_filename("../bad.exe")
 
+    def test_parse_multipart_form(self) -> None:
+        boundary = "----prof-greg-test"
+        body = (
+            f"--{boundary}\r\n"
+            'Content-Disposition: form-data; name="course"\r\n\r\n'
+            "demo-course\r\n"
+            f"--{boundary}\r\n"
+            'Content-Disposition: form-data; name="files"; filename="sample.pdf"\r\n'
+            "Content-Type: application/pdf\r\n\r\n"
+            "pdf bytes\r\n"
+            f"--{boundary}--\r\n"
+        ).encode("utf-8")
+        fields, files = ui.parse_multipart_form(f"multipart/form-data; boundary={boundary}", body)
+        self.assertEqual(fields["course"], "demo-course")
+        self.assertEqual(files[0]["filename"], "sample.pdf")
+        self.assertEqual(files[0]["data"], b"pdf bytes")
+
     def test_create_course_intake_writes_syllabus(self) -> None:
         run = ROOT / "runs" / "tmp-ui-course"
         if run.exists():

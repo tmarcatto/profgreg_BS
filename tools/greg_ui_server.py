@@ -2,7 +2,6 @@
 from __future__ import annotations
 
 import argparse
-import cgi
 import hashlib
 import html
 import json
@@ -38,6 +37,52 @@ def read_request_body(handler: BaseHTTPRequestHandler) -> dict:
         return {}
     raw = handler.rfile.read(min(length, 1024 * 1024))
     return json.loads(raw.decode("utf-8") or "{}")
+
+
+def parse_content_disposition(value: str) -> dict[str, str]:
+    result: dict[str, str] = {}
+    for part in value.split(";"):
+        part = part.strip()
+        if "=" not in part:
+            continue
+        key, raw = part.split("=", 1)
+        result[key.strip().lower()] = raw.strip().strip('"')
+    return result
+
+
+def parse_multipart_form(content_type: str, body: bytes) -> tuple[dict[str, str], list[dict[str, object]]]:
+    match = re.search(r"boundary=(?P<boundary>[^;]+)", content_type)
+    if not match:
+        raise ValueError("Missing multipart boundary.")
+    boundary = ("--" + match.group("boundary").strip().strip('"')).encode("utf-8")
+    fields: dict[str, str] = {}
+    files: list[dict[str, object]] = []
+    for raw_part in body.split(boundary):
+        part = raw_part.strip()
+        if not part or part == b"--":
+            continue
+        if part.endswith(b"--"):
+            part = part[:-2].strip()
+        header_blob, separator, content = part.partition(b"\r\n\r\n")
+        if not separator:
+            continue
+        headers = header_blob.decode("utf-8", errors="replace").split("\r\n")
+        disposition = ""
+        for header in headers:
+            if header.lower().startswith("content-disposition:"):
+                disposition = header.split(":", 1)[1].strip()
+                break
+        data = parse_content_disposition(disposition)
+        name = data.get("name")
+        if not name:
+            continue
+        content = content.rstrip(b"\r\n")
+        filename = data.get("filename")
+        if filename:
+            files.append({"name": name, "filename": filename, "data": content})
+        else:
+            fields[name] = content.decode("utf-8", errors="replace")
+    return fields, files
 
 
 def safe_upload_root(path: Path) -> Path:
@@ -473,29 +518,26 @@ class GregUiHandler(BaseHTTPRequestHandler):
                 return
             if parsed.path == "/api/upload":
                 content_length = int(self.headers.get("Content-Length", "0") or "0")
-                if content_length > MAX_UPLOAD_BYTES:
+                if content_length > MAX_UPLOAD_BYTES + 1024 * 1024:
                     self.send_json(HTTPStatus.REQUEST_ENTITY_TOO_LARGE, {"error": "Upload request is too large."})
                     return
-                form = cgi.FieldStorage(
-                    fp=self.rfile,
-                    headers=self.headers,
-                    environ={"REQUEST_METHOD": "POST", "CONTENT_TYPE": self.headers.get("Content-Type", "")},
-                )
-                course = str(form.getfirst("course") or getattr(self.server, "default_course", DEFAULT_COURSE))
-                scope = str(form.getfirst("scope") or "course")
-                lesson = int(form.getfirst("lesson") or 1)
-                fields = form["files"] if "files" in form else []
-                file_fields = fields if isinstance(fields, list) else [fields]
+                raw = self.rfile.read(content_length)
+                fields, file_fields = parse_multipart_form(self.headers.get("Content-Type", ""), raw)
+                course = str(fields.get("course") or getattr(self.server, "default_course", DEFAULT_COURSE))
+                scope = str(fields.get("scope") or "course")
+                lesson = int(fields.get("lesson") or 1)
                 saved = []
                 for field in file_fields:
-                    if not getattr(field, "filename", ""):
+                    filename = str(field.get("filename") or "")
+                    data = bytes(field.get("data") or b"")
+                    if not filename:
                         continue
                     saved.append(
                         save_uploaded_file(
                             upload_root=getattr(self.server, "upload_root"),
                             course_slug=course,
-                            filename=field.filename,
-                            data=field.file.read(),
+                            filename=filename,
+                            data=data,
                             scope=scope,
                             lesson=lesson,
                         )
