@@ -51,3 +51,9 @@ For backup/log operations readiness:
 ```bash
 python3 tools/greg_server_status.py --mode auto --ops-only --output tmp/server_ops_qa.md
 ```
+
+For the first server backup job:
+
+```bash
+python3 tools/greg_server_status.py --mode server --create-backup --backup-label manual
+```

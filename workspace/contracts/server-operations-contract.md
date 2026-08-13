@@ -39,6 +39,20 @@ Backups must be restorable by course/run and by date. A future automated backup 
 - checksum or size summary;
 - restore notes.
 
+The first backup job is:
+
+```bash
+python3 tools/greg_server_status.py --mode server --create-backup --backup-label manual
+```
+
+The backup job creates:
+
+- one `.tar.gz` archive under `/srv/profgreg/backups`;
+- one `.manifest.json` restore manifest beside the archive;
+- an archive checksum;
+- a log inventory only, not raw general log contents;
+- explicit secret-path exclusions.
+
 ## Log Policy
 
 Logs must support operations without leaking secrets or full source payloads.

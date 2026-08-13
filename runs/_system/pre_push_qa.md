@@ -79,6 +79,7 @@ Steps:
   - PASS ops_contract_policy_terms: Contract records backup, log, and secret-exclusion policy.
   - PASS logrotate_sample: Repository logrotate sample has required rotation policy.
   - PASS server_logrotate: Server logrotate check skipped outside server mode.
+  - PASS backup_manifest: Backup manifest check skipped outside server mode.
 - PASS renderer reuse QA
   Renderer reuse QA passed: yes
   Failures: 0
@@ -93,8 +94,8 @@ Steps:
   - PASS one_off_builders: No obvious one-off build scripts found.
   - PASS hardcoded_outputs: No hardcoded output constants found.
 - PASS unit tests
-  .................................................................................................
+  ...................................................................................................
   ----------------------------------------------------------------------
-  Ran 97 tests in 0.197s
+  Ran 99 tests in 0.276s
   
   OK

@@ -79,11 +79,12 @@ Phase 3 technical pause is complete for the planned blocks:
 - Git/server contracts and environment setup are now in place.
 - `tools/greg_server_status.py` now provides a non-destructive deployment status operator for local and server checkouts.
 - Backup/log operations policy now exists and is checked through `tools/greg_server_status.py --ops-only`.
-- Next install the backup root and logrotate config on the live server, then add the first automated backup job and restore manifest format.
+- The first backup job now exists through `tools/greg_server_status.py --create-backup`, with archive checksum and restore manifest.
+- Next validate the manual backup on the live server, then add a scheduled backup timer.
 
 Latest verification:
 
-- Full local Greg test suite passed after backup/log operations policy consolidation: 97 tests, 0 failures.
+- Full local Greg test suite passed after backup job addition: 99 tests, 0 failures.
 - Code quality QA passed: 0 failures, 0 warnings.
 - Security QA passed: 0 failures, 0 warnings.
 - Model routing QA passed: 0 failures, 0 warnings.

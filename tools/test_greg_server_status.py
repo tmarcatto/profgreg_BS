@@ -68,6 +68,18 @@ class GregServerStatusTests(unittest.TestCase):
         self.assertTrue(data["passed"], data["findings"])
         self.assertNotIn("Commit:", checker.render_markdown(data))
 
+    def test_backup_root_must_stay_in_allowed_location(self) -> None:
+        with self.assertRaises(ValueError):
+            checker.safe_backup_root(Path("/tmp/not-profgreg"))
+
+    def test_backup_dry_run_has_manifest_without_secret_backup(self) -> None:
+        data = checker.create_backup(ROOT, backup_root=ROOT / "tmp" / "backup-test", label="unit", dry_run=True)
+        self.assertTrue(data["passed"])
+        self.assertFalse(data["backup_created"])
+        manifest = data["manifest_data"]
+        self.assertIn("/etc/profgreg", manifest["excluded_secret_paths"])
+        self.assertIn("/srv/profgreg/uploads", manifest["included_roots"])
+
 
 if __name__ == "__main__":
     unittest.main()

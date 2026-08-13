@@ -9,3 +9,4 @@ Findings:
 - PASS ops_contract_policy_terms: Contract records backup, log, and secret-exclusion policy.
 - PASS logrotate_sample: Repository logrotate sample has required rotation policy.
 - PASS server_logrotate: Server logrotate check skipped outside server mode.
+- PASS backup_manifest: Backup manifest check skipped outside server mode.

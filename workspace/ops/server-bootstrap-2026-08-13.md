@@ -163,17 +163,25 @@ Added after bootstrap:
 python3 tools/greg_server_status.py --mode server --ops-only --output tmp/server_ops_qa.md
 ```
 
+- Backup command:
+
+```bash
+python3 tools/greg_server_status.py --mode server --create-backup --backup-label manual
+```
+
 Policy summary:
 
 - uploads, outputs, logs, backups, and secrets stay outside Git;
 - ordinary artifact backups must not contain raw API keys;
 - server logs under `/var/log/profgreg` must be rotated;
 - `/srv/profgreg/backups` is the backup root for future backup jobs and restore manifests.
+- each backup writes a `.tar.gz` archive and a `.manifest.json` restore manifest;
+- backup manifests include archive checksum, deployed commit, included roots, log inventory, secret exclusions, and restore notes.
 
 ## Open Items Before 24/7 Operation
 
 - Decide whether to use systemd directly or Docker for the first persistent service.
 - Install `/srv/profgreg/backups` and `/etc/logrotate.d/profgreg` on the live server.
-- Add the first automated backup job and restore manifest format.
+- Add a scheduled backup timer after the manual backup job has been validated.
 - Add domain/HTTPS only when a public or semi-public interface is introduced.
 - Add request authentication and rate limits before exposing any UI/API.

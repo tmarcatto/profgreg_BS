@@ -2,10 +2,15 @@
 from __future__ import annotations
 
 import argparse
+import hashlib
+import io
 import json
 import os
+import re
 import subprocess
+import tarfile
 from dataclasses import asdict, dataclass
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
@@ -15,6 +20,11 @@ from greg_security import assert_safe_write_path
 ROOT = Path(__file__).resolve().parents[1]
 CONTRACT = "workspace/contracts/server-operations-contract.md"
 LOGROTATE_SAMPLE = "workspace/ops/logrotate-profgreg.conf"
+SERVER_BACKUP_ROOT = Path("/srv/profgreg/backups")
+SERVER_UPLOADS = Path("/srv/profgreg/uploads")
+SERVER_OUTPUTS = Path("/srv/profgreg/outputs")
+SERVER_LOGS = Path("/var/log/profgreg")
+SERVER_SECRETS = Path("/etc/profgreg")
 
 SERVER_PATHS = [
     "/opt/profgreg/app",
@@ -43,6 +53,10 @@ def run_command(command: list[str], cwd: Path) -> tuple[int, str]:
     return result.returncode, output
 
 
+def iso_now() -> str:
+    return datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+
+
 def git_value(root: Path, args: list[str]) -> str | None:
     code, output = run_command(["git", *args], root)
     return output if code == 0 else None
@@ -59,6 +73,32 @@ def path_status(path_text: str) -> dict[str, Any]:
     }
 
 
+def sha256_file(path: Path) -> str:
+    digest = hashlib.sha256()
+    with path.open("rb") as handle:
+        for chunk in iter(lambda: handle.read(1024 * 1024), b""):
+            digest.update(chunk)
+    return digest.hexdigest()
+
+
+def file_inventory(root: Path, *, include_patterns: tuple[str, ...] = ("*",)) -> list[dict[str, Any]]:
+    if not root.exists():
+        return []
+    items: list[dict[str, Any]] = []
+    for path in sorted(item for item in root.rglob("*") if item.is_file()):
+        if not any(path.match(pattern) for pattern in include_patterns):
+            continue
+        stat = path.stat()
+        items.append(
+            {
+                "path": str(path.relative_to(root)),
+                "size_bytes": stat.st_size,
+                "mtime": datetime.fromtimestamp(stat.st_mtime, timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
+            }
+        )
+    return items
+
+
 def qa_report_passed(path: Path) -> bool | None:
     if not path.exists():
         return None
@@ -68,6 +108,98 @@ def qa_report_passed(path: Path) -> bool | None:
     if "pre-push qa passed: no" in text:
         return False
     return None
+
+
+def safe_backup_root(path: Path) -> Path:
+    resolved = path.expanduser().resolve()
+    allowed_local = (ROOT / "tmp").resolve()
+    allowed_server = SERVER_BACKUP_ROOT.resolve()
+    if resolved == allowed_local or allowed_local in resolved.parents:
+        return resolved
+    if resolved == allowed_server or allowed_server in resolved.parents:
+        return resolved
+    raise ValueError(f"Backup root must stay under {allowed_server} or {allowed_local}: {path}")
+
+
+def add_tree_to_archive(archive: tarfile.TarFile, source: Path, arc_prefix: str) -> list[dict[str, Any]]:
+    included: list[dict[str, Any]] = []
+    if not source.exists():
+        return included
+    for path in sorted(item for item in source.rglob("*") if item.is_file()):
+        stat = path.stat()
+        arcname = str(Path(arc_prefix) / path.relative_to(source))
+        archive.add(path, arcname=arcname, recursive=False)
+        included.append({"source": str(path), "archive_path": arcname, "size_bytes": stat.st_size})
+    return included
+
+
+def create_backup(
+    root: Path = ROOT,
+    *,
+    backup_root: Path = SERVER_BACKUP_ROOT,
+    label: str = "manual",
+    dry_run: bool = False,
+) -> dict[str, Any]:
+    root = root.resolve()
+    backup_root = safe_backup_root(backup_root)
+    timestamp = iso_now().replace(":", "").replace("-", "")
+    stem = f"profgreg-backup-{timestamp}-{label}"
+    archive_path = backup_root / f"{stem}.tar.gz"
+    manifest_path = backup_root / f"{stem}.manifest.json"
+    commit = git_value(root, ["rev-parse", "--short", "HEAD"]) if (root / ".git").exists() else None
+    branch = git_value(root, ["rev-parse", "--abbrev-ref", "HEAD"]) if (root / ".git").exists() else None
+
+    manifest: dict[str, Any] = {
+        "schema_version": 1,
+        "created_at": iso_now(),
+        "label": label,
+        "dry_run": dry_run,
+        "deployed_commit": commit,
+        "branch": branch,
+        "archive": str(archive_path),
+        "archive_sha256": None,
+        "archive_size_bytes": 0,
+        "included_roots": [str(SERVER_UPLOADS), str(SERVER_OUTPUTS)],
+        "excluded_secret_paths": [str(SERVER_SECRETS), str(SERVER_SECRETS / "profgreg.env")],
+        "log_inventory_only": str(SERVER_LOGS),
+        "log_inventory": file_inventory(SERVER_LOGS, include_patterns=("*.log", "*.log.*")),
+        "included_files": [],
+        "restore_notes": [
+            "Restore uploaded source materials from archive path uploads/ into /srv/profgreg/uploads.",
+            "Restore generated outputs from archive path outputs/ into /srv/profgreg/outputs.",
+            "Do not restore secrets from this backup; restore /etc/profgreg through the operator-controlled encrypted secret process.",
+            "Review deployed_commit before mixing restored artifacts with a newer code checkout.",
+        ],
+    }
+
+    if dry_run:
+        return {
+            "passed": True,
+            "backup_created": False,
+            "archive": str(archive_path),
+            "manifest": str(manifest_path),
+            "manifest_data": manifest,
+        }
+
+    backup_root.mkdir(parents=True, exist_ok=True)
+    with tarfile.open(archive_path, "w:gz") as archive:
+        manifest["included_files"].extend(add_tree_to_archive(archive, SERVER_UPLOADS, "uploads"))
+        manifest["included_files"].extend(add_tree_to_archive(archive, SERVER_OUTPUTS, "outputs"))
+        manifest_bytes = json.dumps(manifest, indent=2, ensure_ascii=False).encode("utf-8")
+        info = tarfile.TarInfo("manifest.preview.json")
+        info.size = len(manifest_bytes)
+        info.mtime = int(datetime.now(timezone.utc).timestamp())
+        archive.addfile(info, io.BytesIO(manifest_bytes))
+    manifest["archive_sha256"] = sha256_file(archive_path)
+    manifest["archive_size_bytes"] = archive_path.stat().st_size
+    manifest_path.write_text(json.dumps(manifest, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
+    return {
+        "passed": True,
+        "backup_created": True,
+        "archive": str(archive_path),
+        "manifest": str(manifest_path),
+        "manifest_data": manifest,
+    }
 
 
 def contains_all(text: str, values: list[str]) -> bool:
@@ -84,7 +216,7 @@ def logrotate_policy_ok(text: str) -> bool:
         r"\bmissingok\b",
         r"\bnotifempty\b",
     ]
-    return all(__import__("re").search(pattern, text) for pattern in required_patterns)
+    return all(re.search(pattern, text) for pattern in required_patterns)
 
 
 def server_ops_findings(root: Path, *, server_mode: bool) -> tuple[list[Finding], list[dict[str, Any]]]:
@@ -118,6 +250,7 @@ def server_ops_findings(root: Path, *, server_mode: bool) -> tuple[list[Finding]
 
     if not server_mode:
         findings.append(Finding("pass", "server_logrotate", "Server logrotate check skipped outside server mode."))
+        findings.append(Finding("pass", "backup_manifest", "Backup manifest check skipped outside server mode."))
         return findings, path_infos
 
     missing_paths = [item for item in SERVER_PATHS if not Path(item).exists()]
@@ -133,6 +266,12 @@ def server_ops_findings(root: Path, *, server_mode: bool) -> tuple[list[Finding]
         findings.append(Finding("pass", "server_logrotate", "Server logrotate policy is installed."))
     else:
         findings.append(Finding("fail", "server_logrotate", "Server logrotate policy is missing or incomplete at /etc/logrotate.d/profgreg."))
+
+    manifests = sorted(SERVER_BACKUP_ROOT.glob("*.manifest.json")) if SERVER_BACKUP_ROOT.exists() else []
+    if manifests:
+        findings.append(Finding("pass", "backup_manifest", f"Backup manifest exists: {manifests[-1].name}."))
+    else:
+        findings.append(Finding("warn", "backup_manifest", "No backup manifest exists yet. Run `greg_server_status.py --create-backup` before exposing a persistent interface."))
 
     return findings, path_infos
 
@@ -277,18 +416,47 @@ def render_markdown(data: dict[str, Any]) -> str:
     return "\n".join(lines) + "\n"
 
 
+def render_backup_markdown(data: dict[str, Any]) -> str:
+    manifest = data.get("manifest_data") or {}
+    lines = [
+        f"Prof Greg backup job passed: {'yes' if data.get('passed') else 'no'}",
+        f"Backup created: {'yes' if data.get('backup_created') else 'no'}",
+        f"Archive: {data.get('archive')}",
+        f"Manifest: {data.get('manifest')}",
+        f"Included files: {len(manifest.get('included_files') or [])}",
+        f"Log inventory entries: {len(manifest.get('log_inventory') or [])}",
+    ]
+    if manifest.get("archive_sha256"):
+        lines.append(f"Archive SHA256: {manifest['archive_sha256']}")
+    lines.extend(["", "Excluded Secrets:"])
+    for item in manifest.get("excluded_secret_paths") or []:
+        lines.append(f"- {item}")
+    lines.extend(["", "Restore Notes:"])
+    for item in manifest.get("restore_notes") or []:
+        lines.append(f"- {item}")
+    return "\n".join(lines) + "\n"
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description="Report Prof Greg local/server deployment status without exposing secrets.")
     parser.add_argument("--root", default=str(ROOT), help="Checkout root. Defaults to this repository.")
     parser.add_argument("--mode", choices=["auto", "local", "server"], default="auto")
     parser.add_argument("--expected-branch", default="main")
     parser.add_argument("--ops-only", action="store_true", help="Run only backup/log operations readiness checks.")
+    parser.add_argument("--create-backup", action="store_true", help="Create a backup archive and restore manifest.")
+    parser.add_argument("--backup-root", default=str(SERVER_BACKUP_ROOT), help="Backup root. Must stay under /srv/profgreg/backups or local tmp/.")
+    parser.add_argument("--backup-label", default="manual", help="Short backup label.")
+    parser.add_argument("--dry-run", action="store_true", help="Preview backup job without writing archive/manifest.")
     parser.add_argument("--output", help="Optional Markdown output path.")
     parser.add_argument("--json", action="store_true")
     args = parser.parse_args()
 
-    data = run_ops_checks(Path(args.root), mode=args.mode) if args.ops_only else run_checks(Path(args.root), mode=args.mode, expected_branch=args.expected_branch)
-    report = render_markdown(data)
+    if args.create_backup:
+        data = create_backup(Path(args.root), backup_root=Path(args.backup_root), label=args.backup_label, dry_run=args.dry_run)
+        report = render_backup_markdown(data)
+    else:
+        data = run_ops_checks(Path(args.root), mode=args.mode) if args.ops_only else run_checks(Path(args.root), mode=args.mode, expected_branch=args.expected_branch)
+        report = render_markdown(data)
     if args.output:
         output = assert_safe_write_path(args.output)
         output.parent.mkdir(parents=True, exist_ok=True)
