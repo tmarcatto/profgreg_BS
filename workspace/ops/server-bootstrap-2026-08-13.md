@@ -65,6 +65,53 @@ Dry-run course folder creation:
 - Created ignored run folder: `runs/server-dry-run`
 - Git checkout stayed clean.
 
+## Systemd Healthcheck
+
+Installed service:
+
+`profgreg-healthcheck.service`
+
+Service type:
+
+- `oneshot`
+- runs as `profgreg`
+- uses `/etc/profgreg/profgreg.env`
+- does not open network ports
+- runs deploy-safe QA only
+
+Security restrictions:
+
+- `NoNewPrivileges=true`
+- `PrivateTmp=true`
+- `ProtectSystem=strict`
+- `ProtectHome=true`
+- limited writable paths
+- `RestrictSUIDSGID=true`
+- `LockPersonality=true`
+- `MemoryDenyWriteExecute=true`
+- native syscall architecture only
+
+Validated result:
+
+- `Result=success`
+- `ExecMainStatus=0`
+- deploy-safe QA passed
+- Git checkout stayed clean.
+
+## Secrets Placeholder
+
+Created server-only environment file:
+
+`/etc/profgreg/profgreg.env`
+
+Permissions:
+
+- owner: `root`
+- group: `profgreg`
+- mode: `640`
+
+The file currently contains variable names only, without real API keys.
+
 ## Open Items Before 24/7 Operation
 
 - Configure production provider API keys outside Git.

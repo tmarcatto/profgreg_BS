@@ -212,6 +212,9 @@ Preparation completed:
 - Added deploy-safe QA mode so server checks do not dirty the Git checkout.
 - Server deploy-safe QA passed with 88 tests and 0 failures.
 - Server dry-run course creation passed without dirtying the Git checkout.
+- Created server-only `/etc/profgreg/profgreg.env` placeholder with restricted permissions.
+- Installed and validated `profgreg-healthcheck.service` as a safe `systemd` oneshot check.
+- Confirmed systemd healthcheck passes deploy-safe QA without dirtying the Git checkout.
 
 Updated rule:
 
