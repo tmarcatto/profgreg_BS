@@ -112,9 +112,27 @@ Permissions:
 
 The file currently contains variable names only, without real API keys.
 
+## Provider Smoke Test
+
+After server secrets were filled manually, a minimal API smoke test was run from the server without printing secret values.
+
+Validated:
+
+- OpenAI role: `pedagogy_review`
+- Anthropic role: `course_architect`
+- Local deterministic role: `diagram_rendering`
+- DeepSeek candidate: `deepseek-v4-flash`
+- DeepSeek candidate: `deepseek-v4-pro`
+- xAI candidate: `grok-4.5`
+
+Result:
+
+- API connectivity passed for all tested providers.
+- Image generation was not tested in this pass to avoid unnecessary image cost.
+- Detailed API smoke-test logs remain local/ignored under `runs/_system/api_smoke_tests/`.
+
 ## Open Items Before 24/7 Operation
 
-- Configure production provider API keys outside Git.
 - Decide whether to use systemd directly or Docker for the first persistent service.
 - Add backup policy for uploads, outputs, logs, and server config.
 - Add log rotation policy.

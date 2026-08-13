@@ -215,6 +215,9 @@ Preparation completed:
 - Created server-only `/etc/profgreg/profgreg.env` placeholder with restricted permissions.
 - Installed and validated `profgreg-healthcheck.service` as a safe `systemd` oneshot check.
 - Confirmed systemd healthcheck passes deploy-safe QA without dirtying the Git checkout.
+- Validated server-loaded provider secrets without printing values.
+- Ran minimal API smoke tests for OpenAI, Anthropic, DeepSeek, xAI, and local deterministic routing.
+- API smoke tests passed; image generation intentionally remains untested until an image-specific validation step is needed.
 
 Updated rule:
 
