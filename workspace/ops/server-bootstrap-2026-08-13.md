@@ -132,6 +132,25 @@ Result:
 - Image generation passed in a single minimal smoke test.
 - Detailed API smoke-test logs remain local/ignored under `runs/_system/api_smoke_tests/`.
 
+## Server Status Operator
+
+Added after bootstrap:
+
+```bash
+python3 tools/greg_server_status.py --mode server --output tmp/server_status.md
+```
+
+Purpose:
+
+- report deployed commit and branch;
+- detect a dirty server checkout;
+- confirm server/deployment docs exist;
+- confirm latest deploy-safe QA report status;
+- confirm runtime environment-file presence without printing secrets;
+- confirm expected server storage/config paths exist.
+
+This command is read-only for deployment state except for its optional Markdown report output.
+
 ## Open Items Before 24/7 Operation
 
 - Decide whether to use systemd directly or Docker for the first persistent service.

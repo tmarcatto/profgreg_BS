@@ -56,6 +56,14 @@ Production deployment is blocked if the check fails.
 
 The deploy gate includes environment QA. Environment QA may report whether keys are present and their length, but must never print secret values.
 
+For a non-destructive deployment status report:
+
+```bash
+python3 tools/greg_server_status.py --mode server --output tmp/server_status.md
+```
+
+This status command may report branch, commit, working-tree cleanliness, expected storage paths, runtime environment-file presence, and deploy-QA status. It must not print secret values and must not generate course artifacts.
+
 ## First Server Milestone
 
 The first server deployment should prove:
@@ -63,5 +71,6 @@ The first server deployment should prove:
 - repository checkout works;
 - environment variables are loaded without exposing values;
 - pre-push/deploy QA passes;
+- server status report passes or has only reviewed warnings;
 - a dry-run operator request can create a run folder;
 - no course artifact is generated until storage and approval gates are confirmed.

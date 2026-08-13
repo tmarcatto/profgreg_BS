@@ -21,13 +21,13 @@ Steps:
   Warnings: 0
   
   Metrics:
-  - tool_files: 62
-  - non_test_tool_files: 34
-  - active_files_scanned: 66
+  - tool_files: 64
+  - non_test_tool_files: 35
+  - active_files_scanned: 68
   
   Findings:
-  - PASS tool_file_count: Tool file count is manageable for v0: 62.
-  - PASS non_test_tool_file_count: Active non-test tool count is acceptable: 34.
+  - PASS tool_file_count: Tool file count is manageable for v0: 64.
+  - PASS non_test_tool_file_count: Active non-test tool count is acceptable: 35.
   ...
 - PASS environment QA
   Prof Greg environment QA passed: yes
@@ -73,7 +73,7 @@ Steps:
   Warnings: 0
   
   Findings:
-  - PASS scripts_found: Scanned 64 renderer/tool scripts.
+  - PASS scripts_found: Scanned 66 renderer/tool scripts.
   - PASS reusable_targets_present: Core reusable operator/QA targets exist.
   - PASS absolute_paths: No hardcoded local absolute paths found.
   - PASS course_tied_scripts: No course-tied scripts found outside Greg tools.
@@ -81,8 +81,8 @@ Steps:
   - PASS one_off_builders: No obvious one-off build scripts found.
   - PASS hardcoded_outputs: No hardcoded output constants found.
 - PASS unit tests
-  ............................................................................................
+  ...............................................................................................
   ----------------------------------------------------------------------
-  Ran 92 tests in 0.224s
+  Ran 95 tests in 0.194s
   
   OK

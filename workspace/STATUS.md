@@ -1,6 +1,6 @@
 # Prof Greg Development Status
 
-Status date: 2026-08-12
+Status date: 2026-08-13
 
 ## Current Stage
 
@@ -10,13 +10,13 @@ Prof Greg completed multiple full-flow v0/confirmation runs:
 - `Construction Contract Essentials` Lesson 1.
 - `Construction Schedule Management` Lessons 1, 2, and 3 as the current multi-lesson confirmation run.
 
-The active task is now the transition out of the Phase 3 technical pause: the local multi-lesson pipeline is consolidated, and the next development block is Git/server preparation.
+The active task is now Phase 4A: server operator hardening after the GitHub repository and Hetzner server foundation were created.
 
 Roadmap of record: `workspace/ROADMAP.md`.
 
-Current roadmap position: Phase 3 - Prompt, Renderer, and Design Refinement, technical pause after Construction Schedule Management Lesson 3 completed.
+Current roadmap position: Phase 4 - 24/7 Server Deployment, server foundation live but persistent public/semi-public interface not exposed.
 
-Pre-Git/server code quality and security review was completed on 2026-08-12.
+Pre-Git/server code quality and security review was completed on 2026-08-12. GitHub/server bootstrap was completed on 2026-08-13.
 
 ## Confirmed Foundation
 
@@ -62,6 +62,7 @@ Pre-Git/server code quality and security review was completed on 2026-08-12.
 14. Add course-level glossary and visual registries for cross-lesson MECE.
 15. Prepare Git repository setup, deployment environment contract, and server integration plan.
 16. Add cost/logging observability for model/API calls before 24/7 operation.
+17. Add server status, backup, and log-rotation controls before exposing a persistent interface.
 
 ## Next Recommended Step
 
@@ -75,11 +76,13 @@ Phase 3 technical pause is complete for the planned blocks:
 - Approval recording and canonical promotion automation now exist.
 - A single local lifecycle action now runs source refresh, consolidated QA, and canonical manifest updates.
 - Pre-server quality/security guardrails now exist: shared path guards, local security QA, code-quality QA, stricter `.gitignore`, restricted `.env.local` permissions, renderer path containment, and an online-agent security contract.
-- Next prepare Git/server contracts and environment setup.
+- Git/server contracts and environment setup are now in place.
+- `tools/greg_server_status.py` now provides a non-destructive deployment status operator for local and server checkouts.
+- Next harden server operations: backup policy, log rotation, persistent runtime decision, and fresh full-flow v1 from the operator path.
 
 Latest verification:
 
-- Full local Greg test suite passed after pre-server quality/security review: 86 tests, 0 failures.
+- Full local Greg test suite passed after source-policy and server-status additions: 95 tests, 0 failures.
 - Code quality QA passed: 0 failures, 0 warnings.
 - Security QA passed: 0 failures, 0 warnings.
 - Model routing QA passed: 0 failures, 0 warnings.
@@ -131,6 +134,8 @@ Existing operator tools:
 - `tools/greg_security.py`
 - `tools/greg_security_check.py`
 - `tools/greg_code_quality_check.py`
+- `tools/greg_source_policy_check.py`
+- `tools/greg_server_status.py`
 - `tools/test_greg_security.py`
 - `tools/test_greg_security_check.py`
 - `tools/test_greg_code_quality_check.py`

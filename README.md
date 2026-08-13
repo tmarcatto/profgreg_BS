@@ -39,3 +39,9 @@ python3 tools/greg_pre_push_check.py --no-update-reports --output tmp/deploy_qa.
 ```
 
 This includes environment QA that reports only whether provider keys are present and their length, never secret values.
+
+For a non-destructive local or server status report:
+
+```bash
+python3 tools/greg_server_status.py --mode auto --output tmp/server_status.md
+```

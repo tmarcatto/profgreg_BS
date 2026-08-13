@@ -182,7 +182,7 @@ Phase 3 technical-pause findings:
 
 ## Phase 4 - 24/7 Server Deployment
 
-Status: preparing.
+Status: server foundation live; persistent online interface not exposed yet.
 
 Goal: move Prof Greg from local bench to a secure always-on environment.
 
@@ -218,6 +218,8 @@ Preparation completed:
 - Validated server-loaded provider secrets without printing values.
 - Ran minimal API smoke tests for OpenAI, Anthropic, DeepSeek, xAI, and local deterministic routing.
 - API smoke tests passed, including a minimal OpenAI `gpt-image-2` image-generation validation.
+- Added `tools/greg_server_status.py` as a non-destructive local/server deployment status operator.
+- Added server-status unit tests and local status report generation.
 
 Updated rule:
 
@@ -225,17 +227,17 @@ Do not deploy Greg 24/7 until the local full-flow v0 test has produced a success
 
 ## Current Position
 
-Phase 1 is v0 ready and Phase 2 has completed two full-flow runs.
+Phase 1 is v0 ready, Phase 2 has completed multiple full-flow runs, Phase 3 consolidation has produced reusable renderers and stronger QA, and Phase 4 server foundation is live.
 
-The Cost Estimating and Construction Contract Essentials runs proved the pipeline across two course areas. They also exposed system-level weaknesses in visual QA, deck MECE review, artifact cache handling, source/reference separation, and localized slide fit. These are now Phase 3 refinement targets.
+The Cost Estimating, Construction Contract Essentials, and Construction Schedule Management runs proved the pipeline across multiple course areas. They also exposed system-level weaknesses in visual QA, deck MECE review, artifact cache handling, source/reference separation, localized slide fit, and server readiness. These are now mostly converted into contracts, reusable renderers, and QA tools.
 
 ## Next Best Step
 
-Proceed to Git/server preparation:
+Proceed to Phase 4A server operator hardening:
 
-1. Create the Git repository strategy and first clean commit plan.
-2. Create the deployment environment contract for secrets, logs, storage, model routing, external APIs, and online-agent security.
-3. Prepare server/GitHub integration plan.
+1. Keep server status and deploy-safe QA passing from `main`.
+2. Add backup and log-rotation policy for uploads, outputs, logs, and server config.
+3. Decide the first persistent runtime shape: systemd service first, Docker later only if it reduces operational risk.
 4. Then run a fresh full-flow v1 test from the operator path.
 
 ### Phase 3B Started - Renderer Reuse

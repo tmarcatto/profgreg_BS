@@ -27,6 +27,7 @@ analysis/
 runs/*
 !runs/_system/
 !runs/_system/*.md
+runs/_system/server_status.md
 runs/_system/api_smoke_tests/
 runs/**/input/*.pdf
 runs/**/input/*.docx
