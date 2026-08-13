@@ -124,11 +124,12 @@ Validated:
 - DeepSeek candidate: `deepseek-v4-flash`
 - DeepSeek candidate: `deepseek-v4-pro`
 - xAI candidate: `grok-4.5`
+- OpenAI image role: `gpt-image-2`
 
 Result:
 
 - API connectivity passed for all tested providers.
-- Image generation was not tested in this pass to avoid unnecessary image cost.
+- Image generation passed in a single minimal smoke test.
 - Detailed API smoke-test logs remain local/ignored under `runs/_system/api_smoke_tests/`.
 
 ## Open Items Before 24/7 Operation

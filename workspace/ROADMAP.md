@@ -217,7 +217,7 @@ Preparation completed:
 - Confirmed systemd healthcheck passes deploy-safe QA without dirtying the Git checkout.
 - Validated server-loaded provider secrets without printing values.
 - Ran minimal API smoke tests for OpenAI, Anthropic, DeepSeek, xAI, and local deterministic routing.
-- API smoke tests passed; image generation intentionally remains untested until an image-specific validation step is needed.
+- API smoke tests passed, including a minimal OpenAI `gpt-image-2` image-generation validation.
 
 Updated rule:
 
