@@ -21,13 +21,13 @@ Steps:
   Warnings: 0
   
   Metrics:
-  - tool_files: 60
-  - non_test_tool_files: 33
-  - active_files_scanned: 64
+  - tool_files: 62
+  - non_test_tool_files: 34
+  - active_files_scanned: 66
   
   Findings:
-  - PASS tool_file_count: Tool file count is manageable for v0: 60.
-  - PASS non_test_tool_file_count: Active non-test tool count is acceptable: 33.
+  - PASS tool_file_count: Tool file count is manageable for v0: 62.
+  - PASS non_test_tool_file_count: Active non-test tool count is acceptable: 34.
   ...
 - PASS environment QA
   Prof Greg environment QA passed: yes
@@ -57,13 +57,23 @@ Steps:
   - PASS provider_references: All binding provider/helper references exist.
   - PASS provider_secret_fields: Providers reference env vars only; no secret fields found.
   ...
+- PASS source policy QA
+  Source policy QA passed: yes
+  Failures: 0
+  Warnings: 0
+  
+  Findings:
+  - PASS source_contract_academic_policy: Source contract records academic discovery policy.
+  - PASS source_skill_academic_workflow: Source-ledger skill includes academic checkpoint workflow.
+  - PASS model_contract_metadata_helpers: Model routing contract clarifies metadata helpers.
+  - PASS routing_metadata_helpers: Routing config treats academic helpers as discovery/metadata helpers.
 - PASS renderer reuse QA
   Renderer reuse QA passed: yes
   Failures: 0
   Warnings: 0
   
   Findings:
-  - PASS scripts_found: Scanned 62 renderer/tool scripts.
+  - PASS scripts_found: Scanned 64 renderer/tool scripts.
   - PASS reusable_targets_present: Core reusable operator/QA targets exist.
   - PASS absolute_paths: No hardcoded local absolute paths found.
   - PASS course_tied_scripts: No course-tied scripts found outside Greg tools.
@@ -71,8 +81,8 @@ Steps:
   - PASS one_off_builders: No obvious one-off build scripts found.
   - PASS hardcoded_outputs: No hardcoded output constants found.
 - PASS unit tests
-  ..........................................................................................
+  ............................................................................................
   ----------------------------------------------------------------------
-  Ran 90 tests in 0.220s
+  Ran 92 tests in 0.224s
   
   OK

@@ -45,6 +45,10 @@ Examples include NAHB, NCCER, OSHA, ICC/code bodies, AIA, AGC, ASCE, ACI, AISC, 
 Avoid using marketing pages as technical authority when formal sources exist.
 Do not confuse marketing pages with reputable practitioner education. A contractor-tech guide, trade publication, professional blog, magazine article, or moderated practitioner discussion can be useful when it teaches field workflow, common mistakes, reading sequence, or practical examples with identifiable authorship or editorial ownership. Classify these as practitioner context unless they are formal standards or published technical references.
 
+Use academic discovery as a quality checkpoint for research-heavy or technical lessons. Semantic Scholar website/search is the default checkpoint for peer-reviewed and technical-literature signals; do not depend on a Semantic Scholar API key. Use OpenAlex and Crossref as preferred metadata APIs when available, especially for publication identity, DOI checks, author/venue metadata, and finding related academic sources. Use CORE or similar open-access indexes only when full text is needed.
+
+Academic metadata and search results are not the final authority. For U.S. residential construction, current codes, standards, official guidance, field bodies of knowledge, and recognized professional practice outrank isolated papers when they govern the claim.
+
 User-attached books may be used as references, following the normal source rules for metadata, relevance, authority tier, and claim mapping. If an attached document is not a published book, standard, official guidance, or identifiable formal publication, use it only as an internal content reference for scope, vocabulary, sequencing, and gap detection. Do not list internal-only attachments in student-facing References, do not cite them as "course source library," and do not use them as image sources.
 
 Any book or formal source published more than 3 years before the course production date needs an applicability/currentness review before it can support current claims. If it is kept only as internal background, maps to no claims, is flagged weak or replaceable, and does not appear in student-facing References, it may remain in the ledger with a warning.
@@ -64,13 +68,14 @@ For each research need:
    - image/visual source.
 3. Choose likely authority classes before searching.
 4. Search or inspect user-provided references.
-5. Run a practitioner-context sweep for each lesson using queries such as "how to read [topic] construction plans", "common mistakes reading [topic] drawings", "[topic] blueprint symbols legend", and "[topic] construction drawing guide".
-6. Record every meaningful search/action in `research_log`.
-7. Add candidate sources to `sources`.
-8. Assign an `authority_tier`.
-9. Map sources to supported claims.
-10. Flag weak, missing, conflicting, or overbroad sources.
-11. Mark validation status.
+5. Run an academic-discovery checkpoint when the topic is technical, practice-sensitive, research-heavy, or likely to benefit from peer-reviewed context. Search Semantic Scholar directly and use OpenAlex/Crossref metadata when useful.
+6. Run a practitioner-context sweep for each lesson using queries such as "how to read [topic] construction plans", "common mistakes reading [topic] drawings", "[topic] blueprint symbols legend", and "[topic] construction drawing guide".
+7. Record every meaningful search/action in `research_log`.
+8. Add candidate sources to `sources`.
+9. Assign an `authority_tier`.
+10. Map sources to supported claims.
+11. Flag weak, missing, conflicting, or overbroad sources.
+12. Mark validation status.
 
 Before drafting student-facing references, separate public/publishable sources from internal-only attachments.
 

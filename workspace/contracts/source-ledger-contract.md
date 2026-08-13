@@ -11,6 +11,8 @@ The source ledger records what sources were used, why they were trusted, which c
 - Never invent a source, statistic, quote, standard, organization, or image attribution.
 - Prefer the field's body of knowledge over generic web results.
 - For U.S. construction courses, prioritize relevant authorities such as NAHB, NCCER, OSHA, ICC/code bodies, AIA, AGC, ASCE, ACI, AISC, CMAA, CSI, USACE, NIST, FHWA, FEMA, GAO, and recognized academic or professional construction management sources.
+- Academic discovery is required for research-heavy or technical lessons, but academic search tools are discovery aids, not final authority. Use Semantic Scholar website/search as a default checkpoint for peer-reviewed and technical literature signals. Use OpenAlex and Crossref as preferred metadata APIs for source discovery, DOI validation, citation metadata, and publication identity. CORE or similar open-access indexes may be used when full-text availability is needed.
+- For U.S. residential construction, academic papers should support or sharpen the content, but they must not outrank current codes, standards, official guidance, field bodies of knowledge, or recognized professional practice when those are the governing authority.
 - Source books and user-provided references are important, but they do not automatically outrank stronger domain authorities, codes, standards, or official bodies of knowledge.
 - User-attached files may be used as references when they are books, standards, official guidance, or identifiable formal publications, following the normal source rules for metadata, relevance, authority tier, and claim mapping. Internal-only attachments may guide content, but must not appear in student-facing References and must not be used as image sources.
 - Published books and formal uploaded sources can become student-facing references when metadata supports them, but age matters. Any book or formal source published more than 3 years before the course production date must receive an applicability review before being used as a source. If the claim may be affected by newer research, technology, regulations, codes, standards, methods, market practice, safety guidance, pricing, software, contract forms, or professional consensus, Greg must validate it against current formal sources before using it to support current claims.
@@ -45,7 +47,13 @@ Each run should produce `source_ledger.json` with this shape:
   "research_policy": {
     "web_research": "automatic",
     "citation_style": "greg-student-friendly",
-    "reading_flow_priority": true
+    "reading_flow_priority": true,
+    "academic_discovery": {
+      "semantic_scholar_checkpoint": true,
+      "metadata_apis": ["openalex", "crossref"],
+      "full_text_indexes_optional": ["core"],
+      "final_authority": "domain-body-of-knowledge"
+    }
   },
   "sources": [
     {

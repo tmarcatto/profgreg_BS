@@ -50,19 +50,19 @@
       "kind": "academic_metadata_api",
       "api_key_env": "OPENALEX_API_KEY",
       "base_url_env": "OPENALEX_BASE_URL",
-      "notes": "Optional source discovery and academic metadata. Many requests can work without a key."
+      "notes": "Preferred academic metadata helper for source discovery, publication identity, and related-work metadata. Many requests can work without a key."
     },
     "crossref": {
       "kind": "citation_metadata_api",
       "api_key_env": null,
       "base_url_env": "CROSSREF_BASE_URL",
-      "notes": "Optional DOI and citation metadata lookup."
+      "notes": "Preferred DOI, citation metadata, and formal publication identity lookup."
     },
     "semantic_scholar": {
-      "kind": "academic_search_api",
-      "api_key_env": "SEMANTIC_SCHOLAR_API_KEY",
+      "kind": "academic_discovery_checkpoint",
+      "api_key_env": null,
       "base_url_env": "SEMANTIC_SCHOLAR_BASE_URL",
-      "notes": "Optional academic search for peer-reviewed or technical literature."
+      "notes": "Use Semantic Scholar website/search as a default academic discovery checkpoint. API key is not required for the normal Greg workflow."
     }
   },
   "bindings": {

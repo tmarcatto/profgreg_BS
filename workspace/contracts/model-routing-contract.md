@@ -107,6 +107,10 @@ Use `source_research` for web/source discovery and metadata enrichment.
 
 Research output must still go through the source ledger. Search APIs do not replace source validation.
 
+Academic discovery tools are helpers, not authority layers. Use Semantic Scholar website/search as a default checkpoint for peer-reviewed and technical-literature signals. Use OpenAlex and Crossref as preferred metadata APIs for publication identity, DOI validation, and citation metadata. Do not require a Semantic Scholar API key for the normal Greg workflow.
+
+For U.S. residential construction, formal bodies of knowledge, current codes, standards, official guidance, and recognized professional practice outrank isolated academic papers when they govern the claim.
+
 ## Observability
 
 Every production run should log:
