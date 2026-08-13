@@ -31,3 +31,9 @@ Canonical remote:
 `https://github.com/tmarcatto/profgreg_BS.git`
 
 `main` is the deployable branch. Generated course artifacts stay local unless promoted deliberately through a release/artifact-storage process.
+
+On a server checkout, use the deploy-safe check so the working tree stays clean:
+
+```bash
+python3 tools/greg_pre_push_check.py --no-update-reports --output tmp/deploy_qa.md
+```

@@ -24,6 +24,10 @@ class GregPrePushCheckTests(unittest.TestCase):
         self.assertIn("pre-push QA passed: yes", report)
         self.assertIn("PASS sample", report)
 
+    def test_without_output_args_removes_output_pair(self) -> None:
+        command = ["python3", "tool.py", "--output", "runs/_system/report.md", "--json"]
+        self.assertEqual(checker.without_output_args(command), ["python3", "tool.py", "--json"])
+
 
 if __name__ == "__main__":
     unittest.main()

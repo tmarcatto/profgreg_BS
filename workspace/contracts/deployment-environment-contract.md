@@ -49,7 +49,7 @@ Generated PDFs, PPTX files, source uploads, rendered pages, rendered slides, and
 Before a deployment:
 
 ```bash
-python3 tools/greg_pre_push_check.py
+python3 tools/greg_pre_push_check.py --no-update-reports --output tmp/deploy_qa.md
 ```
 
 Production deployment is blocked if the check fails.

@@ -47,6 +47,26 @@ def run_step(step: Step) -> tuple[bool, str]:
     return result.returncode == 0, output
 
 
+def without_output_args(command: list[str]) -> list[str]:
+    cleaned: list[str] = []
+    skip_next = False
+    for value in command:
+        if skip_next:
+            skip_next = False
+            continue
+        if value == "--output":
+            skip_next = True
+            continue
+        cleaned.append(value)
+    return cleaned
+
+
+def step_for_mode(step: Step, *, update_reports: bool) -> Step:
+    if update_reports:
+        return step
+    return Step(step.name, without_output_args(step.command))
+
+
 def render_report(results: list[tuple[Step, bool, str]]) -> str:
     passed = all(ok for _, ok, _ in results)
     lines = [
@@ -68,9 +88,11 @@ def render_report(results: list[tuple[Step, bool, str]]) -> str:
 def main() -> int:
     parser = argparse.ArgumentParser(description="Run the Prof Greg checks expected before pushing to GitHub.")
     parser.add_argument("--output", default=REPORT, help="Markdown report path.")
+    parser.add_argument("--no-update-reports", action="store_true", help="Run checks without updating tracked QA report files.")
     args = parser.parse_args()
 
-    results = [(step, *run_step(step)) for step in STEPS]
+    steps = [step_for_mode(step, update_reports=not args.no_update_reports) for step in STEPS]
+    results = [(step, *run_step(step)) for step in steps]
     report = render_report(results)
     output = assert_safe_write_path(args.output)
     output.parent.mkdir(parents=True, exist_ok=True)
