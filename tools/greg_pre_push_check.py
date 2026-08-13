@@ -26,6 +26,7 @@ STEPS = [
     Step("environment QA", [sys.executable, "tools/greg_env_check.py", "--output", "runs/_system/env_qa.md"]),
     Step("model routing QA", [sys.executable, "tools/greg_model_routing_check.py", "--output", "runs/_system/model_routing_security_qa.md"]),
     Step("source policy QA", [sys.executable, "tools/greg_source_policy_check.py", "--output", "runs/_system/source_policy_qa.md"]),
+    Step("server operations QA", [sys.executable, "tools/greg_server_status.py", "--ops-only", "--output", "runs/_system/server_ops_qa.md"]),
     Step("renderer reuse QA", [sys.executable, "tools/greg_renderer_reuse_check.py", "--output", "runs/_system/renderer_reuse_security_qa.md"]),
     Step(
         "unit tests",

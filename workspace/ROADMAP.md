@@ -220,6 +220,8 @@ Preparation completed:
 - API smoke tests passed, including a minimal OpenAI `gpt-image-2` image-generation validation.
 - Added `tools/greg_server_status.py` as a non-destructive local/server deployment status operator.
 - Added server-status unit tests and local status report generation.
+- Added `workspace/contracts/server-operations-contract.md` for backup and log operations policy.
+- Added `workspace/ops/logrotate-profgreg.conf` and connected backup/log readiness checks to `tools/greg_server_status.py --ops-only`.
 
 Updated rule:
 
@@ -236,8 +238,8 @@ The Cost Estimating, Construction Contract Essentials, and Construction Schedule
 Proceed to Phase 4A server operator hardening:
 
 1. Keep server status and deploy-safe QA passing from `main`.
-2. Add backup and log-rotation policy for uploads, outputs, logs, and server config.
-3. Decide the first persistent runtime shape: systemd service first, Docker later only if it reduces operational risk.
+2. Install backup root and logrotate config on the live server.
+3. Add the first automated backup job and restore manifest format.
 4. Then run a fresh full-flow v1 test from the operator path.
 
 ### Phase 3B Started - Renderer Reuse

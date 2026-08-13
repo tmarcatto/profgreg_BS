@@ -36,6 +36,7 @@ class GregServerStatusTests(unittest.TestCase):
     def test_render_markdown_includes_commit_and_findings(self) -> None:
         data = {
             "passed": True,
+            "report_type": "status",
             "mode": "local",
             "root": "/tmp/example",
             "commit": "abc123",
@@ -48,6 +49,24 @@ class GregServerStatusTests(unittest.TestCase):
         text = checker.render_markdown(data)
         self.assertIn("Commit: abc123", text)
         self.assertIn("PASS sample", text)
+
+    def test_logrotate_policy_detection(self) -> None:
+        text = """
+/var/log/profgreg/*.log {
+    daily
+    rotate 14
+    compress
+    missingok
+    notifempty
+}
+"""
+        self.assertTrue(checker.logrotate_policy_ok(text))
+        self.assertFalse(checker.logrotate_policy_ok("/var/log/profgreg/*.log { weekly }"))
+
+    def test_ops_only_current_repo_passes_local(self) -> None:
+        data = checker.run_ops_checks(ROOT, mode="local")
+        self.assertTrue(data["passed"], data["findings"])
+        self.assertNotIn("Commit:", checker.render_markdown(data))
 
 
 if __name__ == "__main__":

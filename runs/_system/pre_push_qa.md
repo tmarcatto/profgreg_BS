@@ -67,6 +67,18 @@ Steps:
   - PASS source_skill_academic_workflow: Source-ledger skill includes academic checkpoint workflow.
   - PASS model_contract_metadata_helpers: Model routing contract clarifies metadata helpers.
   - PASS routing_metadata_helpers: Routing config treats academic helpers as discovery/metadata helpers.
+- PASS server operations QA
+  Prof Greg server operations QA passed: yes
+  Mode: local
+  Root: /Users/tmarcato/prof-greg
+  Failures: 0
+  Warnings: 0
+  
+  Findings:
+  - PASS ops_contract_exists: Server operations contract exists.
+  - PASS ops_contract_policy_terms: Contract records backup, log, and secret-exclusion policy.
+  - PASS logrotate_sample: Repository logrotate sample has required rotation policy.
+  - PASS server_logrotate: Server logrotate check skipped outside server mode.
 - PASS renderer reuse QA
   Renderer reuse QA passed: yes
   Failures: 0
@@ -81,8 +93,8 @@ Steps:
   - PASS one_off_builders: No obvious one-off build scripts found.
   - PASS hardcoded_outputs: No hardcoded output constants found.
 - PASS unit tests
-  ...............................................................................................
+  .................................................................................................
   ----------------------------------------------------------------------
-  Ran 95 tests in 0.194s
+  Ran 97 tests in 0.197s
   
   OK

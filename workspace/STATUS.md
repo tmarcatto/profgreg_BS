@@ -78,11 +78,12 @@ Phase 3 technical pause is complete for the planned blocks:
 - Pre-server quality/security guardrails now exist: shared path guards, local security QA, code-quality QA, stricter `.gitignore`, restricted `.env.local` permissions, renderer path containment, and an online-agent security contract.
 - Git/server contracts and environment setup are now in place.
 - `tools/greg_server_status.py` now provides a non-destructive deployment status operator for local and server checkouts.
-- Next harden server operations: backup policy, log rotation, persistent runtime decision, and fresh full-flow v1 from the operator path.
+- Backup/log operations policy now exists and is checked through `tools/greg_server_status.py --ops-only`.
+- Next install the backup root and logrotate config on the live server, then add the first automated backup job and restore manifest format.
 
 Latest verification:
 
-- Full local Greg test suite passed after source-policy and server-status additions: 95 tests, 0 failures.
+- Full local Greg test suite passed after backup/log operations policy consolidation: 97 tests, 0 failures.
 - Code quality QA passed: 0 failures, 0 warnings.
 - Security QA passed: 0 failures, 0 warnings.
 - Model routing QA passed: 0 failures, 0 warnings.

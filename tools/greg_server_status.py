@@ -13,11 +13,14 @@ from greg_security import assert_safe_write_path
 
 
 ROOT = Path(__file__).resolve().parents[1]
+CONTRACT = "workspace/contracts/server-operations-contract.md"
+LOGROTATE_SAMPLE = "workspace/ops/logrotate-profgreg.conf"
 
 SERVER_PATHS = [
     "/opt/profgreg/app",
     "/srv/profgreg/uploads",
     "/srv/profgreg/outputs",
+    "/srv/profgreg/backups",
     "/var/log/profgreg",
     "/etc/profgreg",
 ]
@@ -65,6 +68,73 @@ def qa_report_passed(path: Path) -> bool | None:
     if "pre-push qa passed: no" in text:
         return False
     return None
+
+
+def contains_all(text: str, values: list[str]) -> bool:
+    lower = text.lower()
+    return all(value.lower() in lower for value in values)
+
+
+def logrotate_policy_ok(text: str) -> bool:
+    required_patterns = [
+        r"/var/log/profgreg/\*\.log",
+        r"\bdaily\b",
+        r"\brotate\s+\d+",
+        r"\bcompress\b",
+        r"\bmissingok\b",
+        r"\bnotifempty\b",
+    ]
+    return all(__import__("re").search(pattern, text) for pattern in required_patterns)
+
+
+def server_ops_findings(root: Path, *, server_mode: bool) -> tuple[list[Finding], list[dict[str, Any]]]:
+    findings: list[Finding] = []
+    path_infos: list[dict[str, Any]] = []
+    contract_text = read_text(root / CONTRACT)
+    if contract_text:
+        findings.append(Finding("pass", "ops_contract_exists", "Server operations contract exists."))
+    else:
+        findings.append(Finding("fail", "ops_contract_exists", "Server operations contract is missing."))
+
+    contract_terms = [
+        "/srv/profgreg/uploads",
+        "/srv/profgreg/outputs",
+        "/srv/profgreg/backups",
+        "/var/log/profgreg",
+        "must not include",
+        "api key values",
+        "rotated",
+    ]
+    if contains_all(contract_text, contract_terms):
+        findings.append(Finding("pass", "ops_contract_policy_terms", "Contract records backup, log, and secret-exclusion policy."))
+    else:
+        findings.append(Finding("fail", "ops_contract_policy_terms", "Contract is missing required backup/log/secret policy terms."))
+
+    sample_text = read_text(root / LOGROTATE_SAMPLE)
+    if logrotate_policy_ok(sample_text):
+        findings.append(Finding("pass", "logrotate_sample", "Repository logrotate sample has required rotation policy."))
+    else:
+        findings.append(Finding("fail", "logrotate_sample", "Repository logrotate sample is missing required rotation policy."))
+
+    if not server_mode:
+        findings.append(Finding("pass", "server_logrotate", "Server logrotate check skipped outside server mode."))
+        return findings, path_infos
+
+    missing_paths = [item for item in SERVER_PATHS if not Path(item).exists()]
+    for item in SERVER_PATHS:
+        path_infos.append(path_status(item))
+    if missing_paths:
+        findings.append(Finding("fail", "ops_server_paths", f"Missing expected server paths: {missing_paths}."))
+    else:
+        findings.append(Finding("pass", "ops_server_paths", "Expected server operation paths exist."))
+
+    logrotate_text = read_text(Path("/etc/logrotate.d/profgreg"))
+    if logrotate_policy_ok(logrotate_text):
+        findings.append(Finding("pass", "server_logrotate", "Server logrotate policy is installed."))
+    else:
+        findings.append(Finding("fail", "server_logrotate", "Server logrotate policy is missing or incomplete at /etc/logrotate.d/profgreg."))
+
+    return findings, path_infos
 
 
 def run_checks(root: Path = ROOT, *, mode: str = "auto", expected_branch: str = "main") -> dict[str, Any]:
@@ -140,33 +210,59 @@ def run_checks(root: Path = ROOT, *, mode: str = "auto", expected_branch: str = 
     else:
         findings.append(Finding("pass", "server_storage_paths", "Server storage path check skipped outside server mode."))
 
+    ops_findings, ops_paths = server_ops_findings(root, server_mode=server_mode)
+    findings.extend(ops_findings)
+
     fail_count = sum(1 for item in findings if item.status == "fail")
     warn_count = sum(1 for item in findings if item.status == "warn")
     return {
         "mode": "server" if server_mode else "local",
+        "report_type": "status",
         "root": str(root),
         "commit": commit,
         "branch": branch,
         "passed": fail_count == 0,
         "fail_count": fail_count,
         "warn_count": warn_count,
-        "server_paths": [path_status(item) for item in SERVER_PATHS] if server_mode else [],
+        "server_paths": ops_paths if server_mode else [],
+        "findings": [asdict(item) for item in findings],
+    }
+
+
+def run_ops_checks(root: Path = ROOT, *, mode: str = "auto") -> dict[str, Any]:
+    root = root.resolve()
+    server_mode = mode == "server" or (mode == "auto" and str(root) == "/opt/profgreg/app")
+    findings, paths = server_ops_findings(root, server_mode=server_mode)
+    fail_count = sum(1 for item in findings if item.status == "fail")
+    warn_count = sum(1 for item in findings if item.status == "warn")
+    return {
+        "mode": "server" if server_mode else "local",
+        "report_type": "operations",
+        "root": str(root),
+        "commit": None,
+        "branch": None,
+        "passed": fail_count == 0,
+        "fail_count": fail_count,
+        "warn_count": warn_count,
+        "server_paths": paths,
         "findings": [asdict(item) for item in findings],
     }
 
 
 def render_markdown(data: dict[str, Any]) -> str:
+    title = "server operations QA" if data.get("report_type") == "operations" else "server status"
     lines = [
-        f"Prof Greg server status passed: {'yes' if data['passed'] else 'no'}",
+        f"Prof Greg {title} passed: {'yes' if data['passed'] else 'no'}",
         f"Mode: {data['mode']}",
         f"Root: {data['root']}",
-        f"Commit: {data.get('commit') or 'unknown'}",
-        f"Branch: {data.get('branch') or 'unknown'}",
         f"Failures: {data['fail_count']}",
         f"Warnings: {data['warn_count']}",
         "",
         "Findings:",
     ]
+    if data.get("report_type") != "operations":
+        lines.insert(3, f"Commit: {data.get('commit') or 'unknown'}")
+        lines.insert(4, f"Branch: {data.get('branch') or 'unknown'}")
     for item in data["findings"]:
         lines.append(f"- {item['status'].upper()} {item['check']}: {item['note']}")
     if data.get("server_paths"):
@@ -186,11 +282,12 @@ def main() -> int:
     parser.add_argument("--root", default=str(ROOT), help="Checkout root. Defaults to this repository.")
     parser.add_argument("--mode", choices=["auto", "local", "server"], default="auto")
     parser.add_argument("--expected-branch", default="main")
+    parser.add_argument("--ops-only", action="store_true", help="Run only backup/log operations readiness checks.")
     parser.add_argument("--output", help="Optional Markdown output path.")
     parser.add_argument("--json", action="store_true")
     args = parser.parse_args()
 
-    data = run_checks(Path(args.root), mode=args.mode, expected_branch=args.expected_branch)
+    data = run_ops_checks(Path(args.root), mode=args.mode) if args.ops_only else run_checks(Path(args.root), mode=args.mode, expected_branch=args.expected_branch)
     report = render_markdown(data)
     if args.output:
         output = assert_safe_write_path(args.output)
