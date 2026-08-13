@@ -480,6 +480,34 @@ class GregUiHandler(BaseHTTPRequestHandler):
             return
         parsed = urlparse(self.path)
         try:
+            if parsed.path == "/api/upload":
+                content_length = int(self.headers.get("Content-Length", "0") or "0")
+                if content_length > MAX_UPLOAD_BYTES + 1024 * 1024:
+                    self.send_json(HTTPStatus.REQUEST_ENTITY_TOO_LARGE, {"error": "Upload request is too large."})
+                    return
+                raw = self.rfile.read(content_length)
+                fields, file_fields = parse_multipart_form(self.headers.get("Content-Type", ""), raw)
+                course = str(fields.get("course") or getattr(self.server, "default_course", DEFAULT_COURSE))
+                scope = str(fields.get("scope") or "course")
+                lesson = int(fields.get("lesson") or 1)
+                saved = []
+                for field in file_fields:
+                    filename = str(field.get("filename") or "")
+                    data = bytes(field.get("data") or b"")
+                    if not filename:
+                        continue
+                    saved.append(
+                        save_uploaded_file(
+                            upload_root=getattr(self.server, "upload_root"),
+                            course_slug=course,
+                            filename=filename,
+                            data=data,
+                            scope=scope,
+                            lesson=lesson,
+                        )
+                    )
+                self.send_json(HTTPStatus.OK, {"message": f"Uploaded {len(saved)} file(s).", "uploads": saved})
+                return
             body = read_request_body(self)
             job_root = getattr(self.server, "job_root")
             if parsed.path == "/api/backup":
@@ -515,34 +543,6 @@ class GregUiHandler(BaseHTTPRequestHandler):
                     course_slug=str(body.get("slug") or "") or None,
                 )
                 self.send_json(HTTPStatus.OK, result)
-                return
-            if parsed.path == "/api/upload":
-                content_length = int(self.headers.get("Content-Length", "0") or "0")
-                if content_length > MAX_UPLOAD_BYTES + 1024 * 1024:
-                    self.send_json(HTTPStatus.REQUEST_ENTITY_TOO_LARGE, {"error": "Upload request is too large."})
-                    return
-                raw = self.rfile.read(content_length)
-                fields, file_fields = parse_multipart_form(self.headers.get("Content-Type", ""), raw)
-                course = str(fields.get("course") or getattr(self.server, "default_course", DEFAULT_COURSE))
-                scope = str(fields.get("scope") or "course")
-                lesson = int(fields.get("lesson") or 1)
-                saved = []
-                for field in file_fields:
-                    filename = str(field.get("filename") or "")
-                    data = bytes(field.get("data") or b"")
-                    if not filename:
-                        continue
-                    saved.append(
-                        save_uploaded_file(
-                            upload_root=getattr(self.server, "upload_root"),
-                            course_slug=course,
-                            filename=filename,
-                            data=data,
-                            scope=scope,
-                            lesson=lesson,
-                        )
-                    )
-                self.send_json(HTTPStatus.OK, {"message": f"Uploaded {len(saved)} file(s).", "uploads": saved})
                 return
             self.send_json(HTTPStatus.NOT_FOUND, {"error": "Not found"})
         except Exception as error:
