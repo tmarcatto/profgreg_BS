@@ -84,8 +84,9 @@ Phase 3 technical pause is complete for the planned blocks:
 - Scheduled backup service/timer policy files now exist, are checked by server operations QA, and were installed on the live server.
 - Live scheduled backup validation passed on 2026-08-13 with `profgreg-backup.service` returning `Result=success`.
 - Runtime worker foundation now exists inside `tools/greg_server_status.py --worker` with a least-privilege systemd policy file.
+- `profgreg-worker.service` is installed and active on the live server.
 - The worker currently executes only safe `backup` jobs; unsupported request types fail with a short operator-safe error summary.
-- Next install and validate `profgreg-worker.service` on the live server, then expand the worker to gated lesson lifecycle jobs.
+- Next expand the worker to gated lesson lifecycle jobs and add an operator-facing request interface.
 
 Latest verification:
 
@@ -95,6 +96,8 @@ Latest verification:
 - Security QA passed: 0 failures, 0 warnings.
 - Model routing QA passed: 0 failures, 0 warnings.
 - Live server operations QA passed after scheduled backup installation: 0 failures, 0 warnings.
+- Live worker validation passed on 2026-08-13: a queued backup job completed and produced backup archive/manifest artifacts.
+- Live server deploy QA and server status passed at commit `7f8f912`: 0 failures, 0 warnings.
 
 Existing operator tools:
 

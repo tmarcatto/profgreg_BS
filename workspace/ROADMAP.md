@@ -220,7 +220,7 @@ Preparation completed:
 - API smoke tests passed, including a minimal OpenAI `gpt-image-2` image-generation validation.
 - Added server backup/log operations checks, manual backup manifest generation, job-state readiness, and scheduled backup timer policy files.
 - Installed and validated `profgreg-backup.timer` and `profgreg-backup.service` on the live server with a successful scheduled backup run.
-- Added the first conservative server worker foundation under `tools/greg_server_status.py --worker`, with systemd policy and tests. The first executable job type is `backup`; course-production jobs remain gated for a later worker expansion.
+- Added and installed the first conservative server worker foundation under `tools/greg_server_status.py --worker`, with systemd policy and tests. The first executable job type is `backup`; course-production jobs remain gated for a later worker expansion.
 - Added `tools/greg_server_status.py` as a non-destructive local/server deployment status operator.
 - Added server-status unit tests and local status report generation.
 - Added `workspace/contracts/server-operations-contract.md` for backup and log operations policy.
