@@ -54,6 +54,8 @@ python3 tools/greg_pre_push_check.py --no-update-reports --output tmp/deploy_qa.
 
 Production deployment is blocked if the check fails.
 
+The deploy gate includes environment QA. Environment QA may report whether keys are present and their length, but must never print secret values.
+
 ## First Server Milestone
 
 The first server deployment should prove:

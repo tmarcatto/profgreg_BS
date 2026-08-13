@@ -23,6 +23,7 @@ class Step:
 STEPS = [
     Step("security QA", [sys.executable, "tools/greg_security_check.py", "--output", "runs/_system/security_qa.md"]),
     Step("code quality QA", [sys.executable, "tools/greg_code_quality_check.py", "--output", "runs/_system/code_quality_qa.md"]),
+    Step("environment QA", [sys.executable, "tools/greg_env_check.py", "--output", "runs/_system/env_qa.md"]),
     Step("model routing QA", [sys.executable, "tools/greg_model_routing_check.py", "--output", "runs/_system/model_routing_security_qa.md"]),
     Step("renderer reuse QA", [sys.executable, "tools/greg_renderer_reuse_check.py", "--output", "runs/_system/renderer_reuse_security_qa.md"]),
     Step(

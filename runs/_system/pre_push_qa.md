@@ -21,13 +21,27 @@ Steps:
   Warnings: 0
   
   Metrics:
-  - tool_files: 58
-  - non_test_tool_files: 32
-  - active_files_scanned: 62
+  - tool_files: 60
+  - non_test_tool_files: 33
+  - active_files_scanned: 64
   
   Findings:
-  - PASS tool_file_count: Tool file count is manageable for v0: 58.
-  - PASS non_test_tool_file_count: Active non-test tool count is acceptable: 32.
+  - PASS tool_file_count: Tool file count is manageable for v0: 60.
+  - PASS non_test_tool_file_count: Active non-test tool count is acceptable: 33.
+  ...
+- PASS environment QA
+  Prof Greg environment QA passed: yes
+  Missing required keys: 0
+  
+  Keys:
+  - OPENAI_API_KEY: set length=164 (required)
+  - ANTHROPIC_API_KEY: set length=108 (required)
+  - GOOGLE_API_KEY: set length=53 (optional)
+  - XAI_API_KEY: set length=89 (optional)
+  - DEEPSEEK_API_KEY: set length=35 (optional)
+  - SEMANTIC_SCHOLAR_API_KEY: missing length=0 (optional)
+  - OPENALEX_API_KEY: missing length=0 (optional)
+  - OPENAI_BASE_URL: missing length=0 (optional)
   ...
 - PASS model routing QA
   Model routing QA passed: yes
@@ -49,7 +63,7 @@ Steps:
   Warnings: 0
   
   Findings:
-  - PASS scripts_found: Scanned 60 renderer/tool scripts.
+  - PASS scripts_found: Scanned 62 renderer/tool scripts.
   - PASS reusable_targets_present: Core reusable operator/QA targets exist.
   - PASS absolute_paths: No hardcoded local absolute paths found.
   - PASS course_tied_scripts: No course-tied scripts found outside Greg tools.
@@ -57,8 +71,8 @@ Steps:
   - PASS one_off_builders: No obvious one-off build scripts found.
   - PASS hardcoded_outputs: No hardcoded output constants found.
 - PASS unit tests
-  ........................................................................................
+  ..........................................................................................
   ----------------------------------------------------------------------
-  Ran 88 tests in 0.931s
+  Ran 90 tests in 0.188s
   
   OK

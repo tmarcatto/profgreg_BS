@@ -37,3 +37,5 @@ On a server checkout, use the deploy-safe check so the working tree stays clean:
 ```bash
 python3 tools/greg_pre_push_check.py --no-update-reports --output tmp/deploy_qa.md
 ```
+
+This includes environment QA that reports only whether provider keys are present and their length, never secret values.
