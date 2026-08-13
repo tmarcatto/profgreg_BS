@@ -157,6 +157,17 @@ class GregServerStatusTests(unittest.TestCase):
             self.assertEqual(updated["state"], "failed")
             self.assertLessEqual(len(updated["last_error"]), 500)
 
+    def test_worker_lesson_lifecycle_dry_run_completes(self) -> None:
+        (ROOT / "tmp" / "jobs").mkdir(parents=True, exist_ok=True)
+        with tempfile.TemporaryDirectory(dir=ROOT / "tmp" / "jobs") as tmp:
+            root = Path(tmp)
+            job = checker.create_job(job_root=root, request_type="lesson_lifecycle", course_slug="demo-course", lesson=2)
+            result = checker.process_one_worker_job(root, backup_root=ROOT / "tmp" / "worker-backups", dry_run=True)
+            self.assertEqual(result["job_id"], job["job_id"])
+            self.assertEqual(result["state"], "completed")
+            updated = checker.list_jobs(root)[0]
+            self.assertEqual(updated["artifacts"][0]["kind"], "operator_report")
+
 
 if __name__ == "__main__":
     unittest.main()

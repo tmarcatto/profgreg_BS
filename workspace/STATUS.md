@@ -85,8 +85,9 @@ Phase 3 technical pause is complete for the planned blocks:
 - Live scheduled backup validation passed on 2026-08-13 with `profgreg-backup.service` returning `Result=success`.
 - Runtime worker foundation now exists inside `tools/greg_server_status.py --worker` with a least-privilege systemd policy file.
 - `profgreg-worker.service` is installed and active on the live server.
-- The worker currently executes only safe `backup` jobs; unsupported request types fail with a short operator-safe error summary.
-- Next expand the worker to gated lesson lifecycle jobs and add an operator-facing request interface.
+- The worker currently executes safe `backup` jobs and safe `lesson_lifecycle` maintenance jobs.
+- Private command-based operator interface now exists at `tools/greg_operator.py`.
+- Next validate `tools/greg_operator.py` on the live server and then design the first non-technical UI layer on top of it.
 
 Latest verification:
 

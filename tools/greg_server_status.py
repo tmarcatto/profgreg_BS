@@ -265,14 +265,39 @@ def next_queued_job(job_root: Path) -> dict[str, Any] | None:
 
 def execute_worker_job(job_root: Path, job: dict[str, Any], *, backup_root: Path, dry_run: bool = False) -> dict[str, Any]:
     request_type = job.get("request_type")
-    if request_type != "backup":
-        raise ValueError(f"Worker does not support request_type yet: {request_type}")
-    result = create_backup(ROOT, backup_root=backup_root, label=job["job_id"], dry_run=dry_run)
-    artifacts = [
-        {"kind": "backup_archive", "path": result.get("archive"), "created": result.get("backup_created")},
-        {"kind": "backup_manifest", "path": result.get("manifest"), "created": result.get("backup_created")},
-    ]
-    return update_job(job_root, job, artifacts=artifacts, last_error=None)
+    if request_type == "backup":
+        result = create_backup(ROOT, backup_root=backup_root, label=job["job_id"], dry_run=dry_run)
+        artifacts = [
+            {"kind": "backup_archive", "path": result.get("archive"), "created": result.get("backup_created")},
+            {"kind": "backup_manifest", "path": result.get("manifest"), "created": result.get("backup_created")},
+        ]
+        return update_job(job_root, job, artifacts=artifacts, last_error=None)
+    if request_type == "lesson_lifecycle":
+        course_slug = job.get("course_slug")
+        lesson = job.get("lesson") or 1
+        if not course_slug:
+            raise ValueError("lesson_lifecycle job requires course_slug")
+        if dry_run:
+            artifacts = [{"kind": "operator_report", "path": f"runs/{course_slug}/process_review/lesson_{lesson:02d}_operator_report.md", "created": False}]
+            return update_job(job_root, job, artifacts=artifacts, last_error=None)
+        code, output = run_command(
+            [
+                "python3",
+                "tools/greg_run_lesson.py",
+                course_slug,
+                "--lesson",
+                str(lesson),
+                "--action",
+                "lifecycle",
+                "--write-report",
+            ],
+            ROOT,
+        )
+        if code != 0:
+            raise RuntimeError(output or f"lesson_lifecycle failed with exit code {code}")
+        artifacts = [{"kind": "operator_report", "path": f"runs/{course_slug}/process_review/lesson_{lesson:02d}_operator_report.md", "created": True}]
+        return update_job(job_root, job, artifacts=artifacts, last_error=None)
+    raise ValueError(f"Worker does not support request_type yet: {request_type}")
 
 
 def process_one_worker_job(job_root: Path, *, backup_root: Path = SERVER_BACKUP_ROOT, dry_run: bool = False) -> dict[str, Any]:

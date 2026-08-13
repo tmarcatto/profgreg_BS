@@ -180,6 +180,28 @@ The operator must not route from `INTAKE` to `COURSE_MAP` only because `input/in
 python3 tools/greg_intake_check.py runs/[course-slug]/input/intake.md
 ```
 
+## Server Operator Interface
+
+During Phase 4, the server operator interface is command-based and private. It does not expose a public network port.
+
+Primary command:
+
+```text
+python3 tools/greg_operator.py [command]
+```
+
+Supported commands:
+
+- `status --course [course-slug]`
+- `request "[natural language request]" --course [course-slug] --lesson [NN]`
+- `request "[natural language request]" --course [course-slug] --lesson [NN] --enqueue`
+- `backup`
+- `lesson-lifecycle --course [course-slug] --lesson [NN]`
+- `jobs`
+- `cancel [job-id]`
+
+The interface may enqueue only safe jobs. Deck generation remains blocked unless the study-guide approval gate exists. Lesson lifecycle jobs are limited to safe maintenance work: lesson source refresh, consolidated QA, and canonical manifest update.
+
 ## Traceability
 
 Every visible status update should point back to files when useful, but the user-facing message should remain concise.

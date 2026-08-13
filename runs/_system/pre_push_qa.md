@@ -22,12 +22,12 @@ Steps:
   
   Metrics:
   - tool_files: 64
-  - non_test_tool_files: 35
+  - non_test_tool_files: 34
   - active_files_scanned: 68
   
   Findings:
   - PASS tool_file_count: Tool file count is manageable for v0: 64.
-  - PASS non_test_tool_file_count: Active non-test tool count is acceptable: 35.
+  - PASS non_test_tool_file_count: Active non-test tool count is acceptable: 34.
   ...
 - PASS environment QA
   Prof Greg environment QA passed: yes
@@ -105,8 +105,8 @@ Steps:
   - PASS one_off_builders: No obvious one-off build scripts found.
   - PASS hardcoded_outputs: No hardcoded output constants found.
 - PASS unit tests
-  ...........................................................................................................
+  ................................................................................................................
   ----------------------------------------------------------------------
-  Ran 107 tests in 1.317s
+  Ran 112 tests in 0.241s
   
   OK

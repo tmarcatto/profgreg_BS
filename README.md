@@ -82,3 +82,12 @@ The server systemd policy file is:
 ```bash
 workspace/ops/profgreg-worker.service
 ```
+
+The private operator interface is:
+
+```bash
+python3 tools/greg_operator.py status --course [course-slug]
+python3 tools/greg_operator.py request "mostre o status" --course [course-slug]
+python3 tools/greg_operator.py lesson-lifecycle --course [course-slug] --lesson 1
+python3 tools/greg_operator.py jobs
+```
