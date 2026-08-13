@@ -24,6 +24,7 @@ LOGROTATE_SAMPLE = "workspace/ops/logrotate-profgreg.conf"
 BACKUP_SERVICE_SAMPLE = "workspace/ops/profgreg-backup.service"
 BACKUP_TIMER_SAMPLE = "workspace/ops/profgreg-backup.timer"
 WORKER_SERVICE_SAMPLE = "workspace/ops/profgreg-worker.service"
+UI_SERVICE_SAMPLE = "workspace/ops/profgreg-ui.service"
 SERVER_BACKUP_ROOT = Path("/srv/profgreg/backups")
 SERVER_UPLOADS = Path("/srv/profgreg/uploads")
 SERVER_OUTPUTS = Path("/srv/profgreg/outputs")
@@ -474,6 +475,18 @@ def worker_service_policy_ok(text: str) -> bool:
     return all(item in text for item in required)
 
 
+def ui_service_policy_ok(text: str) -> bool:
+    required = [
+        "User=profgreg",
+        "EnvironmentFile=/etc/profgreg/profgreg.env",
+        "greg_ui_server.py --host 127.0.0.1",
+        "NoNewPrivileges=true",
+        "ProtectSystem=strict",
+        "ReadWritePaths=/srv/profgreg/jobs /srv/profgreg/backups",
+    ]
+    return all(item in text for item in required)
+
+
 def server_ops_findings(root: Path, *, server_mode: bool) -> tuple[list[Finding], list[dict[str, Any]]]:
     findings: list[Finding] = []
     path_infos: list[dict[str, Any]] = []
@@ -521,6 +534,12 @@ def server_ops_findings(root: Path, *, server_mode: bool) -> tuple[list[Finding]
     else:
         findings.append(Finding("fail", "worker_service_sample", "Repository worker service is missing required least-privilege policy."))
 
+    ui_text = read_text(root / UI_SERVICE_SAMPLE)
+    if ui_service_policy_ok(ui_text):
+        findings.append(Finding("pass", "ui_service_sample", "Repository private UI service has required least-privilege policy."))
+    else:
+        findings.append(Finding("fail", "ui_service_sample", "Repository private UI service is missing required least-privilege policy."))
+
     if not server_mode:
         findings.append(Finding("pass", "server_logrotate", "Server logrotate check skipped outside server mode."))
         findings.append(Finding("pass", "backup_manifest", "Backup manifest check skipped outside server mode."))
@@ -556,6 +575,12 @@ def server_ops_findings(root: Path, *, server_mode: bool) -> tuple[list[Finding]
         findings.append(Finding("pass", "server_worker_service", "Server worker service is installed."))
     else:
         findings.append(Finding("warn", "server_worker_service", "Server worker service is not installed yet."))
+
+    server_ui_text = read_text(Path("/etc/systemd/system/profgreg-ui.service"))
+    if ui_service_policy_ok(server_ui_text):
+        findings.append(Finding("pass", "server_ui_service", "Server private UI service is installed."))
+    else:
+        findings.append(Finding("warn", "server_ui_service", "Server private UI service is not installed yet."))
 
     manifests = sorted(SERVER_BACKUP_ROOT.glob("*.manifest.json")) if SERVER_BACKUP_ROOT.exists() else []
     if manifests:

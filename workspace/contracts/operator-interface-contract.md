@@ -202,6 +202,28 @@ Supported commands:
 
 The interface may enqueue only safe jobs. Deck generation remains blocked unless the study-guide approval gate exists. Lesson lifecycle jobs are limited to safe maintenance work: lesson source refresh, consolidated QA, and canonical manifest update.
 
+## Private UI Layer
+
+The first non-technical UI is private and local-bound:
+
+```text
+python3 tools/greg_ui_server.py --host 127.0.0.1 --port 8765
+```
+
+Server policy file:
+
+```text
+workspace/ops/profgreg-ui.service
+```
+
+Rules:
+
+- bind to `127.0.0.1` only;
+- expose no public port;
+- access from the operator machine through SSH tunnel;
+- use the same private operator commands and gates;
+- do not show secrets, raw prompts, full source content, or internal stack traces.
+
 ## Traceability
 
 Every visible status update should point back to files when useful, but the user-facing message should remain concise.

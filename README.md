@@ -91,3 +91,11 @@ python3 tools/greg_operator.py request "mostre o status" --course [course-slug]
 python3 tools/greg_operator.py lesson-lifecycle --course [course-slug] --lesson 1
 python3 tools/greg_operator.py jobs
 ```
+
+The first private UI is local-bound:
+
+```bash
+python3 tools/greg_ui_server.py --host 127.0.0.1 --port 8765
+```
+
+On the server, access it through an SSH tunnel instead of opening a public port.

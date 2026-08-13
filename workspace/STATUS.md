@@ -88,7 +88,8 @@ Phase 3 technical pause is complete for the planned blocks:
 - The worker currently executes safe `backup` jobs and safe `lesson_lifecycle` maintenance jobs.
 - Private command-based operator interface now exists at `tools/greg_operator.py`.
 - `tools/greg_operator.py` was validated on the live server: it listed jobs, queued a backup job, preserved deck gate blocking, and the worker completed the queued backup job.
-- Next design the first non-technical UI layer on top of the private operator interface.
+- Private non-technical UI now exists at `tools/greg_ui_server.py`, bound to localhost only by policy.
+- Next install and validate `profgreg-ui.service` on the live server, then access it through an SSH tunnel.
 
 Latest verification:
 

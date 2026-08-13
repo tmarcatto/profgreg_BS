@@ -70,12 +70,15 @@ class GregServerStatusTests(unittest.TestCase):
         service = (ROOT / "workspace" / "ops" / "profgreg-backup.service").read_text(encoding="utf-8")
         timer = (ROOT / "workspace" / "ops" / "profgreg-backup.timer").read_text(encoding="utf-8")
         worker = (ROOT / "workspace" / "ops" / "profgreg-worker.service").read_text(encoding="utf-8")
+        ui = (ROOT / "workspace" / "ops" / "profgreg-ui.service").read_text(encoding="utf-8")
         self.assertTrue(checker.backup_service_policy_ok(service))
         self.assertTrue(checker.backup_timer_policy_ok(timer))
         self.assertTrue(checker.worker_service_policy_ok(worker))
+        self.assertTrue(checker.ui_service_policy_ok(ui))
         self.assertFalse(checker.backup_service_policy_ok("User=root"))
         self.assertFalse(checker.backup_timer_policy_ok("OnCalendar=weekly"))
         self.assertFalse(checker.worker_service_policy_ok("User=root"))
+        self.assertFalse(checker.ui_service_policy_ok("ExecStart=python server.py --host 0.0.0.0"))
 
     def test_ops_only_current_repo_passes_local(self) -> None:
         data = checker.run_ops_checks(ROOT, mode="local")
