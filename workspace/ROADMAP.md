@@ -219,6 +219,7 @@ Preparation completed:
 - Ran minimal API smoke tests for OpenAI, Anthropic, DeepSeek, xAI, and local deterministic routing.
 - API smoke tests passed, including a minimal OpenAI `gpt-image-2` image-generation validation.
 - Added server backup/log operations checks, manual backup manifest generation, job-state readiness, and scheduled backup timer policy files.
+- Installed and validated `profgreg-backup.timer` and `profgreg-backup.service` on the live server with a successful scheduled backup run.
 - Added `tools/greg_server_status.py` as a non-destructive local/server deployment status operator.
 - Added server-status unit tests and local status report generation.
 - Added `workspace/contracts/server-operations-contract.md` for backup and log operations policy.
