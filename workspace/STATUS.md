@@ -87,7 +87,8 @@ Phase 3 technical pause is complete for the planned blocks:
 - `profgreg-worker.service` is installed and active on the live server.
 - The worker currently executes safe `backup` jobs and safe `lesson_lifecycle` maintenance jobs.
 - Private command-based operator interface now exists at `tools/greg_operator.py`.
-- Next validate `tools/greg_operator.py` on the live server and then design the first non-technical UI layer on top of it.
+- `tools/greg_operator.py` was validated on the live server: it listed jobs, queued a backup job, preserved deck gate blocking, and the worker completed the queued backup job.
+- Next design the first non-technical UI layer on top of the private operator interface.
 
 Latest verification:
 
@@ -99,6 +100,7 @@ Latest verification:
 - Live server operations QA passed after scheduled backup installation: 0 failures, 0 warnings.
 - Live worker validation passed on 2026-08-13: a queued backup job completed and produced backup archive/manifest artifacts.
 - Live server deploy QA and server status passed at commit `7f8f912`: 0 failures, 0 warnings.
+- Live private-operator validation passed at commit `966d12d`: deploy QA passed, server status passed, operator-created backup job completed, and deck request remained blocked without the required gate.
 
 Existing operator tools:
 

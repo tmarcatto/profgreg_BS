@@ -221,7 +221,7 @@ Preparation completed:
 - Added server backup/log operations checks, manual backup manifest generation, job-state readiness, and scheduled backup timer policy files.
 - Installed and validated `profgreg-backup.timer` and `profgreg-backup.service` on the live server with a successful scheduled backup run.
 - Added and installed the first conservative server worker foundation under `tools/greg_server_status.py --worker`, with systemd policy and tests. The first executable job types are `backup` and safe `lesson_lifecycle`; course-production jobs remain gated for a later worker expansion.
-- Added the first private command-based operator interface at `tools/greg_operator.py`.
+- Added and validated the first private command-based operator interface at `tools/greg_operator.py`.
 - Added `tools/greg_server_status.py` as a non-destructive local/server deployment status operator.
 - Added server-status unit tests and local status report generation.
 - Added `workspace/contracts/server-operations-contract.md` for backup and log operations policy.
