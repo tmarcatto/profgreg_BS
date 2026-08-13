@@ -54,6 +54,16 @@ The backup job creates:
 - a log inventory only, not raw general log contents;
 - explicit secret-path exclusions.
 
+Scheduled backups are controlled by:
+
+- repository policy files: `workspace/ops/profgreg-backup.service` and `workspace/ops/profgreg-backup.timer`;
+- server install paths: `/etc/systemd/system/profgreg-backup.service` and `/etc/systemd/system/profgreg-backup.timer`;
+- daily schedule with `Persistent=true`;
+- service execution as the least-privilege `profgreg` user;
+- write access limited to `/srv/profgreg/backups` and the local app `tmp` report path.
+
+The timer is an operational safety net, not a substitute for deliberate release/artifact storage. It protects server uploads and generated outputs so the operator can recover recent production state.
+
 ## Log Policy
 
 Logs must support operations without leaking secrets or full source payloads.

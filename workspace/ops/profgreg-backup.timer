@@ -1,0 +1,11 @@
+[Unit]
+Description=Run Prof Greg scheduled backup daily
+
+[Timer]
+OnCalendar=daily
+RandomizedDelaySec=15m
+Persistent=true
+Unit=profgreg-backup.service
+
+[Install]
+WantedBy=timers.target

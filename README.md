@@ -58,6 +58,13 @@ For the first server backup job:
 python3 tools/greg_server_status.py --mode server --create-backup --backup-label manual
 ```
 
+Scheduled backup policy files live in:
+
+```bash
+workspace/ops/profgreg-backup.service
+workspace/ops/profgreg-backup.timer
+```
+
 For server job-state readiness:
 
 ```bash

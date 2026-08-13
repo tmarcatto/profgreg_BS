@@ -66,6 +66,14 @@ class GregServerStatusTests(unittest.TestCase):
         self.assertTrue(checker.logrotate_policy_ok(text))
         self.assertFalse(checker.logrotate_policy_ok("/var/log/profgreg/*.log { weekly }"))
 
+    def test_backup_systemd_policy_detection(self) -> None:
+        service = (ROOT / "workspace" / "ops" / "profgreg-backup.service").read_text(encoding="utf-8")
+        timer = (ROOT / "workspace" / "ops" / "profgreg-backup.timer").read_text(encoding="utf-8")
+        self.assertTrue(checker.backup_service_policy_ok(service))
+        self.assertTrue(checker.backup_timer_policy_ok(timer))
+        self.assertFalse(checker.backup_service_policy_ok("User=root"))
+        self.assertFalse(checker.backup_timer_policy_ok("OnCalendar=weekly"))
+
     def test_ops_only_current_repo_passes_local(self) -> None:
         data = checker.run_ops_checks(ROOT, mode="local")
         self.assertTrue(data["passed"], data["findings"])

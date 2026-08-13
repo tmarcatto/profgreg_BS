@@ -81,7 +81,8 @@ Phase 3 technical pause is complete for the planned blocks:
 - Backup/log operations policy now exists and is checked through `tools/greg_server_status.py --ops-only`.
 - The first backup job now exists through `tools/greg_server_status.py --create-backup`, with archive checksum and restore manifest.
 - Server job-state contract and operator readiness checks now exist through `tools/greg_server_status.py --jobs-only`.
-- Next validate `/srv/profgreg/jobs` and a no-op job lifecycle on the live server, then add a scheduled backup timer.
+- Scheduled backup service/timer policy files now exist and are checked by server operations QA.
+- Next install and validate the scheduled backup timer on the live server, then start the runtime worker foundation.
 
 Latest verification:
 

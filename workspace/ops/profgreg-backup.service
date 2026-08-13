@@ -1,0 +1,16 @@
+[Unit]
+Description=Prof Greg scheduled backup
+Documentation=file:/opt/profgreg/app/workspace/contracts/server-operations-contract.md
+
+[Service]
+Type=oneshot
+User=profgreg
+Group=profgreg
+WorkingDirectory=/opt/profgreg/app
+ExecStart=/usr/bin/python3 /opt/profgreg/app/tools/greg_server_status.py --mode server --create-backup --backup-label scheduled --output tmp/backup_job.md
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectHome=true
+ProtectSystem=strict
+ReadOnlyPaths=/srv/profgreg/uploads /srv/profgreg/outputs /var/log/profgreg
+ReadWritePaths=/srv/profgreg/backups /opt/profgreg/app/tmp

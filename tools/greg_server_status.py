@@ -20,6 +20,8 @@ from greg_security import assert_safe_write_path
 ROOT = Path(__file__).resolve().parents[1]
 CONTRACT = "workspace/contracts/server-operations-contract.md"
 LOGROTATE_SAMPLE = "workspace/ops/logrotate-profgreg.conf"
+BACKUP_SERVICE_SAMPLE = "workspace/ops/profgreg-backup.service"
+BACKUP_TIMER_SAMPLE = "workspace/ops/profgreg-backup.timer"
 SERVER_BACKUP_ROOT = Path("/srv/profgreg/backups")
 SERVER_UPLOADS = Path("/srv/profgreg/uploads")
 SERVER_OUTPUTS = Path("/srv/profgreg/outputs")
@@ -338,6 +340,28 @@ def logrotate_policy_ok(text: str) -> bool:
     return all(re.search(pattern, text) for pattern in required_patterns)
 
 
+def backup_service_policy_ok(text: str) -> bool:
+    required = [
+        "User=profgreg",
+        "WorkingDirectory=/opt/profgreg/app",
+        "greg_server_status.py --mode server --create-backup",
+        "NoNewPrivileges=true",
+        "ProtectSystem=strict",
+        "ReadWritePaths=/srv/profgreg/backups",
+    ]
+    return all(item in text for item in required)
+
+
+def backup_timer_policy_ok(text: str) -> bool:
+    required = [
+        "OnCalendar=daily",
+        "Persistent=true",
+        "Unit=profgreg-backup.service",
+        "WantedBy=timers.target",
+    ]
+    return all(item in text for item in required)
+
+
 def server_ops_findings(root: Path, *, server_mode: bool) -> tuple[list[Finding], list[dict[str, Any]]]:
     findings: list[Finding] = []
     path_infos: list[dict[str, Any]] = []
@@ -367,6 +391,18 @@ def server_ops_findings(root: Path, *, server_mode: bool) -> tuple[list[Finding]
     else:
         findings.append(Finding("fail", "logrotate_sample", "Repository logrotate sample is missing required rotation policy."))
 
+    service_text = read_text(root / BACKUP_SERVICE_SAMPLE)
+    if backup_service_policy_ok(service_text):
+        findings.append(Finding("pass", "backup_service_sample", "Repository backup service has required least-privilege policy."))
+    else:
+        findings.append(Finding("fail", "backup_service_sample", "Repository backup service is missing required least-privilege policy."))
+
+    timer_text = read_text(root / BACKUP_TIMER_SAMPLE)
+    if backup_timer_policy_ok(timer_text):
+        findings.append(Finding("pass", "backup_timer_sample", "Repository backup timer has required schedule policy."))
+    else:
+        findings.append(Finding("fail", "backup_timer_sample", "Repository backup timer is missing required schedule policy."))
+
     if not server_mode:
         findings.append(Finding("pass", "server_logrotate", "Server logrotate check skipped outside server mode."))
         findings.append(Finding("pass", "backup_manifest", "Backup manifest check skipped outside server mode."))
@@ -385,6 +421,17 @@ def server_ops_findings(root: Path, *, server_mode: bool) -> tuple[list[Finding]
         findings.append(Finding("pass", "server_logrotate", "Server logrotate policy is installed."))
     else:
         findings.append(Finding("fail", "server_logrotate", "Server logrotate policy is missing or incomplete at /etc/logrotate.d/profgreg."))
+
+    server_service_text = read_text(Path("/etc/systemd/system/profgreg-backup.service"))
+    server_timer_text = read_text(Path("/etc/systemd/system/profgreg-backup.timer"))
+    if backup_service_policy_ok(server_service_text):
+        findings.append(Finding("pass", "server_backup_service", "Server backup service is installed."))
+    else:
+        findings.append(Finding("warn", "server_backup_service", "Server backup service is not installed yet."))
+    if backup_timer_policy_ok(server_timer_text):
+        findings.append(Finding("pass", "server_backup_timer", "Server backup timer is installed."))
+    else:
+        findings.append(Finding("warn", "server_backup_timer", "Server backup timer is not installed yet."))
 
     manifests = sorted(SERVER_BACKUP_ROOT.glob("*.manifest.json")) if SERVER_BACKUP_ROOT.exists() else []
     if manifests:
