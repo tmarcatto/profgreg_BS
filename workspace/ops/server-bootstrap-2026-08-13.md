@@ -1,0 +1,75 @@
+# Prof Greg Server Bootstrap - 2026-08-13
+
+## Server
+
+- Provider: Hetzner
+- Server name: `profgreg`
+- Type: CPX12
+- Public IPv4: `178.104.245.118`
+- OS: Ubuntu 26.04 LTS
+- Deployment path: `/opt/profgreg/app`
+- Runtime user: `profgreg`
+- Git remote: `https://github.com/tmarcatto/profgreg_BS.git`
+- Deployed commit: `335b5f6`
+
+## Security Baseline
+
+- SSH key dedicated to Prof Greg.
+- SSH password authentication disabled.
+- Keyboard-interactive SSH authentication disabled.
+- Public-key SSH authentication enabled.
+- Root login allowed only by key: `prohibit-password`.
+- X11 forwarding disabled.
+- Runtime user `profgreg` has no sudo privileges.
+- Firewall active.
+- Inbound firewall allows only OpenSSH.
+- Default inbound firewall policy is deny.
+
+## Installed Runtime Capabilities
+
+- Python 3.14.4
+- Node.js 22.22.1
+- npm 9.2.0
+- Git 2.53.0
+- LibreOffice 26.2.4.2
+- Poppler `pdftoppm` 26.01.0
+- Fontconfig
+
+## Storage Layout
+
+- Code checkout: `/opt/profgreg/app`
+- Upload staging: `/srv/profgreg/uploads`
+- Generated outputs: `/srv/profgreg/outputs`
+- Runtime logs: `/var/log/profgreg`
+- Server config/secrets root: `/etc/profgreg`
+
+## Validation
+
+Server deploy-safe QA command:
+
+```bash
+python3 tools/greg_pre_push_check.py --no-update-reports --output tmp/deploy_qa.md
+```
+
+Result:
+
+- Security QA: pass
+- Code quality QA: pass
+- Model routing QA: pass
+- Renderer reuse QA: pass
+- Unit tests: pass, 88 tests
+- Git checkout stayed clean after deploy-safe QA.
+
+Dry-run course folder creation:
+
+- Created ignored run folder: `runs/server-dry-run`
+- Git checkout stayed clean.
+
+## Open Items Before 24/7 Operation
+
+- Configure production provider API keys outside Git.
+- Decide whether to use systemd directly or Docker for the first persistent service.
+- Add backup policy for uploads, outputs, logs, and server config.
+- Add log rotation policy.
+- Add domain/HTTPS only when a public or semi-public interface is introduced.
+- Add request authentication and rate limits before exposing any UI/API.

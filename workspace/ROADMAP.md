@@ -1,6 +1,6 @@
 # Prof Greg Roadmap
 
-Status date: 2026-08-12
+Status date: 2026-08-13
 
 This roadmap updates the original Prof Greg plan after the Blueprint Reading bench.
 
@@ -203,6 +203,15 @@ Preparation completed:
 - Added Git repository rules and generated-artifact exclusion rules.
 - Added the deployment environment contract.
 - Added a pre-push QA command that runs security QA, code quality QA, model-routing QA, renderer-reuse QA, and unit tests.
+- Created the Hetzner CPX12 server `profgreg`.
+- Created dedicated Prof Greg SSH key and local ignored secret storage.
+- Configured baseline SSH hardening and firewall.
+- Created least-privilege runtime user `profgreg`.
+- Installed Python, Node, Git, LibreOffice, Poppler, and font tooling.
+- Cloned `tmarcatto/profgreg_BS` into `/opt/profgreg/app`.
+- Added deploy-safe QA mode so server checks do not dirty the Git checkout.
+- Server deploy-safe QA passed with 88 tests and 0 failures.
+- Server dry-run course creation passed without dirtying the Git checkout.
 
 Updated rule:
 
