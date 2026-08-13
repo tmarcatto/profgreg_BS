@@ -104,8 +104,8 @@ Steps:
   - PASS one_off_builders: No obvious one-off build scripts found.
   - PASS hardcoded_outputs: No hardcoded output constants found.
 - PASS unit tests
-  ......................................................................................................
+  .......................................................................................................
   ----------------------------------------------------------------------
-  Ran 102 tests in 0.266s
+  Ran 103 tests in 0.635s
   
   OK

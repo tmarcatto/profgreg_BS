@@ -651,7 +651,9 @@ def main() -> int:
         output.parent.mkdir(parents=True, exist_ok=True)
         output.write_text(report, encoding="utf-8")
     print(json.dumps(data, indent=2, ensure_ascii=False) if args.json else report, end="" if args.json else "")
-    return 0 if data["passed"] else 1
+    if isinstance(data, dict) and "passed" in data:
+        return 0 if data["passed"] else 1
+    return 0
 
 
 if __name__ == "__main__":

@@ -1,10 +1,13 @@
 from __future__ import annotations
 
 import importlib.util
+import io
 import sys
 import tempfile
 import unittest
+from contextlib import redirect_stdout
 from pathlib import Path
+from unittest.mock import patch
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -104,6 +107,14 @@ class GregServerStatusTests(unittest.TestCase):
     def test_job_root_must_be_safe(self) -> None:
         with self.assertRaises(ValueError):
             checker.safe_job_root(Path("/tmp/not-profgreg"))
+
+    def test_main_create_job_returns_success(self) -> None:
+        (ROOT / "tmp" / "jobs").mkdir(parents=True, exist_ok=True)
+        with tempfile.TemporaryDirectory(dir=ROOT / "tmp" / "jobs") as tmp:
+            argv = ["greg_server_status.py", "--job-root", tmp, "--create-job", "backup"]
+            with patch.object(sys, "argv", argv):
+                with redirect_stdout(io.StringIO()):
+                    self.assertEqual(checker.main(), 0)
 
 
 if __name__ == "__main__":
