@@ -482,7 +482,7 @@ def ui_service_policy_ok(text: str) -> bool:
         "greg_ui_server.py --host 127.0.0.1",
         "NoNewPrivileges=true",
         "ProtectSystem=strict",
-        "ReadWritePaths=/srv/profgreg/jobs /srv/profgreg/backups",
+        "ReadWritePaths=/srv/profgreg/jobs /srv/profgreg/backups /srv/profgreg/uploads",
     ]
     return all(item in text for item in required)
 

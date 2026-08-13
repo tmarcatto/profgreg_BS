@@ -23,6 +23,7 @@ Security priorities:
 - Model routing must remain centralized in `workspace/config/model-routing.json`.
 - Renderers and tools must not accept arbitrary absolute output paths.
 - Uploaded books, PDFs, DOCX files, and generated page/slide renders must not be committed by accident.
+- UI uploads must be type-limited, size-limited, path-sanitized, stored outside Git, and tracked through metadata/hash records.
 - Subprocess calls must use argument arrays, not shell strings.
 - Any tool that writes files must write under approved folders such as `runs/`, `workspace/`, or `tmp/`.
 - Existing approval records must not be overwritten unless the operator explicitly uses a force/replace option.

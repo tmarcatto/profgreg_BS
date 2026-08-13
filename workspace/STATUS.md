@@ -90,7 +90,8 @@ Phase 3 technical pause is complete for the planned blocks:
 - `tools/greg_operator.py` was validated on the live server: it listed jobs, queued a backup job, preserved deck gate blocking, and the worker completed the queued backup job.
 - Private non-technical UI now exists at `tools/greg_ui_server.py`, bound to localhost only by policy.
 - `profgreg-ui.service` is installed and active on the live server, bound to `127.0.0.1:8765`.
-- Next access the UI through an SSH tunnel and review the first operator experience.
+- The UI now includes course intake creation and source-material upload controls.
+- Next deploy the upload/intake UI update, validate upload storage on the live server, and then wire Course Map jobs.
 
 Latest verification:
 

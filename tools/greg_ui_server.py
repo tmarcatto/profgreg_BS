@@ -2,9 +2,12 @@
 from __future__ import annotations
 
 import argparse
+import cgi
+import hashlib
 import html
 import json
 import os
+import re
 from http import HTTPStatus
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
@@ -12,11 +15,17 @@ from urllib.parse import parse_qs, urlparse
 
 from greg_operator import course_status, default_job_root, enqueue_job, handle_request
 from greg_server_status import list_jobs, safe_job_root
+from greg_create_run import create_run, slugify
 
 
 DEFAULT_HOST = "127.0.0.1"
 DEFAULT_PORT = 8765
 DEFAULT_COURSE = "construction-schedule-management"
+ROOT = Path(__file__).resolve().parents[1]
+SERVER_UPLOAD_ROOT = Path("/srv/profgreg/uploads")
+LOCAL_UPLOAD_ROOT = ROOT / "tmp" / "uploads"
+MAX_UPLOAD_BYTES = 75 * 1024 * 1024
+ALLOWED_UPLOAD_EXTENSIONS = {".pdf", ".docx", ".txt", ".md"}
 
 
 def json_bytes(data: object) -> bytes:
@@ -29,6 +38,110 @@ def read_request_body(handler: BaseHTTPRequestHandler) -> dict:
         return {}
     raw = handler.rfile.read(min(length, 1024 * 1024))
     return json.loads(raw.decode("utf-8") or "{}")
+
+
+def safe_upload_root(path: Path) -> Path:
+    resolved = path.expanduser().resolve()
+    local = LOCAL_UPLOAD_ROOT.resolve()
+    server = SERVER_UPLOAD_ROOT.resolve()
+    if resolved == local or local in resolved.parents:
+        return resolved
+    if resolved == server or server in resolved.parents:
+        return resolved
+    raise ValueError(f"Upload root must stay under {server} or {local}: {path}")
+
+
+def safe_filename(value: str) -> str:
+    name = Path(value or "uploaded-file").name
+    clean = re.sub(r"[^a-zA-Z0-9._ -]+", "-", name).strip(" .-_")
+    if not clean:
+        clean = "uploaded-file"
+    suffix = Path(clean).suffix.lower()
+    if suffix not in ALLOWED_UPLOAD_EXTENSIONS:
+        raise ValueError(f"Unsupported upload type: {suffix or '[none]'}")
+    return clean[:120]
+
+
+def file_sha256(path: Path) -> str:
+    digest = hashlib.sha256()
+    with path.open("rb") as handle:
+        for chunk in iter(lambda: handle.read(1024 * 1024), b""):
+            digest.update(chunk)
+    return digest.hexdigest()
+
+
+def upload_course_dir(upload_root: Path, course_slug: str) -> Path:
+    return safe_upload_root(upload_root) / slugify(course_slug)
+
+
+def save_uploaded_file(
+    *,
+    upload_root: Path,
+    course_slug: str,
+    filename: str,
+    data: bytes,
+    scope: str = "course",
+    lesson: int | None = None,
+) -> dict:
+    if len(data) > MAX_UPLOAD_BYTES:
+        raise ValueError("Upload is too large.")
+    clean_name = safe_filename(filename)
+    scope_name = "course" if scope != "lesson" else f"lesson_{int(lesson or 1):02d}"
+    target_dir = upload_course_dir(upload_root, course_slug) / scope_name
+    target_dir.mkdir(parents=True, exist_ok=True)
+    target = target_dir / clean_name
+    if target.exists():
+        target = target_dir / f"{target.stem[:80]}-{hashlib.sha256(data).hexdigest()[:8]}{target.suffix}"
+    target.write_bytes(data)
+    meta = {
+        "course_slug": slugify(course_slug),
+        "filename": clean_name,
+        "stored_path": str(target),
+        "scope": scope_name,
+        "size_bytes": len(data),
+        "sha256": file_sha256(target),
+    }
+    manifest = upload_course_dir(upload_root, course_slug) / "upload_manifest.jsonl"
+    with manifest.open("a", encoding="utf-8") as handle:
+        handle.write(json.dumps(meta, ensure_ascii=False) + "\n")
+    return meta
+
+
+def list_uploads(upload_root: Path, course_slug: str) -> list[dict]:
+    manifest = upload_course_dir(upload_root, course_slug) / "upload_manifest.jsonl"
+    if not manifest.exists():
+        return []
+    return [json.loads(line) for line in manifest.read_text(encoding="utf-8", errors="replace").splitlines() if line.strip()][-50:]
+
+
+def create_course_intake(*, title: str, level: str, syllabus: str, course_slug: str | None = None) -> dict:
+    if not title.strip():
+        raise ValueError("Course title is required.")
+    setup = create_run(title.strip(), course_slug, level or "Basic")
+    intake = ROOT / setup.intake_path
+    intake.write_text(
+        "\n".join(
+            [
+                f"# {title.strip()}",
+                "",
+                f"Course slug: `{setup.course_slug}`",
+                f"Course level: {level or 'Basic'}",
+                "Base language: English",
+                "Audience: U.S. residential construction workforce.",
+                "",
+                "## Initial Syllabus Direction",
+                "",
+                syllabus.strip() or "[Add syllabus direction here.]",
+                "",
+                "## Uploaded Source Materials",
+                "",
+                "Uploaded files are stored outside Git under the server upload root and tracked in the upload manifest.",
+                "",
+            ]
+        ),
+        encoding="utf-8",
+    )
+    return {**setup.__dict__, "message": f"Course intake created: {setup.course_slug}"}
 
 
 def ui_shell(default_course: str) -> str:
@@ -82,12 +195,15 @@ def ui_shell(default_course: str) -> str:
       border: 1px solid var(--line);
       border-radius: 6px;
     }}
-    input, textarea {{ padding: 10px 12px; color: var(--ink); background: #fff; }}
+    input, textarea, select {{ padding: 10px 12px; color: var(--ink); background: #fff; }}
     textarea {{ width: 100%; min-height: 86px; resize: vertical; }}
     button {{ padding: 10px 14px; background: #fff; color: var(--navy); font-weight: 680; cursor: pointer; }}
     button.primary {{ background: var(--orange); border-color: var(--orange); color: #fff; }}
     button:disabled {{ opacity: .55; cursor: not-allowed; }}
     .grid {{ display: grid; grid-template-columns: 1.15fr .85fr; gap: 18px; align-items: start; }}
+    .wide {{ grid-column: 1 / -1; }}
+    .form-grid {{ display: grid; grid-template-columns: minmax(240px, 1fr) 180px 180px; gap: 10px; align-items: start; }}
+    .file-grid {{ display: grid; grid-template-columns: minmax(240px, 1fr) 190px 96px auto; gap: 10px; align-items: center; }}
     section {{ border: 1px solid var(--line); border-radius: 8px; background: #fff; overflow: hidden; }}
     section h2 {{ margin: 0; padding: 14px 16px; font-size: 16px; color: var(--navy); border-bottom: 1px solid var(--line); background: var(--soft); }}
     .body {{ padding: 16px; }}
@@ -107,7 +223,7 @@ def ui_shell(default_course: str) -> str:
     .muted {{ color: var(--muted); }}
     @media (max-width: 820px) {{
       header {{ align-items: flex-start; flex-direction: column; }}
-      .toolbar, .grid, .facts {{ grid-template-columns: 1fr; }}
+      .toolbar, .grid, .facts, .form-grid, .file-grid {{ grid-template-columns: 1fr; }}
     }}
   </style>
 </head>
@@ -124,6 +240,42 @@ def ui_shell(default_course: str) -> str:
       <button class="primary" id="lifecycle">Queue Lesson Lifecycle</button>
     </div>
     <div class="grid">
+      <section class="wide">
+        <h2>Create Course / Intake</h2>
+        <div class="body">
+          <div class="form-grid">
+            <input id="courseTitle" placeholder="Course title">
+            <select id="courseLevel">
+              <option>Basic</option>
+              <option>Intermediate</option>
+              <option>Advanced</option>
+            </select>
+            <input id="courseSlug" placeholder="Optional slug">
+          </div>
+          <textarea id="syllabus" placeholder="Paste the initial syllabus direction here. Greg treats this as a starting point, not a fixed Course Map."></textarea>
+          <div class="actions">
+            <button class="primary" id="createCourse">Create Intake</button>
+          </div>
+        </div>
+      </section>
+      <section class="wide">
+        <h2>Upload Materials</h2>
+        <div class="body">
+          <div class="file-grid">
+            <input id="files" type="file" multiple accept=".pdf,.docx,.txt,.md">
+            <select id="uploadScope">
+              <option value="course">Course-level source</option>
+              <option value="lesson">Lesson-specific source</option>
+            </select>
+            <input id="uploadLesson" type="number" min="1" value="1">
+            <button class="primary" id="upload">Upload</button>
+          </div>
+          <table>
+            <thead><tr><th>File</th><th>Scope</th><th>Size</th></tr></thead>
+            <tbody id="uploads"><tr><td colspan="3" class="muted">No uploads loaded.</td></tr></tbody>
+          </table>
+        </div>
+      </section>
       <section>
         <h2>Course Status</h2>
         <div class="body">
@@ -174,6 +326,9 @@ def ui_shell(default_course: str) -> str:
         const jobs = await api('/api/jobs');
         const rows = jobs.jobs.length ? jobs.jobs.map(j => `<tr><td><code>${{esc(j.job_id)}}</code></td><td class="state ${{esc(j.state)}}">${{esc(j.state)}}</td><td>${{esc(j.request_type)}}</td></tr>`).join('') : '<tr><td colspan="3" class="muted">No jobs yet.</td></tr>';
         document.getElementById('jobs').innerHTML = rows;
+        const uploads = await api('/api/uploads?course=' + encodeURIComponent(course.value));
+        const uploadRows = uploads.uploads.length ? uploads.uploads.map(u => `<tr><td>${{esc(u.filename)}}</td><td>${{esc(u.scope)}}</td><td>${{Math.round((u.size_bytes || 0) / 1024)}} KB</td></tr>`).join('') : '<tr><td colspan="3" class="muted">No uploads yet.</td></tr>';
+        document.getElementById('uploads').innerHTML = uploadRows;
       }} catch (error) {{
         msg.textContent = error.message;
       }}
@@ -186,13 +341,41 @@ def ui_shell(default_course: str) -> str:
           route.innerHTML = `<strong>${{esc(data.route.intent)}}</strong> · ${{esc(data.route.stage)}}<br>${{esc(data.route.next_action)}}`;
         }}
         await refresh();
+        return data;
       }} catch (error) {{
         msg.textContent = error.message;
+        throw error;
       }}
     }}
     document.getElementById('refresh').onclick = refresh;
     document.getElementById('backup').onclick = () => post('/api/backup', {{summary: 'ui backup request'}});
     document.getElementById('lifecycle').onclick = () => post('/api/lesson-lifecycle', {{course: course.value, lesson: 1}});
+    document.getElementById('createCourse').onclick = () => post('/api/create-course', {{
+      title: document.getElementById('courseTitle').value,
+      level: document.getElementById('courseLevel').value,
+      slug: document.getElementById('courseSlug').value,
+      syllabus: document.getElementById('syllabus').value
+    }}).then((data) => {{
+      const manualSlug = document.getElementById('courseSlug').value;
+      course.value = data.course_slug || manualSlug || course.value;
+    }}).then(refresh);
+    }});
+    document.getElementById('upload').onclick = async () => {{
+      try {{
+        const form = new FormData();
+        form.append('course', course.value);
+        form.append('scope', document.getElementById('uploadScope').value);
+        form.append('lesson', document.getElementById('uploadLesson').value);
+        for (const file of document.getElementById('files').files) form.append('files', file);
+        const res = await fetch('/api/upload', {{ method: 'POST', body: form }});
+        const data = await res.json();
+        if (!res.ok) throw new Error(data.error || 'Upload failed');
+        msg.textContent = data.message || 'Uploaded.';
+        await refresh();
+      }} catch (error) {{
+        msg.textContent = error.message;
+      }}
+    }};
     document.getElementById('interpret').onclick = () => post('/api/request', {{course: course.value, lesson: 1, request: document.getElementById('requestText').value, enqueue: false}});
     document.getElementById('enqueue').onclick = () => post('/api/request', {{course: course.value, lesson: 1, request: document.getElementById('requestText').value, enqueue: true}});
     refresh();
@@ -238,6 +421,10 @@ class GregUiHandler(BaseHTTPRequestHandler):
                 jobs = list_jobs(job_root)[-30:]
                 self.send_json(HTTPStatus.OK, {"jobs": jobs})
                 return
+            if parsed.path == "/api/uploads":
+                course = parse_qs(parsed.query).get("course", [getattr(self.server, "default_course", DEFAULT_COURSE)])[0]
+                self.send_json(HTTPStatus.OK, {"uploads": list_uploads(getattr(self.server, "upload_root"), course)})
+                return
             self.send_json(HTTPStatus.NOT_FOUND, {"error": "Not found"})
         except Exception as error:
             self.send_json(HTTPStatus.INTERNAL_SERVER_ERROR, {"error": str(error)[:500]})
@@ -275,6 +462,46 @@ class GregUiHandler(BaseHTTPRequestHandler):
                 status = HTTPStatus.OK if result.allowed else HTTPStatus.CONFLICT
                 self.send_json(status, {"message": result.message, "job": result.job, "route": result.route, "status": result.status})
                 return
+            if parsed.path == "/api/create-course":
+                result = create_course_intake(
+                    title=str(body.get("title") or ""),
+                    level=str(body.get("level") or "Basic"),
+                    syllabus=str(body.get("syllabus") or ""),
+                    course_slug=str(body.get("slug") or "") or None,
+                )
+                self.send_json(HTTPStatus.OK, result)
+                return
+            if parsed.path == "/api/upload":
+                content_length = int(self.headers.get("Content-Length", "0") or "0")
+                if content_length > MAX_UPLOAD_BYTES:
+                    self.send_json(HTTPStatus.REQUEST_ENTITY_TOO_LARGE, {"error": "Upload request is too large."})
+                    return
+                form = cgi.FieldStorage(
+                    fp=self.rfile,
+                    headers=self.headers,
+                    environ={"REQUEST_METHOD": "POST", "CONTENT_TYPE": self.headers.get("Content-Type", "")},
+                )
+                course = str(form.getfirst("course") or getattr(self.server, "default_course", DEFAULT_COURSE))
+                scope = str(form.getfirst("scope") or "course")
+                lesson = int(form.getfirst("lesson") or 1)
+                fields = form["files"] if "files" in form else []
+                file_fields = fields if isinstance(fields, list) else [fields]
+                saved = []
+                for field in file_fields:
+                    if not getattr(field, "filename", ""):
+                        continue
+                    saved.append(
+                        save_uploaded_file(
+                            upload_root=getattr(self.server, "upload_root"),
+                            course_slug=course,
+                            filename=field.filename,
+                            data=field.file.read(),
+                            scope=scope,
+                            lesson=lesson,
+                        )
+                    )
+                self.send_json(HTTPStatus.OK, {"message": f"Uploaded {len(saved)} file(s).", "uploads": saved})
+                return
             self.send_json(HTTPStatus.NOT_FOUND, {"error": "Not found"})
         except Exception as error:
             self.send_json(HTTPStatus.INTERNAL_SERVER_ERROR, {"error": str(error)[:500]})
@@ -283,10 +510,12 @@ class GregUiHandler(BaseHTTPRequestHandler):
         return
 
 
-def build_server(host: str, port: int, *, job_root: Path, default_course: str, ui_token: str = "") -> ThreadingHTTPServer:
+def build_server(host: str, port: int, *, job_root: Path, upload_root: Path, default_course: str, ui_token: str = "") -> ThreadingHTTPServer:
     resolved_job_root = safe_job_root(job_root)
+    resolved_upload_root = safe_upload_root(upload_root)
     server = ThreadingHTTPServer((host, port), GregUiHandler)
     server.job_root = resolved_job_root  # type: ignore[attr-defined]
+    server.upload_root = resolved_upload_root  # type: ignore[attr-defined]
     server.default_course = default_course  # type: ignore[attr-defined]
     server.ui_token = ui_token  # type: ignore[attr-defined]
     return server
@@ -297,6 +526,7 @@ def main() -> int:
     parser.add_argument("--host", default=DEFAULT_HOST)
     parser.add_argument("--port", type=int, default=DEFAULT_PORT)
     parser.add_argument("--job-root", default=str(default_job_root()))
+    parser.add_argument("--upload-root", default=str(SERVER_UPLOAD_ROOT if SERVER_UPLOAD_ROOT.exists() else LOCAL_UPLOAD_ROOT))
     parser.add_argument("--course", default=DEFAULT_COURSE)
     parser.add_argument("--token-env", default="PROFGREG_UI_TOKEN")
     args = parser.parse_args()
@@ -307,6 +537,7 @@ def main() -> int:
         args.host,
         args.port,
         job_root=Path(args.job_root),
+        upload_root=Path(args.upload_root),
         default_course=args.course,
         ui_token=os.environ.get(args.token_env, ""),
     )

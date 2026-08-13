@@ -222,6 +222,10 @@ Rules:
 - expose no public port;
 - access from the operator machine through SSH tunnel;
 - use the same private operator commands and gates;
+- create course intake files under `runs/[course-slug]/input/intake.md`;
+- accept uploads only for allowed source-material extensions: PDF, DOCX, TXT, and MD;
+- store uploaded materials outside Git under `/srv/profgreg/uploads/[course-slug]/`;
+- record upload metadata including filename, scope, size, and SHA-256 hash;
 - do not show secrets, raw prompts, full source content, or internal stack traces.
 
 ## Traceability

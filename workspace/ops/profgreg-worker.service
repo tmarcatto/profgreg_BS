@@ -18,7 +18,7 @@ PrivateTmp=true
 ProtectHome=true
 ProtectSystem=strict
 ReadOnlyPaths=/srv/profgreg/uploads /srv/profgreg/outputs /var/log/profgreg
-ReadWritePaths=/srv/profgreg/jobs /srv/profgreg/backups /opt/profgreg/app/tmp
+ReadWritePaths=/srv/profgreg/jobs /srv/profgreg/backups /opt/profgreg/app/tmp /opt/profgreg/app/runs
 
 [Install]
 WantedBy=multi-user.target

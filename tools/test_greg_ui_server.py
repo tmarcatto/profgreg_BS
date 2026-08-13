@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import importlib.util
+import shutil
 import sys
 import tempfile
 import unittest
@@ -32,7 +33,7 @@ class GregUiServerTests(unittest.TestCase):
 
     def test_build_server_rejects_unsafe_job_root(self) -> None:
         with self.assertRaises(ValueError):
-            ui.build_server("127.0.0.1", 0, job_root=Path("/tmp/not-profgreg"), default_course="demo")
+            ui.build_server("127.0.0.1", 0, job_root=Path("/tmp/not-profgreg"), upload_root=ROOT / "tmp" / "uploads", default_course="demo")
 
     def test_build_server_accepts_local_job_root(self) -> None:
         (ROOT / "tmp" / "jobs").mkdir(parents=True, exist_ok=True)
@@ -42,8 +43,38 @@ class GregUiServerTests(unittest.TestCase):
                     pass
 
             with patch.object(ui, "ThreadingHTTPServer", FakeServer):
-                server = ui.build_server("127.0.0.1", 0, job_root=Path(tmp), default_course="demo")
+                server = ui.build_server("127.0.0.1", 0, job_root=Path(tmp), upload_root=ROOT / "tmp" / "uploads", default_course="demo")
             self.assertEqual(server.default_course, "demo")
+
+    def test_save_uploaded_file_records_manifest(self) -> None:
+        upload_root = ROOT / "tmp" / "uploads"
+        result = ui.save_uploaded_file(
+            upload_root=upload_root,
+            course_slug="Demo Course",
+            filename="sample.pdf",
+            data=b"pdf bytes",
+            scope="course",
+        )
+        self.assertEqual(result["filename"], "sample.pdf")
+        uploads = ui.list_uploads(upload_root, "demo-course")
+        self.assertTrue(uploads)
+
+    def test_rejects_unsupported_upload_extension(self) -> None:
+        with self.assertRaises(ValueError):
+            ui.safe_filename("../bad.exe")
+
+    def test_create_course_intake_writes_syllabus(self) -> None:
+        run = ROOT / "runs" / "tmp-ui-course"
+        if run.exists():
+            shutil.rmtree(run)
+        try:
+            result = ui.create_course_intake(title="Tmp UI Course", level="Basic", syllabus="Lesson 1: Intro", course_slug="tmp-ui-course")
+            intake = ROOT / result["intake_path"]
+            self.assertTrue(intake.exists())
+            self.assertIn("Lesson 1: Intro", intake.read_text(encoding="utf-8"))
+        finally:
+            if run.exists():
+                shutil.rmtree(run)
 
 
 if __name__ == "__main__":
