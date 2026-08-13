@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import importlib.util
 import json
+import shutil
 import sys
 import tempfile
 import unittest
@@ -20,6 +21,20 @@ spec.loader.exec_module(checker)
 
 
 class ArtifactSpecCheckTests(unittest.TestCase):
+    fixture_run = ROOT / "runs" / "tmp-artifact-spec-test"
+
+    def setUp(self) -> None:
+        self.fixture_run.mkdir(parents=True, exist_ok=True)
+        (self.fixture_run / "lesson_draft").mkdir(parents=True, exist_ok=True)
+        (self.fixture_run / "docx_pdf").mkdir(parents=True, exist_ok=True)
+        (self.fixture_run / "deck").mkdir(parents=True, exist_ok=True)
+        (self.fixture_run / "lesson_draft" / "lesson_01_draft.md").write_text("# Lesson draft\n", encoding="utf-8")
+        (self.fixture_run / "docx_pdf" / "lesson_01_study_guide.pdf").write_bytes(b"%PDF-1.4\n")
+        (self.fixture_run / "deck" / "lesson_01_deck_r03.pptx").write_bytes(b"pptx")
+
+    def tearDown(self) -> None:
+        shutil.rmtree(self.fixture_run, ignore_errors=True)
+
     def write_spec(self, data: dict) -> Path:
         tmp = tempfile.NamedTemporaryFile("w", suffix=".json", delete=False, encoding="utf-8")
         with tmp:
@@ -28,16 +43,16 @@ class ArtifactSpecCheckTests(unittest.TestCase):
 
     def base_pdf_spec(self) -> dict:
         return {
-            "course_slug": "construction-schedule-management",
-            "course_title": "Construction Schedule Management",
+            "course_slug": "tmp-artifact-spec-test",
+            "course_title": "Temporary Artifact Spec Test",
             "lesson_number": "1",
             "production_mode": "revision",
             "revision": "r02",
-            "run_folder": "runs/construction-schedule-management",
-            "source_markdown": "runs/construction-schedule-management/lesson_draft/lesson_01_draft.md",
+            "run_folder": "runs/tmp-artifact-spec-test",
+            "source_markdown": "runs/tmp-artifact-spec-test/lesson_draft/lesson_01_draft.md",
             "approved_baseline_artifact": "docx_pdf/lesson_01_study_guide.pdf",
             "metadata": {
-                "course_title": "Construction Schedule Management",
+                "course_title": "Temporary Artifact Spec Test",
                 "lesson_number": "1",
                 "lesson_short_title": "Mastering the Baseline",
                 "level_label": "Basic Level",
@@ -81,12 +96,12 @@ class ArtifactSpecCheckTests(unittest.TestCase):
 
     def test_unknown_deck_layout_fails(self) -> None:
         spec_data = {
-            "course_slug": "construction-schedule-management",
-            "course_title": "Construction Schedule Management",
+            "course_slug": "tmp-artifact-spec-test",
+            "course_title": "Temporary Artifact Spec Test",
             "lesson_number": 1,
             "production_mode": "revision",
             "revision": "r04",
-            "run_folder": "runs/construction-schedule-management",
+            "run_folder": "runs/tmp-artifact-spec-test",
             "approved_baseline_artifact": "deck/lesson_01_deck_r03.pptx",
             "assets": {"brand_icon": "workspace/assets/logos/buildstak-icon.png"},
             "output": {"pptx": "deck/lesson_01_deck_r04.pptx", "qa": "deck/lesson_01_deck_qa.md", "rendered_dir": "deck/rendered_slides"},
