@@ -5,6 +5,7 @@
 .env.*
 !.env.example
 !*.env.example
+secrets/
 
 # Local caches and generated runtime folders
 .npm-cache/
