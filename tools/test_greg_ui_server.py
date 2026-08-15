@@ -27,6 +27,8 @@ class GregUiServerTests(unittest.TestCase):
         self.assertIn("Queue Lesson Lifecycle", html)
         self.assertIn("Expected lessons", html)
         self.assertIn("Can cite + images allowed", html)
+        self.assertIn("Start / Continue Production", html)
+        self.assertIn("The command box below is optional", html)
         self.assertIn("demo-course", html)
 
     def test_json_bytes_preserves_utf8(self) -> None:

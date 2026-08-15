@@ -402,6 +402,7 @@ def ui_shell(default_course: str) -> str:
     .upload-edit {{ display: grid; grid-template-columns: minmax(115px, 1fr) 68px; gap: 6px; }}
     .upload-policy {{ min-width: 190px; }}
     .upload-actions {{ display: flex; gap: 6px; flex-wrap: wrap; }}
+    .operator-command {{ display: grid; grid-template-columns: 96px minmax(240px, 1fr); gap: 10px; width: 100%; }}
     @media (max-width: 820px) {{
       header {{ align-items: flex-start; flex-direction: column; }}
       .toolbar, .grid, .facts, .form-grid, .file-grid {{ grid-template-columns: 1fr; }}
@@ -474,8 +475,13 @@ def ui_shell(default_course: str) -> str:
             <div class="fact"><div class="label">Next</div><div class="value" id="next">Loading</div></div>
           </div>
           <div class="message" id="message">Ready.</div>
+          <div class="flow-note">Normal flow: use <strong>Start / Continue Production</strong>. The command box below is optional for specific requests such as status, deck, or review.</div>
           <div class="actions">
-            <textarea id="requestText" placeholder="Type a request, for example: mostre o status, gere o deck, rode o lifecycle da lesson 1"></textarea>
+            <input id="targetLesson" type="number" min="1" value="1" aria-label="Target lesson">
+            <button class="primary" id="startProduction">Start / Continue Production</button>
+          </div>
+          <div class="actions">
+            <textarea id="requestText" placeholder="Optional command, for example: show status, generate deck, review lesson 1"></textarea>
             <button id="interpret">Interpret Only</button>
             <button class="primary" id="enqueue">Interpret and Queue Safe Job</button>
           </div>
@@ -574,7 +580,7 @@ def ui_shell(default_course: str) -> str:
     async function api(path, options) {{
       const res = await fetch(path, Object.assign({{headers: {{'Content-Type': 'application/json'}}}}, options || {{}}));
       const data = await res.json();
-      if (!res.ok) throw new Error(data.error || 'Request failed');
+      if (!res.ok) throw new Error(data.error || data.message || 'Request failed');
       return data;
     }}
     async function refresh() {{
@@ -611,6 +617,7 @@ def ui_shell(default_course: str) -> str:
     document.getElementById('refresh').onclick = refresh;
     document.getElementById('backup').onclick = () => post('/api/backup', {{summary: 'ui backup request'}});
     document.getElementById('lifecycle').onclick = () => post('/api/lesson-lifecycle', {{course: course.value, lesson: 1}});
+    document.getElementById('startProduction').onclick = () => post('/api/lesson-lifecycle', {{course: course.value, lesson: Number(document.getElementById('targetLesson').value || 1)}});
     document.getElementById('createCourse').onclick = () => post('/api/create-course', {{
       title: document.getElementById('courseTitle').value,
       level: document.getElementById('courseLevel').value,
@@ -643,8 +650,8 @@ def ui_shell(default_course: str) -> str:
         msg.textContent = error.message;
       }}
     }};
-    document.getElementById('interpret').onclick = () => post('/api/request', {{course: course.value, lesson: 1, request: document.getElementById('requestText').value, enqueue: false}});
-    document.getElementById('enqueue').onclick = () => post('/api/request', {{course: course.value, lesson: 1, request: document.getElementById('requestText').value, enqueue: true}});
+    document.getElementById('interpret').onclick = () => post('/api/request', {{course: course.value, lesson: Number(document.getElementById('targetLesson').value || 1), request: document.getElementById('requestText').value, enqueue: false}});
+    document.getElementById('enqueue').onclick = () => post('/api/request', {{course: course.value, lesson: Number(document.getElementById('targetLesson').value || 1), request: document.getElementById('requestText').value, enqueue: true}});
     toggleLessonInput();
     refresh();
     setInterval(refresh, 10000);
@@ -770,8 +777,15 @@ class GregUiHandler(BaseHTTPRequestHandler):
                 self.send_json(HTTPStatus.OK, {"message": result.message, "job": result.job})
                 return
             if parsed.path == "/api/request":
+                request_text = str(body.get("request") or "").strip()
+                if not request_text:
+                    self.send_json(
+                        HTTPStatus.BAD_REQUEST,
+                        {"error": "Type a specific command, or use Start / Continue Production for the normal course flow."},
+                    )
+                    return
                 result = handle_request(
-                    str(body.get("request") or ""),
+                    request_text,
                     course_slug=str(body.get("course") or getattr(self.server, "default_course", DEFAULT_COURSE)),
                     lesson=int(body.get("lesson") or 1),
                     job_root=job_root,

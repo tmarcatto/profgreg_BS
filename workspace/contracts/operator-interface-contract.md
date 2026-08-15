@@ -249,6 +249,8 @@ Recommended intake order:
 3. Review the upload table, delete mistakes, and correct scope/reference/image policies.
 4. Queue the lesson lifecycle only after the intake and upload manifest are accurate.
 
+The UI should expose the normal flow as a direct action, such as `Start / Continue Production`. Natural-language interpretation is an optional operator command layer and must show a clear validation message when the command box is empty or blocked by a gate.
+
 ## Traceability
 
 Every visible status update should point back to files when useful, but the user-facing message should remain concise.
