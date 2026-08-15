@@ -65,6 +65,34 @@ class GregUiServerTests(unittest.TestCase):
         uploads = ui.list_uploads(upload_root, "demo-course")
         self.assertTrue(uploads)
 
+    def test_update_and_delete_upload_manifest_entry(self) -> None:
+        (ROOT / "tmp" / "uploads").mkdir(parents=True, exist_ok=True)
+        with tempfile.TemporaryDirectory(dir=ROOT / "tmp" / "uploads") as tmp:
+            upload_root = Path(tmp)
+            result = ui.save_uploaded_file(
+                upload_root=upload_root,
+                course_slug="Editable Course",
+                filename="editable.pdf",
+                data=b"editable pdf",
+                scope="course",
+                reference_policy="context_only",
+            )
+            updated = ui.update_upload_metadata(
+                upload_root=upload_root,
+                course_slug="editable-course",
+                upload_id=result["upload_id"],
+                scope="lesson",
+                lesson=3,
+                reference_policy="reference_only",
+            )
+            self.assertEqual(updated["scope"], "lesson_03")
+            self.assertEqual(updated["reference_policy"], "reference_only")
+            self.assertTrue(updated["can_appear_in_references"])
+            self.assertFalse(updated["images_allowed"])
+            deleted = ui.delete_uploaded_file(upload_root=upload_root, course_slug="editable-course", upload_id=result["upload_id"])
+            self.assertEqual(deleted["filename"], "editable.pdf")
+            self.assertEqual(ui.list_uploads(upload_root, "editable-course"), [])
+
     def test_expected_lesson_count_by_level(self) -> None:
         self.assertEqual(ui.expected_lesson_count("Basic"), 10)
         self.assertEqual(ui.expected_lesson_count("Intermediate"), 15)

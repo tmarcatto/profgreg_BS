@@ -233,12 +233,21 @@ Rules:
 - store uploaded materials outside Git under `/srv/profgreg/uploads/[course-slug]/`;
 - accept one or multiple files in the same upload batch;
 - show the lesson-number field only when the upload is lesson-specific;
+- allow the operator to delete an incorrectly uploaded file before production uses it;
+- allow the operator to edit each upload's course/lesson scope and reference/image-use policy after bulk upload;
 - record upload metadata including filename, scope, reference/image-use policy, size, and SHA-256 hash;
 - support three user-facing upload policies:
   - `context_only`: use as production context only; do not cite in student references and do not reuse images;
   - `reference_only`: may appear in student references; do not reuse images;
   - `reference_and_images`: may appear in student references and images may be reused when properly referenced;
 - do not show secrets, raw prompts, full source content, or internal stack traces.
+
+Recommended intake order:
+
+1. Create the course intake first so the system has the correct course slug.
+2. Upload source materials to that course.
+3. Review the upload table, delete mistakes, and correct scope/reference/image policies.
+4. Queue the lesson lifecycle only after the intake and upload manifest are accurate.
 
 ## Traceability
 

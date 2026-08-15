@@ -126,6 +126,64 @@ def upload_course_dir(upload_root: Path, course_slug: str) -> Path:
     return safe_upload_root(upload_root) / slugify(course_slug)
 
 
+def upload_manifest_path(upload_root: Path, course_slug: str) -> Path:
+    return upload_course_dir(upload_root, course_slug) / "upload_manifest.jsonl"
+
+
+def upload_identifier(meta: dict) -> str:
+    stable = f"{meta.get('stored_path', '')}|{meta.get('sha256', '')}|{meta.get('filename', '')}"
+    return hashlib.sha256(stable.encode("utf-8")).hexdigest()[:16]
+
+
+def normalize_reference_policy(policy: str) -> str:
+    return policy if policy in REFERENCE_POLICIES else "context_only"
+
+
+def apply_reference_policy(meta: dict, policy: str) -> dict:
+    normalized = normalize_reference_policy(policy)
+    meta["reference_policy"] = normalized
+    meta["reference_policy_label"] = REFERENCE_POLICIES[normalized]
+    meta["can_appear_in_references"] = normalized in {"reference_only", "reference_and_images"}
+    meta["images_allowed"] = normalized == "reference_and_images"
+    return meta
+
+
+def normalize_upload_meta(meta: dict) -> dict:
+    meta = dict(meta)
+    meta["upload_id"] = str(meta.get("upload_id") or upload_identifier(meta))
+    apply_reference_policy(meta, str(meta.get("reference_policy") or "context_only"))
+    return meta
+
+
+def read_upload_manifest(upload_root: Path, course_slug: str) -> list[dict]:
+    manifest = upload_manifest_path(upload_root, course_slug)
+    if not manifest.exists():
+        return []
+    return [
+        normalize_upload_meta(json.loads(line))
+        for line in manifest.read_text(encoding="utf-8", errors="replace").splitlines()
+        if line.strip()
+    ]
+
+
+def write_upload_manifest(upload_root: Path, course_slug: str, uploads: list[dict]) -> None:
+    manifest = upload_manifest_path(upload_root, course_slug)
+    manifest.parent.mkdir(parents=True, exist_ok=True)
+    text = "\n".join(json.dumps(normalize_upload_meta(item), ensure_ascii=False) for item in uploads)
+    manifest.write_text((text + "\n") if text else "", encoding="utf-8")
+
+
+def scope_name_from_input(scope: str, lesson: int | None = None) -> str:
+    return "course" if scope != "lesson" else f"lesson_{int(lesson or 1):02d}"
+
+
+def parse_scope_name(scope_name: str) -> tuple[str, int]:
+    match = re.fullmatch(r"lesson_(\d{1,2})", scope_name or "")
+    if match:
+        return "lesson", int(match.group(1))
+    return "course", 1
+
+
 def save_uploaded_file(
     *,
     upload_root: Path,
@@ -139,8 +197,8 @@ def save_uploaded_file(
     if len(data) > MAX_UPLOAD_FILE_BYTES:
         raise ValueError(f"Upload is too large. Maximum per file is {MAX_UPLOAD_FILE_BYTES // (1024 * 1024)} MB.")
     clean_name = safe_filename(filename)
-    scope_name = "course" if scope != "lesson" else f"lesson_{int(lesson or 1):02d}"
-    policy = reference_policy if reference_policy in REFERENCE_POLICIES else "context_only"
+    scope_name = scope_name_from_input(scope, lesson)
+    policy = normalize_reference_policy(reference_policy)
     target_dir = upload_course_dir(upload_root, course_slug) / scope_name
     target_dir.mkdir(parents=True, exist_ok=True)
     target = target_dir / clean_name
@@ -159,17 +217,58 @@ def save_uploaded_file(
         "size_bytes": len(data),
         "sha256": file_sha256(target),
     }
-    manifest = upload_course_dir(upload_root, course_slug) / "upload_manifest.jsonl"
+    meta["upload_id"] = upload_identifier(meta)
+    manifest = upload_manifest_path(upload_root, course_slug)
     with manifest.open("a", encoding="utf-8") as handle:
         handle.write(json.dumps(meta, ensure_ascii=False) + "\n")
     return meta
 
 
 def list_uploads(upload_root: Path, course_slug: str) -> list[dict]:
-    manifest = upload_course_dir(upload_root, course_slug) / "upload_manifest.jsonl"
-    if not manifest.exists():
-        return []
-    return [json.loads(line) for line in manifest.read_text(encoding="utf-8", errors="replace").splitlines() if line.strip()][-50:]
+    return read_upload_manifest(upload_root, course_slug)[-100:]
+
+
+def update_upload_metadata(
+    *,
+    upload_root: Path,
+    course_slug: str,
+    upload_id: str,
+    scope: str,
+    lesson: int | None,
+    reference_policy: str,
+) -> dict:
+    uploads = read_upload_manifest(upload_root, course_slug)
+    for item in uploads:
+        if item["upload_id"] != upload_id:
+            continue
+        item["scope"] = scope_name_from_input(scope, lesson)
+        apply_reference_policy(item, reference_policy)
+        write_upload_manifest(upload_root, course_slug, uploads)
+        return normalize_upload_meta(item)
+    raise ValueError("Upload not found.")
+
+
+def delete_uploaded_file(*, upload_root: Path, course_slug: str, upload_id: str) -> dict:
+    root = safe_upload_root(upload_root)
+    uploads = read_upload_manifest(upload_root, course_slug)
+    kept: list[dict] = []
+    deleted: dict | None = None
+    for item in uploads:
+        if item["upload_id"] == upload_id and deleted is None:
+            deleted = item
+            continue
+        kept.append(item)
+    if deleted is None:
+        raise ValueError("Upload not found.")
+    stored = Path(str(deleted.get("stored_path") or "")).expanduser().resolve()
+    if stored == root or root in stored.parents:
+        try:
+            if stored.exists() and stored.is_file():
+                stored.unlink()
+        except OSError:
+            pass
+    write_upload_manifest(upload_root, course_slug, kept)
+    return deleted
 
 
 def expected_lesson_count(level: str, requested: int | None = None) -> int:
@@ -273,6 +372,7 @@ def ui_shell(default_course: str) -> str:
     textarea {{ width: 100%; min-height: 86px; resize: vertical; }}
     button {{ padding: 10px 14px; background: #fff; color: var(--navy); font-weight: 680; cursor: pointer; }}
     button.primary {{ background: var(--orange); border-color: var(--orange); color: #fff; }}
+    button.danger {{ color: var(--bad); border-color: #f4b0aa; }}
     button:disabled {{ opacity: .55; cursor: not-allowed; }}
     .grid {{ display: grid; grid-template-columns: 1.15fr .85fr; gap: 18px; align-items: start; }}
     .wide {{ grid-column: 1 / -1; }}
@@ -289,6 +389,7 @@ def ui_shell(default_course: str) -> str:
     .value {{ margin-top: 6px; color: var(--ink); font-weight: 720; line-height: 1.25; }}
     .actions {{ display: flex; flex-wrap: wrap; gap: 10px; margin-top: 12px; }}
     .route, .message {{ border-left: 4px solid var(--orange); background: #fff8f1; padding: 12px; border-radius: 4px; margin-top: 12px; color: var(--ink); }}
+    .flow-note {{ border-left: 4px solid var(--navy); background: var(--soft); padding: 12px; border-radius: 4px; margin-bottom: 14px; color: var(--ink); line-height: 1.35; }}
     table {{ width: 100%; border-collapse: collapse; }}
     th, td {{ text-align: left; border-bottom: 1px solid var(--line); padding: 10px 8px; vertical-align: top; font-size: 14px; }}
     th {{ color: var(--muted); font-size: 12px; text-transform: uppercase; letter-spacing: .04em; }}
@@ -297,6 +398,10 @@ def ui_shell(default_course: str) -> str:
     .queued, .running {{ color: var(--warn); }}
     .failed, .cancelled {{ color: var(--bad); }}
     .muted {{ color: var(--muted); }}
+    .mini {{ padding: 6px 8px; font-size: 13px; border-radius: 5px; }}
+    .upload-edit {{ display: grid; grid-template-columns: minmax(115px, 1fr) 68px; gap: 6px; }}
+    .upload-policy {{ min-width: 190px; }}
+    .upload-actions {{ display: flex; gap: 6px; flex-wrap: wrap; }}
     @media (max-width: 820px) {{
       header {{ align-items: flex-start; flex-direction: column; }}
       .toolbar, .grid, .facts, .form-grid, .file-grid {{ grid-template-columns: 1fr; }}
@@ -319,6 +424,7 @@ def ui_shell(default_course: str) -> str:
       <section class="wide">
         <h2>Create Course / Intake</h2>
         <div class="body">
+          <div class="flow-note"><strong>Recommended order:</strong> create the intake first, then upload source materials, review/edit the upload table, and only then queue the lesson lifecycle. Uploads are attached to the current course slug shown at the top.</div>
           <div class="form-grid">
             <input id="courseTitle" placeholder="Course title">
             <select id="courseLevel">
@@ -354,8 +460,8 @@ def ui_shell(default_course: str) -> str:
           </div>
           <div class="help">You can select one or multiple files at once. Lesson number appears only when the source is lesson-specific. Upload limit: 200 MB per file, 500 MB per upload batch.</div>
           <table>
-            <thead><tr><th>File</th><th>Scope</th><th>Reference Policy</th><th>Size</th></tr></thead>
-            <tbody id="uploads"><tr><td colspan="4" class="muted">No uploads loaded.</td></tr></tbody>
+            <thead><tr><th>File</th><th>Scope</th><th>Reference Policy</th><th>Size</th><th>Actions</th></tr></thead>
+            <tbody id="uploads"><tr><td colspan="5" class="muted">No uploads loaded.</td></tr></tbody>
           </table>
         </div>
       </section>
@@ -402,6 +508,63 @@ def ui_shell(default_course: str) -> str:
         reference_and_images: 'Can cite + images allowed'
       }}[value] || 'Context only - do not cite';
     }}
+    function scopeKind(value) {{
+      return String(value || '').startsWith('lesson_') ? 'lesson' : 'course';
+    }}
+    function lessonNumber(value) {{
+      const match = String(value || '').match(/^lesson_(\\d+)$/);
+      return match ? Number(match[1]) : 1;
+    }}
+    function selected(value, expected) {{
+      return value === expected ? 'selected' : '';
+    }}
+    function uploadRow(u) {{
+      const id = esc(u.upload_id);
+      const scope = scopeKind(u.scope);
+      const lesson = lessonNumber(u.scope);
+      return `<tr>
+        <td>${{esc(u.filename)}}</td>
+        <td>
+          <div class="upload-edit">
+            <select class="mini" id="scope-${{id}}" onchange="toggleUploadLesson('${{id}}')">
+              <option value="course" ${{selected(scope, 'course')}}>Course</option>
+              <option value="lesson" ${{selected(scope, 'lesson')}}>Lesson</option>
+            </select>
+            <input class="mini" id="lesson-${{id}}" type="number" min="1" value="${{lesson}}">
+          </div>
+        </td>
+        <td>
+          <select class="mini upload-policy" id="policy-${{id}}">
+            <option value="context_only" ${{selected(u.reference_policy, 'context_only')}}>Context only - do not cite</option>
+            <option value="reference_only" ${{selected(u.reference_policy, 'reference_only')}}>Can cite - no images</option>
+            <option value="reference_and_images" ${{selected(u.reference_policy, 'reference_and_images')}}>Can cite + images allowed</option>
+          </select>
+        </td>
+        <td>${{Math.round((u.size_bytes || 0) / 1024)}} KB</td>
+        <td><div class="upload-actions"><button class="mini" onclick="saveUpload('${{id}}')">Save</button><button class="mini danger" onclick="deleteUpload('${{id}}')">Delete</button></div></td>
+      </tr>`;
+    }}
+    function toggleUploadLesson(id) {{
+      const lesson = document.getElementById('lesson-' + id);
+      const scope = document.getElementById('scope-' + id);
+      if (!lesson || !scope) return;
+      const isLesson = scope.value === 'lesson';
+      lesson.classList.toggle('hidden', !isLesson);
+      lesson.disabled = !isLesson;
+    }}
+    async function saveUpload(id) {{
+      await post('/api/upload-update', {{
+        course: course.value,
+        upload_id: id,
+        scope: document.getElementById('scope-' + id).value,
+        lesson: Number(document.getElementById('lesson-' + id).value || 1),
+        reference_policy: document.getElementById('policy-' + id).value
+      }});
+    }}
+    async function deleteUpload(id) {{
+      if (!confirm('Delete this uploaded file from this course?')) return;
+      await post('/api/upload-delete', {{ course: course.value, upload_id: id }});
+    }}
     function toggleLessonInput() {{
       const lesson = document.getElementById('uploadLesson');
       const isLessonScope = document.getElementById('uploadScope').value === 'lesson';
@@ -424,8 +587,9 @@ def ui_shell(default_course: str) -> str:
         const rows = jobs.jobs.length ? jobs.jobs.map(j => `<tr><td><code>${{esc(j.job_id)}}</code></td><td class="state ${{esc(j.state)}}">${{esc(j.state)}}</td><td>${{esc(j.request_type)}}</td></tr>`).join('') : '<tr><td colspan="3" class="muted">No jobs yet.</td></tr>';
         document.getElementById('jobs').innerHTML = rows;
         const uploads = await api('/api/uploads?course=' + encodeURIComponent(course.value));
-        const uploadRows = uploads.uploads.length ? uploads.uploads.map(u => `<tr><td>${{esc(u.filename)}}</td><td>${{esc(u.scope)}}</td><td>${{esc(policyLabel(u.reference_policy))}}</td><td>${{Math.round((u.size_bytes || 0) / 1024)}} KB</td></tr>`).join('') : '<tr><td colspan="4" class="muted">No uploads yet.</td></tr>';
+        const uploadRows = uploads.uploads.length ? uploads.uploads.map(uploadRow).join('') : '<tr><td colspan="5" class="muted">No uploads yet.</td></tr>';
         document.getElementById('uploads').innerHTML = uploadRows;
+        for (const item of uploads.uploads) toggleUploadLesson(item.upload_id);
       }} catch (error) {{
         msg.textContent = error.message;
       }}
@@ -575,6 +739,25 @@ class GregUiHandler(BaseHTTPRequestHandler):
             if parsed.path == "/api/backup":
                 result = enqueue_job(job_root=job_root, request_type="backup", summary=str(body.get("summary") or "ui backup request"))
                 self.send_json(HTTPStatus.OK, {"message": result.message, "job": result.job})
+                return
+            if parsed.path == "/api/upload-update":
+                updated = update_upload_metadata(
+                    upload_root=getattr(self.server, "upload_root"),
+                    course_slug=str(body.get("course") or getattr(self.server, "default_course", DEFAULT_COURSE)),
+                    upload_id=str(body.get("upload_id") or ""),
+                    scope=str(body.get("scope") or "course"),
+                    lesson=int(body.get("lesson") or 1),
+                    reference_policy=str(body.get("reference_policy") or "context_only"),
+                )
+                self.send_json(HTTPStatus.OK, {"message": "Upload updated.", "upload": updated})
+                return
+            if parsed.path == "/api/upload-delete":
+                deleted = delete_uploaded_file(
+                    upload_root=getattr(self.server, "upload_root"),
+                    course_slug=str(body.get("course") or getattr(self.server, "default_course", DEFAULT_COURSE)),
+                    upload_id=str(body.get("upload_id") or ""),
+                )
+                self.send_json(HTTPStatus.OK, {"message": "Upload deleted.", "upload": deleted})
                 return
             if parsed.path == "/api/lesson-lifecycle":
                 result = enqueue_job(
