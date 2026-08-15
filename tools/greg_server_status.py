@@ -34,7 +34,7 @@ LOCAL_JOB_ROOT = ROOT / "tmp" / "jobs"
 SERVER_JOB_ROOT = Path("/srv/profgreg/jobs")
 
 JOB_STATES = {"queued", "running", "needs_approval", "completed", "failed", "cancelled"}
-JOB_REQUEST_TYPES = {"course_status", "lesson_lifecycle", "backup", "full_flow_v1_test"}
+JOB_REQUEST_TYPES = {"course_status", "stage_next", "lesson_lifecycle", "backup", "full_flow_v1_test"}
 JOB_TRANSITIONS = {
     "queued": {"running", "cancelled"},
     "running": {"needs_approval", "completed", "failed", "cancelled"},
@@ -296,6 +296,31 @@ def execute_worker_job(job_root: Path, job: dict[str, Any], *, backup_root: Path
         )
         if code != 0:
             raise RuntimeError(output or f"lesson_lifecycle failed with exit code {code}")
+        artifacts = [{"kind": "operator_report", "path": f"runs/{course_slug}/process_review/lesson_{lesson:02d}_operator_report.md", "created": True}]
+        return update_job(job_root, job, artifacts=artifacts, last_error=None)
+    if request_type == "stage_next":
+        course_slug = job.get("course_slug")
+        lesson = job.get("lesson") or 1
+        if not course_slug:
+            raise ValueError("stage_next job requires course_slug")
+        if dry_run:
+            artifacts = [{"kind": "operator_report", "path": f"runs/{course_slug}/process_review/lesson_{lesson:02d}_operator_report.md", "created": False}]
+            return update_job(job_root, job, artifacts=artifacts, last_error=None)
+        code, output = run_command(
+            [
+                "python3",
+                "tools/greg_run_lesson.py",
+                course_slug,
+                "--lesson",
+                str(lesson),
+                "--action",
+                "next",
+                "--write-report",
+            ],
+            ROOT,
+        )
+        if code != 0:
+            raise RuntimeError(output or f"stage_next failed with exit code {code}")
         artifacts = [{"kind": "operator_report", "path": f"runs/{course_slug}/process_review/lesson_{lesson:02d}_operator_report.md", "created": True}]
         return update_job(job_root, job, artifacts=artifacts, last_error=None)
     raise ValueError(f"Worker does not support request_type yet: {request_type}")

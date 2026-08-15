@@ -24,10 +24,11 @@ class GregUiServerTests(unittest.TestCase):
         html = ui.ui_shell("demo-course")
         self.assertIn("Prof Greg Operator", html)
         self.assertIn("Queue Backup", html)
-        self.assertIn("Queue Lesson Lifecycle", html)
+        self.assertIn("Queue Next Stage", html)
         self.assertIn("Expected lessons", html)
         self.assertIn("Can cite + images allowed", html)
         self.assertIn("Start / Continue Production", html)
+        self.assertIn("/api/stage-next", html)
         self.assertIn("The command box below is optional", html)
         self.assertIn("demo-course", html)
 

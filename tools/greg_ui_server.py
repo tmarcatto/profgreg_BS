@@ -419,7 +419,7 @@ def ui_shell(default_course: str) -> str:
       <input id="course" value="{course}" aria-label="Course slug">
       <button id="refresh">Refresh</button>
       <button id="backup">Queue Backup</button>
-      <button class="primary" id="lifecycle">Queue Lesson Lifecycle</button>
+      <button class="primary" id="lifecycle">Queue Next Stage</button>
     </div>
     <div class="grid">
       <section class="wide">
@@ -492,7 +492,7 @@ def ui_shell(default_course: str) -> str:
         <h2>Jobs</h2>
         <div class="body">
           <table>
-            <thead><tr><th>Job</th><th>State</th><th>Type</th></tr></thead>
+            <thead><tr><th>Job</th><th>State</th><th>Type</th><th>Note</th></tr></thead>
             <tbody id="jobs"><tr><td colspan="3" class="muted">Loading</td></tr></tbody>
           </table>
         </div>
@@ -590,7 +590,7 @@ def ui_shell(default_course: str) -> str:
         document.getElementById('gate').textContent = status.gate_status || 'Unknown';
         document.getElementById('next').textContent = status.next_recommended_action || 'Review status.';
         const jobs = await api('/api/jobs');
-        const rows = jobs.jobs.length ? jobs.jobs.map(j => `<tr><td><code>${{esc(j.job_id)}}</code></td><td class="state ${{esc(j.state)}}">${{esc(j.state)}}</td><td>${{esc(j.request_type)}}</td></tr>`).join('') : '<tr><td colspan="3" class="muted">No jobs yet.</td></tr>';
+        const rows = jobs.jobs.length ? jobs.jobs.map(j => `<tr><td><code>${{esc(j.job_id)}}</code></td><td class="state ${{esc(j.state)}}">${{esc(j.state)}}</td><td>${{esc(j.request_type)}}</td><td>${{esc(j.last_error || '')}}</td></tr>`).join('') : '<tr><td colspan="4" class="muted">No jobs yet.</td></tr>';
         document.getElementById('jobs').innerHTML = rows;
         const uploads = await api('/api/uploads?course=' + encodeURIComponent(course.value));
         const uploadRows = uploads.uploads.length ? uploads.uploads.map(uploadRow).join('') : '<tr><td colspan="5" class="muted">No uploads yet.</td></tr>';
@@ -616,8 +616,8 @@ def ui_shell(default_course: str) -> str:
     }}
     document.getElementById('refresh').onclick = refresh;
     document.getElementById('backup').onclick = () => post('/api/backup', {{summary: 'ui backup request'}});
-    document.getElementById('lifecycle').onclick = () => post('/api/lesson-lifecycle', {{course: course.value, lesson: 1}});
-    document.getElementById('startProduction').onclick = () => post('/api/lesson-lifecycle', {{course: course.value, lesson: Number(document.getElementById('targetLesson').value || 1)}});
+    document.getElementById('lifecycle').onclick = () => post('/api/stage-next', {{course: course.value, lesson: Number(document.getElementById('targetLesson').value || 1)}});
+    document.getElementById('startProduction').onclick = () => post('/api/stage-next', {{course: course.value, lesson: Number(document.getElementById('targetLesson').value || 1)}});
     document.getElementById('createCourse').onclick = () => post('/api/create-course', {{
       title: document.getElementById('courseTitle').value,
       level: document.getElementById('courseLevel').value,
@@ -773,6 +773,16 @@ class GregUiHandler(BaseHTTPRequestHandler):
                     course_slug=str(body.get("course") or getattr(self.server, "default_course", DEFAULT_COURSE)),
                     lesson=int(body.get("lesson") or 1),
                     summary="ui lesson lifecycle request",
+                )
+                self.send_json(HTTPStatus.OK, {"message": result.message, "job": result.job})
+                return
+            if parsed.path == "/api/stage-next":
+                result = enqueue_job(
+                    job_root=job_root,
+                    request_type="stage_next",
+                    course_slug=str(body.get("course") or getattr(self.server, "default_course", DEFAULT_COURSE)),
+                    lesson=int(body.get("lesson") or 1),
+                    summary="ui next stage request",
                 )
                 self.send_json(HTTPStatus.OK, {"message": result.message, "job": result.job})
                 return
