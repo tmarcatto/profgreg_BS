@@ -80,6 +80,13 @@ def setup_workspace(workspace: Path) -> None:
         )
     else:
         (workspace / "package.json").write_text('{"private":true,"type":"module"}\n', encoding="utf-8")
+    bundled_node_modules = BUNDLED_NODE.parent.parent / "node_modules"
+    workspace_node_modules = workspace / "node_modules"
+    if bundled_node_modules.exists() and not workspace_node_modules.exists():
+        try:
+            workspace_node_modules.symlink_to(bundled_node_modules, target_is_directory=True)
+        except OSError:
+            pass
 
 
 def copy_renderer(workspace: Path) -> Path:

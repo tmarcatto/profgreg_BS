@@ -29,6 +29,9 @@ class GregUiServerTests(unittest.TestCase):
         self.assertIn("Can cite + images allowed", html)
         self.assertIn("Start / Continue Production", html)
         self.assertIn("/api/stage-next", html)
+        self.assertIn("Approve Study Guide", html)
+        self.assertIn("Approve Deck", html)
+        self.assertIn("/api/approve", html)
         self.assertIn("The command box below is optional", html)
         self.assertIn("demo-course", html)
 

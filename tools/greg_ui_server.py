@@ -13,6 +13,7 @@ from pathlib import Path
 from urllib.parse import parse_qs, urlparse
 
 from greg_operator import course_status, default_job_root, enqueue_job, handle_request
+from greg_record_approval import record_approval
 from greg_server_status import list_jobs, safe_job_root
 from greg_create_run import create_run, slugify
 
@@ -317,6 +318,29 @@ def create_course_intake(
     return {**setup.__dict__, "message": f"Course intake created: {setup.course_slug}"}
 
 
+def approval_artifact_path(course_slug: str, lesson: int, artifact_type: str) -> str:
+    lesson_tag = f"lesson_{lesson:02d}"
+    if artifact_type == "study_guide":
+        return f"docx_pdf/{lesson_tag}_study_guide.pdf"
+    if artifact_type == "deck":
+        return f"deck/{lesson_tag}_deck.pptx"
+    raise ValueError("Unsupported approval artifact type.")
+
+
+def record_ui_approval(*, course_slug: str, lesson: int, artifact_type: str, note: str) -> dict:
+    artifact = approval_artifact_path(course_slug, lesson, artifact_type)
+    return record_approval(
+        course_slug,
+        lesson,
+        artifact_type,
+        artifact,
+        approver="operator-ui",
+        approval_mode="operator_ui_v0",
+        note=note or "Approved in Prof Greg Operator.",
+        force=True,
+    )
+
+
 def ui_shell(default_course: str) -> str:
     course = html.escape(default_course)
     return f"""<!doctype html>
@@ -480,6 +504,17 @@ def ui_shell(default_course: str) -> str:
             <input id="targetLesson" type="number" min="1" value="1" aria-label="Target lesson">
             <button class="primary" id="startProduction">Start / Continue Production</button>
           </div>
+          <div class="flow-note">
+            <strong>Human gate:</strong> after the study guide PDF is produced, approve it here to release deck production. After reviewing the PPTX, approve the deck here to finish the lesson.
+          </div>
+          <div class="operator-command">
+            <input id="approvalLesson" type="number" min="1" value="1" aria-label="Approval lesson">
+            <textarea id="approvalNote" placeholder="Optional approval note"></textarea>
+          </div>
+          <div class="actions">
+            <button id="approveStudyGuide">Approve Study Guide</button>
+            <button id="approveDeck">Approve Deck</button>
+          </div>
           <div class="actions">
             <textarea id="requestText" placeholder="Optional command, for example: show status, generate deck, review lesson 1"></textarea>
             <button id="interpret">Interpret Only</button>
@@ -618,6 +653,8 @@ def ui_shell(default_course: str) -> str:
     document.getElementById('backup').onclick = () => post('/api/backup', {{summary: 'ui backup request'}});
     document.getElementById('lifecycle').onclick = () => post('/api/stage-next', {{course: course.value, lesson: Number(document.getElementById('targetLesson').value || 1)}});
     document.getElementById('startProduction').onclick = () => post('/api/stage-next', {{course: course.value, lesson: Number(document.getElementById('targetLesson').value || 1)}});
+    document.getElementById('approveStudyGuide').onclick = () => post('/api/approve', {{course: course.value, lesson: Number(document.getElementById('approvalLesson').value || 1), artifact_type: 'study_guide', note: document.getElementById('approvalNote').value}});
+    document.getElementById('approveDeck').onclick = () => post('/api/approve', {{course: course.value, lesson: Number(document.getElementById('approvalLesson').value || 1), artifact_type: 'deck', note: document.getElementById('approvalNote').value}});
     document.getElementById('createCourse').onclick = () => post('/api/create-course', {{
       title: document.getElementById('courseTitle').value,
       level: document.getElementById('courseLevel').value,
@@ -785,6 +822,15 @@ class GregUiHandler(BaseHTTPRequestHandler):
                     summary="ui next stage request",
                 )
                 self.send_json(HTTPStatus.OK, {"message": result.message, "job": result.job})
+                return
+            if parsed.path == "/api/approve":
+                data = record_ui_approval(
+                    course_slug=str(body.get("course") or getattr(self.server, "default_course", DEFAULT_COURSE)),
+                    lesson=int(body.get("lesson") or 1),
+                    artifact_type=str(body.get("artifact_type") or ""),
+                    note=str(body.get("note") or ""),
+                )
+                self.send_json(HTTPStatus.OK, {"message": "Approval recorded.", "approval": data})
                 return
             if parsed.path == "/api/request":
                 request_text = str(body.get("request") or "").strip()

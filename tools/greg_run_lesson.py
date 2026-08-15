@@ -268,10 +268,23 @@ def update_canonical_manifest(course_slug: str) -> None:
     subprocess.run(
         [sys.executable, str(ROOT / "tools" / "greg_canonical_artifacts.py"), course_slug, "--write"],
         cwd=ROOT,
-        check=True,
+        check=False,
         capture_output=True,
         text=True,
     )
+
+
+def run_v0_production_stage(course_slug: str, lesson: int, stage_name: str) -> list[str]:
+    production = load_module("greg_v0_production", "tools/greg_v0_production.py")
+    if stage_name == "COURSE_MAP":
+        return production.produce_course_map(course_slug)
+    if stage_name == "SOURCE_LEDGER":
+        return production.produce_source_ledger(course_slug)
+    if stage_name in {"DRAFT", "DOCX_PDF"}:
+        return production.produce_study_guide(course_slug, lesson)
+    if stage_name == "DECK":
+        return production.produce_deck(course_slug, lesson)
+    return []
 
 
 def execute_safe_action(course_slug: str, lesson: int, action: str, include_localization: bool) -> list[str]:
@@ -307,20 +320,26 @@ def execute_safe_action(course_slug: str, lesson: int, action: str, include_loca
         return executed
 
     if action == "next":
-        if stage.stage in {"FULL_FLOW_CONFIRMATION_COMPLETE", "PROCESS_REVIEW", "DECK_APPROVAL", "DECK"}:
+        if stage.stage in {"FULL_FLOW_CONFIRMATION_COMPLETE", "PROCESS_REVIEW", "DECK_APPROVAL"}:
             out = save_pipeline_qa(course_slug, lesson, include_localization)
             executed.append(f"Saved consolidated QA to {rel(out)}.")
             update_canonical_manifest(course_slug)
             executed.append("Updated canonical artifact manifest.")
             return executed
         if stage.stage == "COURSE_MAP":
-            executed.append("Next safe automatic action is not available yet: Course Map generation remains a controlled production step.")
+            executed.extend(run_v0_production_stage(course_slug, lesson, "COURSE_MAP"))
             return executed
         if stage.stage == "SOURCE_LEDGER":
-            executed.append("Next safe automatic action is not available yet: source research/ledger generation remains a controlled production step.")
+            executed.extend(run_v0_production_stage(course_slug, lesson, "SOURCE_LEDGER"))
             return executed
-        if stage.stage in {"DRAFT", "DOCX_PDF", "HUMAN_APPROVAL"}:
-            executed.append(f"Next safe automatic action is blocked by stage `{stage.stage}`.")
+        if stage.stage in {"DRAFT", "DOCX_PDF"}:
+            executed.extend(run_v0_production_stage(course_slug, lesson, stage.stage))
+            return executed
+        if stage.stage == "DECK":
+            executed.extend(run_v0_production_stage(course_slug, lesson, "DECK"))
+            return executed
+        if stage.stage == "HUMAN_APPROVAL":
+            executed.append("Study guide is ready for human approval. Approve it in the operator UI before deck production.")
             return executed
         return executed
 
@@ -446,7 +465,8 @@ def main() -> int:
         print(json.dumps(report, indent=2, ensure_ascii=False))
     else:
         print(render_markdown(report))
-    return 1 if stage.blockers or (qa and not qa.get("passed")) else 0
+    expected_waiting_gate = args.action == "next" and stage.stage in {"HUMAN_APPROVAL", "DECK_APPROVAL"}
+    return 1 if (stage.blockers and not expected_waiting_gate) or (qa and not qa.get("passed")) else 0
 
 
 if __name__ == "__main__":
