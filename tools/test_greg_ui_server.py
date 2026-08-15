@@ -25,6 +25,8 @@ class GregUiServerTests(unittest.TestCase):
         self.assertIn("Prof Greg Operator", html)
         self.assertIn("Queue Backup", html)
         self.assertIn("Queue Lesson Lifecycle", html)
+        self.assertIn("Expected lessons", html)
+        self.assertIn("Can cite + images allowed", html)
         self.assertIn("demo-course", html)
 
     def test_json_bytes_preserves_utf8(self) -> None:
@@ -54,10 +56,20 @@ class GregUiServerTests(unittest.TestCase):
             filename="sample.pdf",
             data=b"pdf bytes",
             scope="course",
+            reference_policy="reference_and_images",
         )
         self.assertEqual(result["filename"], "sample.pdf")
+        self.assertEqual(result["reference_policy"], "reference_and_images")
+        self.assertTrue(result["can_appear_in_references"])
+        self.assertTrue(result["images_allowed"])
         uploads = ui.list_uploads(upload_root, "demo-course")
         self.assertTrue(uploads)
+
+    def test_expected_lesson_count_by_level(self) -> None:
+        self.assertEqual(ui.expected_lesson_count("Basic"), 10)
+        self.assertEqual(ui.expected_lesson_count("Intermediate"), 15)
+        self.assertEqual(ui.expected_lesson_count("Advanced"), 15)
+        self.assertEqual(ui.expected_lesson_count("Advanced", 18), 18)
 
     def test_rejects_unsupported_upload_extension(self) -> None:
         with self.assertRaises(ValueError):
@@ -80,15 +92,37 @@ class GregUiServerTests(unittest.TestCase):
         self.assertEqual(files[0]["filename"], "sample.pdf")
         self.assertEqual(files[0]["data"], b"pdf bytes")
 
+    def test_parse_multipart_form_multiple_files_and_policy(self) -> None:
+        boundary = "----prof-greg-multi"
+        body = (
+            f"--{boundary}\r\n"
+            'Content-Disposition: form-data; name="reference_policy"\r\n\r\n'
+            "reference_and_images\r\n"
+            f"--{boundary}\r\n"
+            'Content-Disposition: form-data; name="files"; filename="one.pdf"\r\n'
+            "Content-Type: application/pdf\r\n\r\n"
+            "one\r\n"
+            f"--{boundary}\r\n"
+            'Content-Disposition: form-data; name="files"; filename="two.docx"\r\n'
+            "Content-Type: application/vnd.openxmlformats-officedocument.wordprocessingml.document\r\n\r\n"
+            "two\r\n"
+            f"--{boundary}--\r\n"
+        ).encode("utf-8")
+        fields, files = ui.parse_multipart_form(f"multipart/form-data; boundary={boundary}", body)
+        self.assertEqual(fields["reference_policy"], "reference_and_images")
+        self.assertEqual([file["filename"] for file in files], ["one.pdf", "two.docx"])
+
     def test_create_course_intake_writes_syllabus(self) -> None:
         run = ROOT / "runs" / "tmp-ui-course"
         if run.exists():
             shutil.rmtree(run)
         try:
-            result = ui.create_course_intake(title="Tmp UI Course", level="Basic", syllabus="Lesson 1: Intro", course_slug="tmp-ui-course")
+            result = ui.create_course_intake(title="Tmp UI Course", level="Intermediate", syllabus="Lesson 1: Intro", course_slug="tmp-ui-course")
             intake = ROOT / result["intake_path"]
             self.assertTrue(intake.exists())
-            self.assertIn("Lesson 1: Intro", intake.read_text(encoding="utf-8"))
+            text = intake.read_text(encoding="utf-8")
+            self.assertIn("Lesson 1: Intro", text)
+            self.assertIn("Expected lesson count: 15", text)
         finally:
             if run.exists():
                 shutil.rmtree(run)

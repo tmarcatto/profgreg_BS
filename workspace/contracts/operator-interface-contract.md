@@ -55,6 +55,12 @@ For a new course, ask only for missing essentials:
 - expected number of lessons, if the user has one.
 
 If lesson count is weak or missing, Greg may choose autonomously and explain the logic.
+Default planning assumptions:
+
+- Basic courses normally start around 10 lessons.
+- Intermediate courses normally start around 15 lessons.
+- Advanced courses normally start around 15 lessons, with higher technical depth rather than merely more pages.
+- Form follows function: Greg may adapt the lesson count when research, market demand, source coverage, or learning progression justify it, and must record the rationale.
 
 ## Communication Pattern
 
@@ -225,7 +231,13 @@ Rules:
 - create course intake files under `runs/[course-slug]/input/intake.md`;
 - accept uploads only for allowed source-material extensions: PDF, DOCX, TXT, and MD;
 - store uploaded materials outside Git under `/srv/profgreg/uploads/[course-slug]/`;
-- record upload metadata including filename, scope, size, and SHA-256 hash;
+- accept one or multiple files in the same upload batch;
+- show the lesson-number field only when the upload is lesson-specific;
+- record upload metadata including filename, scope, reference/image-use policy, size, and SHA-256 hash;
+- support three user-facing upload policies:
+  - `context_only`: use as production context only; do not cite in student references and do not reuse images;
+  - `reference_only`: may appear in student references; do not reuse images;
+  - `reference_and_images`: may appear in student references and images may be reused when properly referenced;
 - do not show secrets, raw prompts, full source content, or internal stack traces.
 
 ## Traceability

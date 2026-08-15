@@ -23,8 +23,15 @@ DEFAULT_COURSE = "construction-schedule-management"
 ROOT = Path(__file__).resolve().parents[1]
 SERVER_UPLOAD_ROOT = Path("/srv/profgreg/uploads")
 LOCAL_UPLOAD_ROOT = ROOT / "tmp" / "uploads"
-MAX_UPLOAD_BYTES = 75 * 1024 * 1024
+MAX_UPLOAD_FILE_BYTES = 200 * 1024 * 1024
+MAX_UPLOAD_REQUEST_BYTES = 500 * 1024 * 1024
 ALLOWED_UPLOAD_EXTENSIONS = {".pdf", ".docx", ".txt", ".md"}
+REFERENCE_POLICIES = {
+    "context_only": "Use as production context only; do not cite in student references and do not reuse images.",
+    "reference_only": "May appear in student references; do not reuse images.",
+    "reference_and_images": "May appear in student references and images may be reused when properly referenced.",
+}
+DEFAULT_LESSON_COUNT_BY_LEVEL = {"Basic": 10, "Intermediate": 15, "Advanced": 15}
 
 
 def json_bytes(data: object) -> bytes:
@@ -127,11 +134,13 @@ def save_uploaded_file(
     data: bytes,
     scope: str = "course",
     lesson: int | None = None,
+    reference_policy: str = "context_only",
 ) -> dict:
-    if len(data) > MAX_UPLOAD_BYTES:
-        raise ValueError("Upload is too large.")
+    if len(data) > MAX_UPLOAD_FILE_BYTES:
+        raise ValueError(f"Upload is too large. Maximum per file is {MAX_UPLOAD_FILE_BYTES // (1024 * 1024)} MB.")
     clean_name = safe_filename(filename)
     scope_name = "course" if scope != "lesson" else f"lesson_{int(lesson or 1):02d}"
+    policy = reference_policy if reference_policy in REFERENCE_POLICIES else "context_only"
     target_dir = upload_course_dir(upload_root, course_slug) / scope_name
     target_dir.mkdir(parents=True, exist_ok=True)
     target = target_dir / clean_name
@@ -143,6 +152,10 @@ def save_uploaded_file(
         "filename": clean_name,
         "stored_path": str(target),
         "scope": scope_name,
+        "reference_policy": policy,
+        "reference_policy_label": REFERENCE_POLICIES[policy],
+        "can_appear_in_references": policy in {"reference_only", "reference_and_images"},
+        "images_allowed": policy == "reference_and_images",
         "size_bytes": len(data),
         "sha256": file_sha256(target),
     }
@@ -159,10 +172,24 @@ def list_uploads(upload_root: Path, course_slug: str) -> list[dict]:
     return [json.loads(line) for line in manifest.read_text(encoding="utf-8", errors="replace").splitlines() if line.strip()][-50:]
 
 
-def create_course_intake(*, title: str, level: str, syllabus: str, course_slug: str | None = None) -> dict:
+def expected_lesson_count(level: str, requested: int | None = None) -> int:
+    if requested and requested > 0:
+        return min(requested, 30)
+    return DEFAULT_LESSON_COUNT_BY_LEVEL.get(level or "Basic", 10)
+
+
+def create_course_intake(
+    *,
+    title: str,
+    level: str,
+    syllabus: str,
+    course_slug: str | None = None,
+    expected_lessons: int | None = None,
+) -> dict:
     if not title.strip():
         raise ValueError("Course title is required.")
     setup = create_run(title.strip(), course_slug, level or "Basic")
+    lesson_count = expected_lesson_count(level or "Basic", expected_lessons)
     intake = ROOT / setup.intake_path
     intake.write_text(
         "\n".join(
@@ -171,8 +198,10 @@ def create_course_intake(*, title: str, level: str, syllabus: str, course_slug: 
                 "",
                 f"Course slug: `{setup.course_slug}`",
                 f"Course level: {level or 'Basic'}",
+                f"Expected lesson count: {lesson_count}",
                 "Base language: English",
                 "Audience: U.S. residential construction workforce.",
+                "Lesson-count rule: Basic courses normally start around 10 lessons; Intermediate and Advanced courses normally start around 15 lessons, with Greg allowed to adapt the final Course Map when research and learning progression justify it.",
                 "",
                 "## Initial Syllabus Direction",
                 "",
@@ -247,8 +276,10 @@ def ui_shell(default_course: str) -> str:
     button:disabled {{ opacity: .55; cursor: not-allowed; }}
     .grid {{ display: grid; grid-template-columns: 1.15fr .85fr; gap: 18px; align-items: start; }}
     .wide {{ grid-column: 1 / -1; }}
-    .form-grid {{ display: grid; grid-template-columns: minmax(240px, 1fr) 180px 180px; gap: 10px; align-items: start; }}
-    .file-grid {{ display: grid; grid-template-columns: minmax(240px, 1fr) 190px 96px auto; gap: 10px; align-items: center; }}
+    .form-grid {{ display: grid; grid-template-columns: minmax(240px, 1fr) 180px 160px 180px; gap: 10px; align-items: start; }}
+    .file-grid {{ display: grid; grid-template-columns: minmax(240px, 1fr) 190px minmax(240px, 1fr) 110px auto; gap: 10px; align-items: center; }}
+    .help {{ margin-top: 8px; color: var(--muted); font-size: 13px; line-height: 1.35; }}
+    .hidden {{ display: none; }}
     section {{ border: 1px solid var(--line); border-radius: 8px; background: #fff; overflow: hidden; }}
     section h2 {{ margin: 0; padding: 14px 16px; font-size: 16px; color: var(--navy); border-bottom: 1px solid var(--line); background: var(--soft); }}
     .body {{ padding: 16px; }}
@@ -295,6 +326,7 @@ def ui_shell(default_course: str) -> str:
               <option>Intermediate</option>
               <option>Advanced</option>
             </select>
+            <input id="expectedLessons" type="number" min="1" max="30" value="10" aria-label="Expected lessons">
             <input id="courseSlug" placeholder="Optional slug">
           </div>
           <textarea id="syllabus" placeholder="Paste the initial syllabus direction here. Greg treats this as a starting point, not a fixed Course Map."></textarea>
@@ -312,12 +344,18 @@ def ui_shell(default_course: str) -> str:
               <option value="course">Course-level source</option>
               <option value="lesson">Lesson-specific source</option>
             </select>
-            <input id="uploadLesson" type="number" min="1" value="1">
+            <select id="referencePolicy">
+              <option value="context_only">Context only - do not cite</option>
+              <option value="reference_only">Can cite - no images</option>
+              <option value="reference_and_images">Can cite + images allowed</option>
+            </select>
+            <input id="uploadLesson" type="number" min="1" value="1" aria-label="Lesson number">
             <button class="primary" id="upload">Upload</button>
           </div>
+          <div class="help">You can select one or multiple files at once. Lesson number appears only when the source is lesson-specific. Upload limit: 200 MB per file, 500 MB per upload batch.</div>
           <table>
-            <thead><tr><th>File</th><th>Scope</th><th>Size</th></tr></thead>
-            <tbody id="uploads"><tr><td colspan="3" class="muted">No uploads loaded.</td></tr></tbody>
+            <thead><tr><th>File</th><th>Scope</th><th>Reference Policy</th><th>Size</th></tr></thead>
+            <tbody id="uploads"><tr><td colspan="4" class="muted">No uploads loaded.</td></tr></tbody>
           </table>
         </div>
       </section>
@@ -353,8 +391,22 @@ def ui_shell(default_course: str) -> str:
     const course = document.getElementById('course');
     const msg = document.getElementById('message');
     const route = document.getElementById('route');
+    const expectedLessonsByLevel = {{ Basic: 10, Intermediate: 15, Advanced: 15 }};
     function esc(value) {{
       return String(value ?? '').replace(/[&<>"']/g, c => ({{'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}}[c]));
+    }}
+    function policyLabel(value) {{
+      return {{
+        context_only: 'Context only - do not cite',
+        reference_only: 'Can cite - no images',
+        reference_and_images: 'Can cite + images allowed'
+      }}[value] || 'Context only - do not cite';
+    }}
+    function toggleLessonInput() {{
+      const lesson = document.getElementById('uploadLesson');
+      const isLessonScope = document.getElementById('uploadScope').value === 'lesson';
+      lesson.classList.toggle('hidden', !isLessonScope);
+      lesson.disabled = !isLessonScope;
     }}
     async function api(path, options) {{
       const res = await fetch(path, Object.assign({{headers: {{'Content-Type': 'application/json'}}}}, options || {{}}));
@@ -372,7 +424,7 @@ def ui_shell(default_course: str) -> str:
         const rows = jobs.jobs.length ? jobs.jobs.map(j => `<tr><td><code>${{esc(j.job_id)}}</code></td><td class="state ${{esc(j.state)}}">${{esc(j.state)}}</td><td>${{esc(j.request_type)}}</td></tr>`).join('') : '<tr><td colspan="3" class="muted">No jobs yet.</td></tr>';
         document.getElementById('jobs').innerHTML = rows;
         const uploads = await api('/api/uploads?course=' + encodeURIComponent(course.value));
-        const uploadRows = uploads.uploads.length ? uploads.uploads.map(u => `<tr><td>${{esc(u.filename)}}</td><td>${{esc(u.scope)}}</td><td>${{Math.round((u.size_bytes || 0) / 1024)}} KB</td></tr>`).join('') : '<tr><td colspan="3" class="muted">No uploads yet.</td></tr>';
+        const uploadRows = uploads.uploads.length ? uploads.uploads.map(u => `<tr><td>${{esc(u.filename)}}</td><td>${{esc(u.scope)}}</td><td>${{esc(policyLabel(u.reference_policy))}}</td><td>${{Math.round((u.size_bytes || 0) / 1024)}} KB</td></tr>`).join('') : '<tr><td colspan="4" class="muted">No uploads yet.</td></tr>';
         document.getElementById('uploads').innerHTML = uploadRows;
       }} catch (error) {{
         msg.textContent = error.message;
@@ -398,19 +450,25 @@ def ui_shell(default_course: str) -> str:
     document.getElementById('createCourse').onclick = () => post('/api/create-course', {{
       title: document.getElementById('courseTitle').value,
       level: document.getElementById('courseLevel').value,
+      expected_lessons: Number(document.getElementById('expectedLessons').value || 0),
       slug: document.getElementById('courseSlug').value,
       syllabus: document.getElementById('syllabus').value
     }}).then((data) => {{
       const manualSlug = document.getElementById('courseSlug').value;
       course.value = data.course_slug || manualSlug || course.value;
     }}).then(refresh);
-    }});
+    document.getElementById('courseLevel').onchange = () => {{
+      const level = document.getElementById('courseLevel').value;
+      document.getElementById('expectedLessons').value = expectedLessonsByLevel[level] || 10;
+    }};
+    document.getElementById('uploadScope').onchange = toggleLessonInput;
     document.getElementById('upload').onclick = async () => {{
       try {{
         const form = new FormData();
         form.append('course', course.value);
         form.append('scope', document.getElementById('uploadScope').value);
-        form.append('lesson', document.getElementById('uploadLesson').value);
+        form.append('lesson', document.getElementById('uploadLesson').value || '1');
+        form.append('reference_policy', document.getElementById('referencePolicy').value);
         for (const file of document.getElementById('files').files) form.append('files', file);
         const res = await fetch('/api/upload', {{ method: 'POST', body: form }});
         const data = await res.json();
@@ -423,6 +481,7 @@ def ui_shell(default_course: str) -> str:
     }};
     document.getElementById('interpret').onclick = () => post('/api/request', {{course: course.value, lesson: 1, request: document.getElementById('requestText').value, enqueue: false}});
     document.getElementById('enqueue').onclick = () => post('/api/request', {{course: course.value, lesson: 1, request: document.getElementById('requestText').value, enqueue: true}});
+    toggleLessonInput();
     refresh();
     setInterval(refresh, 10000);
   </script>
@@ -482,14 +541,16 @@ class GregUiHandler(BaseHTTPRequestHandler):
         try:
             if parsed.path == "/api/upload":
                 content_length = int(self.headers.get("Content-Length", "0") or "0")
-                if content_length > MAX_UPLOAD_BYTES + 1024 * 1024:
-                    self.send_json(HTTPStatus.REQUEST_ENTITY_TOO_LARGE, {"error": "Upload request is too large."})
+                if content_length > MAX_UPLOAD_REQUEST_BYTES:
+                    max_mb = MAX_UPLOAD_REQUEST_BYTES // (1024 * 1024)
+                    self.send_json(HTTPStatus.REQUEST_ENTITY_TOO_LARGE, {"error": f"Upload batch is too large. Maximum per batch is {max_mb} MB."})
                     return
                 raw = self.rfile.read(content_length)
                 fields, file_fields = parse_multipart_form(self.headers.get("Content-Type", ""), raw)
                 course = str(fields.get("course") or getattr(self.server, "default_course", DEFAULT_COURSE))
                 scope = str(fields.get("scope") or "course")
                 lesson = int(fields.get("lesson") or 1)
+                reference_policy = str(fields.get("reference_policy") or "context_only")
                 saved = []
                 for field in file_fields:
                     filename = str(field.get("filename") or "")
@@ -504,6 +565,7 @@ class GregUiHandler(BaseHTTPRequestHandler):
                             data=data,
                             scope=scope,
                             lesson=lesson,
+                            reference_policy=reference_policy,
                         )
                     )
                 self.send_json(HTTPStatus.OK, {"message": f"Uploaded {len(saved)} file(s).", "uploads": saved})
@@ -541,6 +603,7 @@ class GregUiHandler(BaseHTTPRequestHandler):
                     level=str(body.get("level") or "Basic"),
                     syllabus=str(body.get("syllabus") or ""),
                     course_slug=str(body.get("slug") or "") or None,
+                    expected_lessons=int(body.get("expected_lessons") or 0) or None,
                 )
                 self.send_json(HTTPStatus.OK, result)
                 return

@@ -49,7 +49,15 @@ Use academic discovery as a quality checkpoint for research-heavy or technical l
 
 Academic metadata and search results are not the final authority. For U.S. residential construction, current codes, standards, official guidance, field bodies of knowledge, and recognized professional practice outrank isolated papers when they govern the claim.
 
-User-attached books may be used as references, following the normal source rules for metadata, relevance, authority tier, and claim mapping. If an attached document is not a published book, standard, official guidance, or identifiable formal publication, use it only as an internal content reference for scope, vocabulary, sequencing, and gap detection. Do not list internal-only attachments in student-facing References, do not cite them as "course source library," and do not use them as image sources.
+User-attached books may be used as references, following the normal source rules for metadata, relevance, authority tier, and claim mapping. If an attached document is not a published book, standard, official guidance, or identifiable formal publication, use it only as an internal content reference for scope, vocabulary, sequencing, and gap detection.
+
+Respect the upload manifest policy for every user-attached source:
+
+- `context_only`: use as production context only; do not list it in student-facing References and do not use its images.
+- `reference_only`: it may appear in student-facing References when it passes normal source rules, but its images may not be reused.
+- `reference_and_images`: it may appear in student-facing References when it passes normal source rules, and its images may be reused when the source/license context supports that use and the image is properly referenced.
+
+If an older attachment predates the upload-policy metadata, treat it as `context_only` until the operator explicitly reclassifies it. Do not cite attachments as "course source library."
 
 Any book or formal source published more than 3 years before the course production date needs an applicability/currentness review before it can support current claims. If it is kept only as internal background, maps to no claims, is flagged weak or replaceable, and does not appear in student-facing References, it may remain in the ledger with a warning.
 

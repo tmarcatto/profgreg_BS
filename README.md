@@ -100,4 +100,6 @@ python3 tools/greg_ui_server.py --host 127.0.0.1 --port 8765
 
 On the server, access it through an SSH tunnel instead of opening a public port.
 
-The UI can create a course intake and upload source materials. Uploaded files are stored outside Git under `/srv/profgreg/uploads/[course-slug]/` on the server.
+The UI can create a course intake and upload one or multiple source materials at once. Uploaded files are stored outside Git under `/srv/profgreg/uploads/[course-slug]/` on the server, with metadata for scope, reference policy, image-use permission, size, and SHA-256 hash.
+
+Course intake defaults are level-aware: Basic starts around 10 lessons; Intermediate and Advanced start around 15 lessons unless the operator or Greg's Course Map rationale changes that count.
