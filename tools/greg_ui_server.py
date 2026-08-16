@@ -29,6 +29,7 @@ MAX_UPLOAD_REQUEST_BYTES = 500 * 1024 * 1024
 ALLOWED_UPLOAD_EXTENSIONS = {".pdf", ".docx", ".txt", ".md"}
 REFERENCE_POLICIES = {
     "context_only": "Use as production context only; do not cite in student references and do not reuse images.",
+    "image_only": "Do not cite text in student references; images may be reused when properly referenced.",
     "reference_only": "May appear in student references; do not reuse images.",
     "reference_and_images": "May appear in student references and images may be reused when properly referenced.",
 }
@@ -145,7 +146,7 @@ def apply_reference_policy(meta: dict, policy: str) -> dict:
     meta["reference_policy"] = normalized
     meta["reference_policy_label"] = REFERENCE_POLICIES[normalized]
     meta["can_appear_in_references"] = normalized in {"reference_only", "reference_and_images"}
-    meta["images_allowed"] = normalized == "reference_and_images"
+    meta["images_allowed"] = normalized in {"image_only", "reference_and_images"}
     return meta
 
 
@@ -214,7 +215,7 @@ def save_uploaded_file(
         "reference_policy": policy,
         "reference_policy_label": REFERENCE_POLICIES[policy],
         "can_appear_in_references": policy in {"reference_only", "reference_and_images"},
-        "images_allowed": policy == "reference_and_images",
+        "images_allowed": policy in {"image_only", "reference_and_images"},
         "size_bytes": len(data),
         "sha256": file_sha256(target),
     }
@@ -339,6 +340,43 @@ def record_ui_approval(*, course_slug: str, lesson: int, artifact_type: str, not
         note=note or "Approved in Prof Greg Operator.",
         force=True,
     )
+
+
+def record_ui_artifact_approval(*, course_slug: str, lesson: int, artifact_type: str, artifact: str, note: str) -> dict:
+    return record_approval(
+        course_slug,
+        lesson,
+        artifact_type,
+        artifact,
+        approver="operator-ui",
+        approval_mode="operator_ui_v0",
+        note=note or "Approved in Prof Greg Operator.",
+        force=True,
+    )
+
+
+def record_revision_request(*, course_slug: str, lesson: int, artifact_type: str, note: str) -> dict:
+    course_slug = slugify(course_slug)
+    lesson_tag = f"lesson_{lesson:02d}"
+    target = ROOT / "runs" / course_slug / "operator_feedback" / f"{lesson_tag}_{artifact_type}_revision_request.md"
+    target.parent.mkdir(parents=True, exist_ok=True)
+    target.write_text(
+        "\n".join(
+            [
+                f"# {lesson_tag} {artifact_type} Revision Request",
+                "",
+                f"- Course slug: {course_slug}",
+                f"- Lesson: {lesson:02d}",
+                f"- Artifact type: {artifact_type}",
+                "",
+                "Requested changes:",
+                note.strip() or "- Revision requested from Prof Greg Operator.",
+                "",
+            ]
+        ),
+        encoding="utf-8",
+    )
+    return {"feedback_path": str(target.relative_to(ROOT))}
 
 
 def ui_shell(default_course: str) -> str:
@@ -545,6 +583,23 @@ def ui_shell(default_course: str) -> str:
     .gate-grid {{ display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }}
     .gate-box {{ border: 1px solid var(--line); border-radius: 8px; padding: 14px; background: #fff; min-height: 172px; }}
     .gate-box h3 {{ margin: 0 0 8px; font-size: 15px; color: var(--navy); }}
+    .approval-list {{ display: grid; gap: 12px; }}
+    .approval-card {{
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      padding: 14px;
+      background: #fff;
+      display: grid;
+      grid-template-columns: minmax(220px, 1fr) minmax(260px, 1.2fr) auto;
+      gap: 14px;
+      align-items: start;
+    }}
+    .approval-card.ready {{ border-color: var(--orange); box-shadow: inset 3px 0 0 var(--orange); }}
+    .approval-card.approved {{ border-color: #b8dec8; background: #f4fbf6; }}
+    .approval-title {{ color: var(--navy); font-weight: 820; }}
+    .approval-meta {{ margin-top: 5px; color: var(--muted); font-size: 13px; line-height: 1.35; }}
+    .approval-actions {{ display: flex; gap: 8px; flex-wrap: wrap; justify-content: flex-end; }}
+    .approval-note {{ min-height: 74px; }}
     .checklist {{ display: grid; gap: 8px; margin-top: 10px; }}
     .check {{ display: flex; gap: 8px; align-items: flex-start; color: #344054; font-size: 13px; }}
     .check span:first-child {{ width: 18px; height: 18px; border-radius: 50%; background: #e8f0f8; display: grid; place-items: center; color: var(--navy); font-size: 11px; flex: 0 0 auto; }}
@@ -566,7 +621,8 @@ def ui_shell(default_course: str) -> str:
     .hidden {{ display: none !important; }}
     code {{ font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; font-size: 12px; }}
     @media (max-width: 980px) {{
-      .topbar, .slugbar, .brief-grid, .field-grid, .gate-grid, .status-summary, .upload-controls, .log-tools {{ grid-template-columns: 1fr; }}
+      .topbar, .slugbar, .brief-grid, .field-grid, .gate-grid, .status-summary, .upload-controls, .log-tools, .approval-card {{ grid-template-columns: 1fr; }}
+      .approval-actions {{ justify-content: flex-start; }}
       .top-actions {{ justify-content: flex-start; }}
       main {{ padding: 18px 14px 36px; }}
       .nav {{ padding-left: 14px; padding-right: 14px; }}
@@ -581,24 +637,22 @@ def ui_shell(default_course: str) -> str:
         <div>BuildStak Course Agent<small>Prof Greg operator console</small></div>
       </div>
       <div class="top-actions">
-        <button class="ghost" id="refreshTop">Refresh</button>
-        <button class="ghost" id="backup">Queue backup</button>
-        <button class="primary" id="startTop">Start / Continue</button>
+        <button class="primary" id="startTop">Start production</button>
       </div>
     </div>
     <nav class="nav" aria-label="Console sections">
       <a href="#brief">Brief</a>
       <a href="#materials">Materials</a>
-      <a href="#pipeline">Pipeline</a>
-      <a href="#gates">Gates</a>
+      <a href="#pipeline">Status</a>
+      <a href="#approvals">Approvals</a>
       <a href="#activity">Activity log</a>
     </nav>
   </header>
   <main>
     <div class="slugbar">
       <input id="course" value="{course}" aria-label="Course slug">
-      <button id="refresh">Refresh status</button>
-      <button class="primary" id="startProduction">Start / Continue Production</button>
+      <input id="targetLesson" type="number" min="1" value="1" aria-label="Target lesson" title="Lesson number">
+      <button class="primary" id="startProduction">Start production</button>
     </div>
 
     <section id="brief" class="card">
@@ -607,7 +661,6 @@ def ui_shell(default_course: str) -> str:
           <div class="step-num">1</div>
           <div><h2>Course Brief</h2><div class="hint">Define the course Greg will produce. The syllabus is a starting direction, not a fixed contract.</div></div>
         </div>
-        <button class="primary" id="createCourse">Create Intake</button>
       </div>
       <div class="body brief-grid">
         <div>
@@ -659,6 +712,7 @@ def ui_shell(default_course: str) -> str:
           </select>
           <select id="referencePolicy">
             <option value="context_only">Context only - do not cite</option>
+            <option value="image_only">Do not cite text - images allowed</option>
             <option value="reference_only">Can cite - no images</option>
             <option value="reference_and_images">Can cite + images allowed</option>
           </select>
@@ -678,9 +732,9 @@ def ui_shell(default_course: str) -> str:
       <div class="section-head">
         <div class="title-row">
           <div class="step-num">3</div>
-          <div><h2>Production Pipeline</h2><div class="hint">Follow the real Greg lifecycle. Select a stage to inspect the gates below.</div></div>
+          <div><h2>Production Status</h2><div class="hint">The system advances through the pipeline after the main start button and each approval decision.</div></div>
         </div>
-        <div class="muted" id="approvalCount">0 / 2 approvals</div>
+        <div class="muted" id="approvalCount">0 approvals</div>
       </div>
       <div class="body">
         <div class="status-summary">
@@ -693,33 +747,15 @@ def ui_shell(default_course: str) -> str:
       </div>
     </section>
 
-    <section id="gates" class="card">
+    <section id="approvals" class="card">
       <div class="section-head">
         <div class="title-row">
           <div class="step-num">4</div>
-          <div><h2>Gates</h2><div class="hint">Automatic QA runs first. Human approval releases the next production step.</div></div>
-        </div>
-        <div class="actions" style="margin:0">
-          <input id="targetLesson" class="mini" type="number" min="1" value="1" aria-label="Target lesson" style="width:76px">
-          <button class="primary" id="startProductionGate">Run selected lesson</button>
+          <div><h2>Approval Queue</h2><div class="hint">Only the relevant approval sections appear here. Use approve to continue, or request edits to send feedback back into the production flow.</div></div>
         </div>
       </div>
-      <div class="body gate-grid">
-        <div class="gate-box">
-          <h3 id="selectedStageTitle">Automatic QA gate</h3>
-          <div class="hint" id="selectedStageHint">QA status appears here as artifacts are produced.</div>
-          <div class="checklist" id="qaChecklist"></div>
-        </div>
-        <div class="gate-box">
-          <h3>Human approval gate</h3>
-          <div class="hint">Approve the study guide before deck production. Approve the deck to finish the lesson.</div>
-          <div class="actions">
-            <input id="approvalLesson" class="mini" type="number" min="1" value="1" aria-label="Approval lesson" style="width:76px">
-            <button id="approveStudyGuide">Approve Study Guide</button>
-            <button id="approveDeck">Approve Deck</button>
-          </div>
-          <textarea id="approvalNote" style="min-height:90px; margin-top:12px" placeholder="Optional approval note or revision instruction"></textarea>
-        </div>
+      <div class="body">
+        <div class="approval-list" id="approvalPanels"></div>
       </div>
     </section>
 
@@ -742,19 +778,12 @@ def ui_shell(default_course: str) -> str:
             <tbody id="jobs"><tr><td colspan="4" class="muted">Loading</td></tr></tbody>
           </table>
         </div>
-        <div class="actions">
-          <textarea id="requestText" style="min-height:90px" placeholder="Optional command, for example: show status, generate deck, review lesson 1"></textarea>
-          <button id="interpret">Interpret Only</button>
-          <button class="primary" id="enqueue">Interpret and Queue Safe Job</button>
-        </div>
-        <div class="notice" id="route">No request interpreted yet.</div>
       </div>
     </section>
   </main>
   <script>
     const course = document.getElementById('course');
     const msg = document.getElementById('message');
-    const route = document.getElementById('route');
     const expectedLessonsByLevel = {{ Basic: 10, Intermediate: 15, Advanced: 15 }};
     let currentStatus = null;
     let currentJobs = [];
@@ -771,6 +800,56 @@ def ui_shell(default_course: str) -> str:
       ['LOCALIZATION', 'Localization', ['localization_pt_br', 'localization_es_419']],
       ['FINAL_REVIEW', 'Final Review', ['process_review', 'lesson_01_pipeline_qa']]
     ];
+    const approvalGroups = [
+      {{
+        key: 'study_guide',
+        title: 'Course book',
+        description: 'Approve the English course book to release presentation production.',
+        artifactType: 'study_guide',
+        artifactNames: lesson => [`lesson_${{lesson}}_study_guide_pdf`, 'study_guide_pdf'],
+        approvalField: 'study_guide'
+      }},
+      {{
+        key: 'deck',
+        title: 'Presentation',
+        description: 'Approve the English presentation after reviewing the PPTX.',
+        artifactType: 'deck',
+        artifactNames: lesson => [`lesson_${{lesson}}_deck_pptx`, 'deck_pptx', 'deck'],
+        approvalField: 'deck'
+      }},
+      {{
+        key: 'pt_br_study_guide',
+        title: 'PT-BR translation - course book',
+        description: 'Review the Portuguese version for Brazilian learners working in the U.S. market.',
+        artifactType: 'pt_br_study_guide',
+        artifactNames: lesson => [`lesson_${{lesson}}_study_guide_pt_br_pdf`, `lesson_${{lesson}}_pt_br_study_guide_pdf`, 'localization_pt_br'],
+        approvalField: 'pt_br_study_guide'
+      }},
+      {{
+        key: 'pt_br_deck',
+        title: 'PT-BR translation - presentation',
+        description: 'Review the Portuguese presentation after the English deck is approved.',
+        artifactType: 'pt_br_deck',
+        artifactNames: lesson => [`lesson_${{lesson}}_deck_pt_br_pptx`, `lesson_${{lesson}}_pt_br_deck_pptx`, 'localization_pt_br_deck'],
+        approvalField: 'pt_br_deck'
+      }},
+      {{
+        key: 'es_study_guide',
+        title: 'ES translation - course book',
+        description: 'Review the neutral Spanish course book version.',
+        artifactType: 'es_study_guide',
+        artifactNames: lesson => [`lesson_${{lesson}}_study_guide_es_pdf`, `lesson_${{lesson}}_es_study_guide_pdf`, 'localization_es_419'],
+        approvalField: 'es_study_guide'
+      }},
+      {{
+        key: 'es_deck',
+        title: 'ES translation - presentation',
+        description: 'Review the neutral Spanish presentation version.',
+        artifactType: 'es_deck',
+        artifactNames: lesson => [`lesson_${{lesson}}_deck_es_pptx`, `lesson_${{lesson}}_es_deck_pptx`, 'localization_es_419_deck'],
+        approvalField: 'es_deck'
+      }}
+    ];
     function esc(value) {{
       return String(value ?? '').replace(/[&<>"']/g, c => ({{'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}}[c]));
     }}
@@ -786,6 +865,19 @@ def ui_shell(default_course: str) -> str:
     function artifactExists(names) {{
       const artifacts = currentStatus?.artifacts || [];
       return artifacts.some(item => names.includes(item.name) && item.exists);
+    }}
+    function artifactByNames(names) {{
+      const artifacts = currentStatus?.artifacts || [];
+      return artifacts.find(item => names.includes(item.name) && item.exists) || null;
+    }}
+    function selectedLessonTag() {{
+      const value = Number(document.getElementById('targetLesson').value || 1);
+      return String(Math.max(1, value)).padStart(2, '0');
+    }}
+    function lessonStatus(field) {{
+      const tag = selectedLessonTag();
+      const lesson = (currentStatus?.lessons || []).find(item => String(item.lesson).padStart(2, '0') === tag);
+      return lesson ? lesson[field] : '';
     }}
     function stageState(key, names) {{
       if (artifactExists(names)) return 'done';
@@ -807,27 +899,41 @@ def ui_shell(default_course: str) -> str:
           <div class="stage-status">${{esc(label)}}</div>
         </div>`;
       }}).join('');
-      const approvals = Number(artifactExists(['study_guide_approval','lesson_01_study_guide_approval'])) + Number(artifactExists(['deck_approval','lesson_01_deck_approval']));
-      document.getElementById('approvalCount').textContent = `${{approvals}} / 2 approvals`;
-      renderGate();
+      const approved = approvalGroups.filter(group => lessonStatus(group.approvalField) === 'approved').length;
+      document.getElementById('approvalCount').textContent = `${{approved}} approvals`;
+      renderApprovals();
     }}
     function selectStage(key) {{
       selectedStageKey = key;
       userSelectedStage = true;
       renderPipeline();
     }}
-    function renderGate() {{
-      const stage = stages.find(item => item[0] === selectedStageKey) || stages[0];
-      const done = artifactExists(stage[2]);
-      document.getElementById('selectedStageTitle').textContent = `${{stage[1]}} QA gate`;
-      document.getElementById('selectedStageHint').textContent = done ? 'Required artifact is present. Review before approving dependent gates.' : 'Artifact not produced yet. Run the next production stage when prerequisites are ready.';
-      const checks = [
-        [done, 'Required artifact exists'],
-        [Boolean(currentStatus && !currentStatus.blockers?.length), 'No blocking system issue'],
-        [selectedStageKey !== 'HUMAN_APPROVAL' || artifactExists(['study_guide_pdf','lesson_01_study_guide_pdf']), 'Study guide available for approval'],
-        [selectedStageKey !== 'DECK_APPROVAL' || artifactExists(['deck','deck_pptx','lesson_01_deck_pptx']), 'Deck available for approval']
-      ];
-      document.getElementById('qaChecklist').innerHTML = checks.map(([pass, text]) => `<div class="check"><span>${{pass ? '✓' : '•'}}</span><div>${{esc(text)}}</div></div>`).join('');
+    function renderApprovals() {{
+      const tag = selectedLessonTag();
+      const rows = approvalGroups.map(group => {{
+        const artifact = artifactByNames(group.artifactNames(tag));
+        const status = lessonStatus(group.approvalField);
+        if (!artifact && status !== 'approved') return '';
+        const approved = status === 'approved';
+        const css = approved ? 'approved' : 'ready';
+        const noteId = `note-${{group.key}}`;
+        const artifactPath = artifact?.path || '';
+        return `<div class="approval-card ${{css}}">
+          <div>
+            <div class="approval-title">${{esc(group.title)}}</div>
+            <div class="approval-meta">${{esc(group.description)}}<br>Status: <strong>${{approved ? 'approved' : 'waiting for review'}}</strong></div>
+          </div>
+          <div>
+            <textarea class="approval-note" id="${{noteId}}" placeholder="Write edit requests or approval notes here."></textarea>
+            <div class="approval-meta">${{artifactPath ? esc(artifactPath) : 'Approval already recorded.'}}</div>
+          </div>
+          <div class="approval-actions">
+            <button class="danger" onclick="requestEdits('${{group.artifactType}}', '${{noteId}}')">Request edits</button>
+            <button class="primary" onclick="approveArtifact('${{group.artifactType}}', '${{noteId}}', '${{esc(artifactPath)}}')" ${{approved ? 'disabled' : ''}}>Approve</button>
+          </div>
+        </div>`;
+      }}).filter(Boolean).join('');
+      document.getElementById('approvalPanels').innerHTML = rows || '<div class="notice">No artifact is waiting for approval yet. After production creates a course book, presentation, or translation, the right approval section will appear here.</div>';
     }}
     function scopeKind(value) {{
       return String(value || '').startsWith('lesson_') ? 'lesson' : 'course';
@@ -852,6 +958,7 @@ def ui_shell(default_course: str) -> str:
         </div></td>
         <td><select class="mini" id="policy-${{id}}">
           <option value="context_only" ${{selected(u.reference_policy, 'context_only')}}>Context only - do not cite</option>
+          <option value="image_only" ${{selected(u.reference_policy, 'image_only')}}>Do not cite text - images allowed</option>
           <option value="reference_only" ${{selected(u.reference_policy, 'reference_only')}}>Can cite - no images</option>
           <option value="reference_and_images" ${{selected(u.reference_policy, 'reference_and_images')}}>Can cite + images allowed</option>
         </select></td>
@@ -878,7 +985,8 @@ def ui_shell(default_course: str) -> str:
       try {{
         const data = await api(path, {{method: 'POST', body: JSON.stringify(body || {{}})}});
         msg.textContent = data.message || 'Done.';
-        if (data.route) route.innerHTML = `<strong>${{esc(data.route.intent)}}</strong> · ${{esc(data.route.stage)}}<br>${{esc(data.route.next_action)}}`;
+        const route = document.getElementById('route');
+        if (data.route && route) route.innerHTML = `<strong>${{esc(data.route.intent)}}</strong> · ${{esc(data.route.stage)}}<br>${{esc(data.route.next_action)}}`;
         await refresh();
         return data;
       }} catch (error) {{
@@ -927,6 +1035,45 @@ def ui_shell(default_course: str) -> str:
       document.querySelectorAll('[data-level]').forEach(btn => btn.classList.toggle('active', btn.dataset.level === level));
       document.getElementById('expectedLessons').value = expectedLessonsByLevel[level] || 10;
     }}
+    async function startProductionFlow() {{
+      const title = document.getElementById('courseTitle').value.trim();
+      const syllabus = document.getElementById('syllabus').value.trim();
+      if (title && syllabus) {{
+        const level = document.querySelector('[data-level].active')?.dataset.level || 'Basic';
+        const created = await post('/api/create-course', {{
+          title,
+          level,
+          expected_lessons: Number(document.getElementById('expectedLessons').value || 0),
+          slug: document.getElementById('courseSlug').value,
+          syllabus
+        }});
+        const manualSlug = document.getElementById('courseSlug').value;
+        course.value = created.course_slug || manualSlug || course.value;
+      }}
+      return post('/api/stage-next', {{course: course.value, lesson: Number(document.getElementById('targetLesson').value || 1)}});
+    }}
+    async function approveArtifact(artifactType, noteId, artifactPath) {{
+      await post('/api/approve', {{
+        course: course.value,
+        lesson: Number(document.getElementById('targetLesson').value || 1),
+        artifact_type: artifactType,
+        artifact_path: artifactPath,
+        note: document.getElementById(noteId)?.value || ''
+      }});
+    }}
+    async function requestEdits(artifactType, noteId) {{
+      const note = document.getElementById(noteId)?.value || '';
+      if (!note.trim()) {{
+        msg.textContent = 'Write the requested edits before sending the artifact back.';
+        return;
+      }}
+      await post('/api/request-changes', {{
+        course: course.value,
+        lesson: Number(document.getElementById('targetLesson').value || 1),
+        artifact_type: artifactType,
+        note
+      }});
+    }}
     async function uploadFiles() {{
       try {{
         const form = new FormData();
@@ -943,27 +1090,13 @@ def ui_shell(default_course: str) -> str:
       }} catch (error) {{ msg.textContent = error.message; }}
     }}
     document.querySelectorAll('[data-level]').forEach(btn => btn.onclick = () => setLevel(btn.dataset.level));
-    document.getElementById('refresh').onclick = refresh;
-    document.getElementById('refreshTop').onclick = refresh;
-    document.getElementById('backup').onclick = () => post('/api/backup', {{summary: 'ui backup request'}});
-    document.getElementById('startTop').onclick = () => post('/api/stage-next', {{course: course.value, lesson: Number(document.getElementById('targetLesson').value || 1)}});
-    document.getElementById('startProduction').onclick = () => post('/api/stage-next', {{course: course.value, lesson: Number(document.getElementById('targetLesson').value || 1)}});
-    document.getElementById('startProductionGate').onclick = () => post('/api/stage-next', {{course: course.value, lesson: Number(document.getElementById('targetLesson').value || 1)}});
-    document.getElementById('approveStudyGuide').onclick = () => post('/api/approve', {{course: course.value, lesson: Number(document.getElementById('approvalLesson').value || 1), artifact_type: 'study_guide', note: document.getElementById('approvalNote').value}});
-    document.getElementById('approveDeck').onclick = () => post('/api/approve', {{course: course.value, lesson: Number(document.getElementById('approvalLesson').value || 1), artifact_type: 'deck', note: document.getElementById('approvalNote').value}});
-    document.getElementById('createCourse').onclick = () => {{
-      const level = document.querySelector('[data-level].active')?.dataset.level || 'Basic';
-      return post('/api/create-course', {{ title: document.getElementById('courseTitle').value, level, expected_lessons: Number(document.getElementById('expectedLessons').value || 0), slug: document.getElementById('courseSlug').value, syllabus: document.getElementById('syllabus').value }}).then((data) => {{
-        const manualSlug = document.getElementById('courseSlug').value;
-        course.value = data.course_slug || manualSlug || course.value;
-      }}).then(refresh);
-    }};
+    document.getElementById('startTop').onclick = startProductionFlow;
+    document.getElementById('startProduction').onclick = startProductionFlow;
     document.getElementById('uploadScope').onchange = toggleLessonInput;
     document.getElementById('upload').onclick = uploadFiles;
-    document.getElementById('interpret').onclick = () => post('/api/request', {{course: course.value, lesson: Number(document.getElementById('targetLesson').value || 1), request: document.getElementById('requestText').value, enqueue: false}});
-    document.getElementById('enqueue').onclick = () => post('/api/request', {{course: course.value, lesson: Number(document.getElementById('targetLesson').value || 1), request: document.getElementById('requestText').value, enqueue: true}});
     document.getElementById('logSearch').oninput = renderJobs;
     document.getElementById('actorFilter').onchange = renderJobs;
+    document.getElementById('targetLesson').onchange = renderApprovals;
     toggleLessonInput();
     refresh();
     setInterval(refresh, 10000);
@@ -1099,13 +1232,42 @@ class GregUiHandler(BaseHTTPRequestHandler):
                 self.send_json(HTTPStatus.OK, {"message": result.message, "job": result.job})
                 return
             if parsed.path == "/api/approve":
-                data = record_ui_approval(
-                    course_slug=str(body.get("course") or getattr(self.server, "default_course", DEFAULT_COURSE)),
-                    lesson=int(body.get("lesson") or 1),
-                    artifact_type=str(body.get("artifact_type") or ""),
-                    note=str(body.get("note") or ""),
-                )
+                course = str(body.get("course") or getattr(self.server, "default_course", DEFAULT_COURSE))
+                lesson = int(body.get("lesson") or 1)
+                artifact_type = str(body.get("artifact_type") or "")
+                artifact_path = str(body.get("artifact_path") or "").strip()
+                note = str(body.get("note") or "")
+                if artifact_path:
+                    data = record_ui_artifact_approval(
+                        course_slug=course,
+                        lesson=lesson,
+                        artifact_type=artifact_type,
+                        artifact=artifact_path,
+                        note=note,
+                    )
+                else:
+                    data = record_ui_approval(
+                        course_slug=course,
+                        lesson=lesson,
+                        artifact_type=artifact_type,
+                        note=note,
+                    )
                 self.send_json(HTTPStatus.OK, {"message": "Approval recorded.", "approval": data})
+                return
+            if parsed.path == "/api/request-changes":
+                course = str(body.get("course") or getattr(self.server, "default_course", DEFAULT_COURSE))
+                lesson = int(body.get("lesson") or 1)
+                artifact_type = str(body.get("artifact_type") or "artifact")
+                note = str(body.get("note") or "")
+                feedback = record_revision_request(course_slug=course, lesson=lesson, artifact_type=artifact_type, note=note)
+                result = enqueue_job(
+                    job_root=job_root,
+                    request_type="stage_next",
+                    course_slug=course,
+                    lesson=lesson,
+                    summary=f"ui revision request for {artifact_type}: {note[:180]}",
+                )
+                self.send_json(HTTPStatus.OK, {"message": "Edit request recorded and queued.", "feedback": feedback, "job": result.job})
                 return
             if parsed.path == "/api/request":
                 request_text = str(body.get("request") or "").strip()

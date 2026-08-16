@@ -25,17 +25,18 @@ class GregUiServerTests(unittest.TestCase):
         self.assertIn("BuildStak Course Agent", html)
         self.assertIn("Course Brief", html)
         self.assertIn("Source Materials", html)
-        self.assertIn("Production Pipeline", html)
-        self.assertIn("Gates", html)
+        self.assertIn("Production Status", html)
+        self.assertIn("Approval Queue", html)
         self.assertIn("Activity Log", html)
-        self.assertIn("Queue backup", html)
         self.assertIn("Lessons", html)
+        self.assertIn("Do not cite text - images allowed", html)
         self.assertIn("Can cite + images allowed", html)
-        self.assertIn("Start / Continue Production", html)
+        self.assertIn("Start production", html)
         self.assertIn("/api/stage-next", html)
-        self.assertIn("Approve Study Guide", html)
-        self.assertIn("Approve Deck", html)
+        self.assertIn("Request edits", html)
+        self.assertIn("approveArtifact", html)
         self.assertIn("/api/approve", html)
+        self.assertIn("/api/request-changes", html)
         self.assertIn("demo-course", html)
 
     def test_json_bytes_preserves_utf8(self) -> None:
@@ -73,6 +74,20 @@ class GregUiServerTests(unittest.TestCase):
         self.assertTrue(result["images_allowed"])
         uploads = ui.list_uploads(upload_root, "demo-course")
         self.assertTrue(uploads)
+
+    def test_image_only_policy_allows_images_without_references(self) -> None:
+        upload_root = ROOT / "tmp" / "uploads"
+        result = ui.save_uploaded_file(
+            upload_root=upload_root,
+            course_slug="Image Only Course",
+            filename="image-policy.pdf",
+            data=b"image policy pdf",
+            scope="course",
+            reference_policy="image_only",
+        )
+        self.assertEqual(result["reference_policy"], "image_only")
+        self.assertFalse(result["can_appear_in_references"])
+        self.assertTrue(result["images_allowed"])
 
     def test_update_and_delete_upload_manifest_entry(self) -> None:
         (ROOT / "tmp" / "uploads").mkdir(parents=True, exist_ok=True)
