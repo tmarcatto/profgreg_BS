@@ -121,7 +121,22 @@ def callout_blocks(lines: list[str]) -> list[dict]:
     return blocks
 
 
-def run_checks(draft_path: Path) -> dict:
+def expected_word_floor(level: str | None) -> int | None:
+    normalized = (level or "").strip().lower()
+    if normalized == "basic":
+        return 2600
+    if normalized == "intermediate":
+        return 3400
+    if normalized == "advanced":
+        return 3800
+    return None
+
+
+def section_heading_count(text: str) -> int:
+    return len(re.findall(r"(?im)^#\s+Section\s+\d{2}\s+-\s+.+$", text))
+
+
+def run_checks(draft_path: Path, level: str | None = None) -> dict:
     findings: list[Finding] = []
     text = read_text(draft_path)
     lines = text.splitlines()
@@ -215,6 +230,20 @@ def run_checks(draft_path: Path) -> dict:
         findings.append(Finding("fail", "no_reference_placeholders", f"Placeholder reference language found: {placeholder_refs}."))
     else:
         findings.append(Finding("pass", "no_reference_placeholders", "No placeholder reference language found."))
+
+    sections = section_heading_count(text)
+    if sections >= 4:
+        findings.append(Finding("pass", "section_count", f"Draft has {sections} numbered content sections."))
+    else:
+        findings.append(Finding("fail", "section_count", f"Draft has only {sections} numbered content sections; expected at least 4."))
+
+    floor = expected_word_floor(level)
+    if floor is not None:
+        words = word_count(text)
+        if words >= floor:
+            findings.append(Finding("pass", "level_depth", f"Draft has {words} words for {level} level."))
+        else:
+            findings.append(Finding("fail", "level_depth", f"Draft has {words} words; {level} level expects at least {floor} words before rendering."))
 
     fail_count = sum(1 for item in findings if item.status == "fail")
     warn_count = sum(1 for item in findings if item.status == "warn")

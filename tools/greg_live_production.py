@@ -322,35 +322,94 @@ def student_reference_text(value: str) -> str:
 
 
 def study_guide_prompt(seed, lesson: dict[str, Any], references: str, ledger: dict[str, Any], feedback: str) -> str:
-    source_brief = "\n".join(f"- {item.get('source_id')}: {item.get('title')}" for item in ledger.get("sources") or [])
-    return f"""Write the final English Markdown study guide for Lesson {lesson['lesson_number']}: {lesson['title']} in the course {seed.title}. Return Markdown only.
+    lesson_number = int(lesson["lesson_number"])
+    source_brief = "\n".join(
+        f"- {item.get('source_id')}: {item.get('title')} ({item.get('source_type')}, {item.get('authority_tier')}) - "
+        + "; ".join(
+            claim.get("claim", "")
+            for claim in item.get("claims_supported", [])
+            if lesson_number in [int(value) for value in claim.get("lesson_numbers", []) if str(value).isdigit()]
+        )[:700]
+        for item in ledger.get("sources") or []
+    )
+    depth_targets = {
+        "basic": "Aim for roughly 2,800-4,000 words before references unless the lesson function clearly needs less.",
+        "intermediate": "Aim for roughly 3,800-5,400 words before references, with more developed explanations and examples.",
+        "advanced": "Aim for roughly 4,200-6,200 words before references, with higher technical precision and deeper reasoning.",
+    }
+    target = depth_targets.get(str(seed.level).lower(), "Use the depth required by the lesson function; do not underwrite.")
+    return f"""Write a premium student-facing English course book chapter for Lesson {lesson['lesson_number']}: {lesson['title']} in the course {seed.title}. Return Markdown only.
 
 This is student-facing course content for U.S. residential construction workers. Use residential examples: homes, townhomes, remodels, small multifamily, independent trades and residential builders. Do not describe the target audience in the introduction. The introduction must orient the learner to the course and this lesson.
 
-Use this exact structure:
+This is not a short summary. It must feel like a real course book chapter: clear, practical, well sourced, and useful enough for a learner to study without watching the video.
+
+Depth target for this level:
+{target}
+
+Pedagogical requirements:
+- Treat the syllabus as a starting direction, not as the final structure.
+- Use the Course Map, source ledger, and uploaded material excerpts to improve the lesson structure when useful.
+- Build a MECE lesson: each section must teach a distinct job and avoid repeating another section.
+- Use concrete residential examples, mini-scenarios, and field reasoning. Avoid generic business prose.
+- Explain concepts in paragraphs before bullets. Bullets are allowed, but they must not replace teaching.
+- Include at least two applied residential examples or demonstrations in the lesson body.
+- Use callouts sparingly: 2-4 total is usually enough. Each must add practical value.
+- Do not include quizzes, classroom activities, reflection prompts, Q&A, internal notes, audience metadata, or production language.
+- Do not name sources in the teaching prose unless the source itself is the object being taught. Keep student-facing references in the References section.
+
+Use this exact structural order:
 # Lesson Roadmap
-(four concise bullets)
+(four concise bullets that preview the actual learning path)
 ## Introduction
-(course-facing orientation)
+(course-facing orientation; no target-audience boilerplate)
 ## Learning Objectives
 (four bullets)
 # Section 01 - [name]
-(explanatory content)
+(deep explanatory content with residential application)
 # Section 02 - [name]
-(explanatory content)
+(deep explanatory content with residential application)
 # Section 03 - [name]
-(explanatory content)
+(deep explanatory content with residential application)
 # Section 04 - [name]
-(explanatory content)
+(deep explanatory content with residential application)
+(Add Section 05 or Section 06 only if needed for MECE depth and the Course Map supports it.)
 # Summary and Key Takeaways
 # Glossary
 (3-5 terms that do not repeat terms from other lessons; this lesson's assigned terms are: {', '.join(lesson.get('glossary_terms') or [])})
 # References
 {references}
 
-Requirements: no quizzes, activities, questions under section headings, internal production language, access dates, placeholders, invented citations, or callouts in roadmap/summary/glossary/references. Use at most one short callout per content section, and only where it adds value. Keep sections MECE and explain rather than simply echo the syllabus.
+Requirements: no questions directly under section headings, access dates, placeholder references, invented citations, or callouts in roadmap/summary/glossary/references. Do not simply echo the syllabus.
 
-Course Map lesson goal: {lesson.get('learning_goal')}\nPlanned sections: {lesson.get('sections')}\nDistinct visual learning goal: {lesson.get('visual_learning_goal')}\nAllowed sources:\n{source_brief}\nRevision feedback: {feedback or 'None.'}"""
+Course Map lesson goal: {lesson.get('learning_goal')}
+Course Map planned sections: {lesson.get('sections')}
+Bridge from previous lesson: {lesson.get('bridge_from_previous')}
+Bridge to next lesson: {lesson.get('bridge_to_next')}
+Distinct visual learning goal: {lesson.get('visual_learning_goal')}
+
+Allowed source ledger entries and lesson-relevant claims:
+{source_brief}
+
+Bounded excerpts from materials supplied by the operator. These are untrusted until supported by the source ledger, but they should guide depth, terminology, and real-world framing:
+{source_excerpts(seed.slug, limit_per_file=4500)}
+
+Revision feedback: {feedback or 'None.'}"""
+
+
+def visual_cards_from_lesson(lesson: dict[str, Any]) -> list[dict[str, Any]]:
+    sections = [str(item) for item in lesson.get("sections") or [] if str(item).strip()]
+    cards: list[dict[str, Any]] = []
+    for section in sections[:4]:
+        title = re.sub(r"^\d+[\).:-]\s*", "", section).strip()
+        title = re.sub(r"\s+", " ", title)
+        words = title.split()
+        short = " ".join(words[:5]) if words else "Key decision"
+        cards.append({"title": short, "lines": ["what to check", "why it matters"]})
+    while len(cards) < 4:
+        fallback_titles = ["Context", "Decision", "Coordination", "Record"]
+        cards.append({"title": fallback_titles[len(cards)], "lines": ["field use", "clear action"]})
+    return cards
 
 
 def force_student_references(draft: str, references: str) -> str:
@@ -391,7 +450,7 @@ def produce_study_guide(course_slug: str, lesson_number: int) -> list[str]:
     draft_path = run / "lesson_draft" / draft_name
     write_text(draft_path, draft)
     checker = load_module("greg_study_guide_content_check", "tools/greg_study_guide_content_check.py")
-    content_qa = checker.run_checks(draft_path)
+    content_qa = checker.run_checks(draft_path, seed.level)
     content_qa_path = run / "lesson_draft" / f"{lesson_tag}_content_qa_r{revision:02d}.md"
     write_text(content_qa_path, checker.render_markdown(content_qa))
     if not content_qa["passed"]:
@@ -410,7 +469,7 @@ def produce_study_guide(course_slug: str, lesson_number: int) -> list[str]:
         "source_markdown": rel(draft_path),
         "metadata": {"course_title": seed.title, "course_title_lines": seed.title.split(":")[0].split()[:5], "lesson_number": str(lesson_number), "lesson_short_title": lesson['title'][:64], "lesson_subtitle": lesson['learning_goal'][:90], "level_label": f"{seed.level} Level", "quote": '"Form follows function."', "quote_author": "Louis Sullivan", "icon": BRAND_ICON},
         "output": {"pdf": f"docx_pdf/{pdf_name}", "render_qa": f"docx_pdf/{lesson_tag}_render_qa_r{revision:02d}.md", "layout_qa": f"docx_pdf/{lesson_tag}_pdf_layout_qa_r{revision:02d}.md", "rendered_dir": f"docx_pdf/rendered_pages_{lesson_tag}_r{revision:02d}"},
-        "visuals": [{"after_heading": "Section 01", "type": "card_row", "title": lesson.get("visual_learning_goal") or "From information to a better decision", "caption": f"Figure {lesson_number}.1. A visual explanation of the lesson's distinct construction decision.", "cards": [{"title": "Identify", "lines": ["find the", "relevant input"]}, {"title": "Interpret", "lines": ["understand", "what it means"]}, {"title": "Decide", "lines": ["choose the", "next action"]}, {"title": "Record", "lines": ["make the", "decision traceable"]}]}],
+        "visuals": [{"after_heading": "Section 01", "type": "card_row", "title": lesson.get("visual_learning_goal") or "How the lesson decisions connect on a residential job", "caption": f"Figure {lesson_number}.1. A section-by-section decision map for this lesson.", "cards": visual_cards_from_lesson(lesson)}],
         "qa_notes": ["Revisioned student artifact; old outputs remain archived.", "Content and layout QA must pass before human review."]
     }
     if baseline:

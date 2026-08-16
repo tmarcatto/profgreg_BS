@@ -24,6 +24,15 @@ class GregLiveProductionTests(unittest.TestCase):
         self.assertNotIn("accessed", text.lower())
         self.assertIn("Current online edition.", text)
 
+    def test_visual_cards_are_lesson_specific(self) -> None:
+        cards = production.visual_cards_from_lesson(
+            {"sections": ["Project lifecycle phases", "PM responsibilities vs field leadership", "Stakeholder expectations", "Jobsite vocabulary"]}
+        )
+        titles = [card["title"] for card in cards]
+        self.assertIn("Project lifecycle phases", titles)
+        self.assertIn("PM responsibilities vs field leadership", titles)
+        self.assertNotIn("Identify", titles)
+
 
 if __name__ == "__main__":
     unittest.main()

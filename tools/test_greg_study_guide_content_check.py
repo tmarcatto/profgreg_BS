@@ -23,7 +23,7 @@ class StudyGuideContentCheckTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             path = Path(tmp) / "draft.md"
             path.write_text(
-                "# Intro\n\n# Section 01 - One\n\nBody text.\n\n> **KEY TERM**\n>\n> Contract: a project rule.\n\nMore text.\n\n# References\n\n- American Institute of Architects. AIA Contract Documents.\n",
+                "# Intro\n\n# Section 01 - One\n\nBody text.\n\n> **KEY TERM**\n>\n> Contract: a project rule.\n\nMore text.\n\n# Section 02 - Two\n\nBody text.\n\n# Section 03 - Three\n\nBody text.\n\n# Section 04 - Four\n\nBody text.\n\n# References\n\n- American Institute of Architects. AIA Contract Documents.\n",
                 encoding="utf-8",
             )
             result = checker.run_checks(path)
@@ -53,6 +53,22 @@ class StudyGuideContentCheckTests(unittest.TestCase):
             result = checker.run_checks(path)
             self.assertFalse(result["passed"])
             self.assertTrue(any(item["check"] == "course_focused_introduction" for item in result["findings"] if item["status"] == "fail"))
+
+    def test_intermediate_underwritten_draft_fails_depth_gate(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "draft.md"
+            path.write_text(
+                "# Lesson Roadmap\n\n- One\n- Two\n- Three\n- Four\n\n"
+                "## Introduction\n\nCourse intro.\n\n## Learning Objectives\n\n- One\n- Two\n- Three\n- Four\n\n"
+                "# Section 01 - One\n\nShort body.\n\n# Section 02 - Two\n\nShort body.\n\n"
+                "# Section 03 - Three\n\nShort body.\n\n# Section 04 - Four\n\nShort body.\n\n"
+                "# Summary and Key Takeaways\n\n- One\n\n# Glossary\n\n- Term: definition.\n\n"
+                "# References\n\n- National Association of Home Builders. Residential Construction Performance Guidelines.\n",
+                encoding="utf-8",
+            )
+            result = checker.run_checks(path, "Intermediate")
+            self.assertFalse(result["passed"])
+            self.assertTrue(any(item["check"] == "level_depth" for item in result["findings"] if item["status"] == "fail"))
 
 
 if __name__ == "__main__":
