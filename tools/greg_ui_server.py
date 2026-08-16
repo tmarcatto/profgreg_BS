@@ -955,6 +955,14 @@ def ui_shell(default_course: str) -> str:
       if (isDownloadablePath(lessonPath)) {{
         return {{path: lessonPath, exists: true, name: `${{group.key}}_file`}};
       }}
+      const blockedPathByGroup = {{
+        study_guide: lesson?.study_guide_blocked_path,
+        deck: lesson?.deck_blocked_path
+      }};
+      const blockedPath = blockedPathByGroup[group.key];
+      if (isDownloadablePath(blockedPath)) {{
+        return {{path: blockedPath, exists: true, name: `${{group.key}}_blocked_file`, blocked: true}};
+      }}
       if (lesson) return null;
       return artifactByNames(group.artifactNames(tag));
     }}
@@ -967,6 +975,9 @@ def ui_shell(default_course: str) -> str:
       return blockersByGroup[group.key] || [];
     }}
     function stageState(key, names) {{
+      const lesson = selectedLessonRecord();
+      if (lesson?.study_guide === 'blocked' && ['DOCX_PDF', 'HUMAN_APPROVAL'].includes(key)) return 'blocked';
+      if (lesson?.deck === 'blocked' && ['DECK', 'DECK_APPROVAL'].includes(key)) return 'blocked';
       if (artifactExists(names)) return 'done';
       const currentStage = normalizedStage(currentStatus?.stage);
       if (key === currentStage) return 'active';
@@ -979,7 +990,7 @@ def ui_shell(default_course: str) -> str:
       const strip = document.getElementById('pipelineStrip');
       strip.innerHTML = stages.map(([key, title, names], index) => {{
         const state = stageState(key, names);
-        const label = state === 'done' ? 'approved / present' : state === 'active' ? 'active' : 'pending';
+        const label = state === 'done' ? 'approved / present' : state === 'active' ? 'active' : state === 'blocked' ? 'blocked by QA' : 'pending';
         return `<div class="stage-card ${{state}} ${{selectedStageKey === key ? 'selected' : ''}}" onclick="selectStage('${{key}}')">
           <div class="stage-kicker"><span class="dot"></span> Stage ${{index + 1}}</div>
           <div class="stage-title">${{esc(title)}}</div>
@@ -1008,6 +1019,7 @@ def ui_shell(default_course: str) -> str:
         const noteId = `note-${{group.key}}`;
         const artifactPath = artifact?.path || '';
         const filename = artifactPath ? downloadFilename(group, artifactPath) : '';
+        const downloadLabel = blocked ? 'Download blocked file' : 'Download file';
         return `<div class="approval-card ${{css}}">
           <div>
             <div class="approval-title">${{esc(group.title)}}</div>
@@ -1018,7 +1030,7 @@ def ui_shell(default_course: str) -> str:
             <div class="approval-meta">${{blocked ? esc(blockers.join(' ')) : artifactPath ? esc(artifactPath) : 'Approval already recorded.'}}</div>
           </div>
           <div class="approval-actions">
-            ${{artifactPath ? `<a class="download-link" href="/artifact?path=${{encodeURIComponent(artifactPath)}}&filename=${{encodeURIComponent(filename)}}" target="_blank" rel="noopener">Download file</a>` : ''}}
+            ${{artifactPath ? `<a class="download-link" href="/artifact?path=${{encodeURIComponent(artifactPath)}}&filename=${{encodeURIComponent(filename)}}" target="_blank" rel="noopener">${{downloadLabel}}</a>` : ''}}
             <button class="danger" onclick="requestEdits('${{group.artifactType}}', '${{noteId}}')">Request edits</button>
             <button class="primary" onclick="approveArtifact('${{group.artifactType}}', '${{noteId}}', '${{esc(artifactPath)}}')" ${{approved || blocked || !artifactPath ? 'disabled' : ''}}>Approve</button>
           </div>

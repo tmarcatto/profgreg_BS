@@ -225,6 +225,7 @@ def summarize_lessons(run: Path, manifest: dict) -> list[dict]:
             blockers = study_guide_quality_blockers(run, str(lesson).zfill(2)) if exists else []
             if blockers:
                 row["study_guide"] = "blocked"
+                row["study_guide_blocked_path"] = rel(path)
                 row["study_guide_quality_blockers"] = blockers
             else:
                 row["study_guide"] = status if exists else "missing"
@@ -232,6 +233,7 @@ def summarize_lessons(run: Path, manifest: dict) -> list[dict]:
         elif key.endswith("_deck_pptx"):
             if row.get("study_guide") == "blocked":
                 row["deck"] = "blocked"
+                row["deck_blocked_path"] = rel(path) if exists else ""
                 row["deck_quality_blockers"] = ["Course book is blocked; presentation review is gated until the course book is regenerated and passes QA."]
             else:
                 row["deck"] = status if exists else "missing"

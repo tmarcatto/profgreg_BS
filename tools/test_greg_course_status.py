@@ -99,6 +99,7 @@ class CourseStatusTests(unittest.TestCase):
 
             self.assertEqual(lessons[0]["study_guide"], "blocked")
             self.assertNotIn("study_guide_path", lessons[0])
+            self.assertIn("study_guide_blocked_path", lessons[0])
             self.assertTrue(lessons[0]["study_guide_quality_blockers"])
 
     def test_render_markdown_includes_lesson_table(self) -> None:
