@@ -519,8 +519,9 @@ This study guide is written for construction learners working in the United Stat
         raise RuntimeError(f"Study guide content QA failed: {[item for item in content['findings'] if item['status'] == 'fail']}")
 
     subprocess.run([sys.executable, str(ROOT / "tools" / "greg_render_study_guide_from_spec.py"), str(spec_path)], cwd=ROOT, check=True)
+    render_qa_path = run / spec["output"]["render_qa"]
     write_text(
-        run / spec["output"]["render_qa"],
+        render_qa_path,
         """# Study Guide Render QA
 
 Passed.
@@ -533,17 +534,13 @@ Passed.
 - Figure captions checked.
 """,
     )
-    write_text(
-        run / spec["output"]["layout_qa"],
-        """# Study Guide PDF Layout QA
-
-Passed.
-
-- Cover, roadmap, introduction, learning objectives, content, summary, glossary, and references checked.
-- Figures and captions checked.
-- No orphan heading or split box should pass final delivery.
-""",
-    )
+    pdf_path = run / spec["output"]["pdf"]
+    layout_qa_path = run / spec["output"]["layout_qa"]
+    layout_qa_module = load_module("greg_pdf_layout_check", "tools/greg_pdf_layout_check.py")
+    layout_qa = layout_qa_module.run_checks(pdf_path, render_qa_path)
+    write_text(layout_qa_path, layout_qa_module.render_markdown(layout_qa))
+    if not layout_qa["passed"]:
+        raise RuntimeError(f"Study guide PDF layout QA failed: {[item for item in layout_qa['findings'] if item['status'] == 'fail']}")
     update_canonical_manifest(seed.slug)
     return [f"Produced study guide draft: {rel(draft_path)}", f"Produced study guide PDF: {rel(run / spec['output']['pdf'])}"]
 

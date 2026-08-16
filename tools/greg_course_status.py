@@ -65,6 +65,21 @@ def load_json(path: Path) -> dict:
         return {}
 
 
+def lesson_titles(run: Path) -> dict[str, str]:
+    data = load_json(run / "course_map" / "course_map.json")
+    titles: dict[str, str] = {}
+    for index, item in enumerate(data.get("lessons") or [], start=1):
+        raw_number = item.get("lesson_number") or item.get("number") or item.get("lesson") or index
+        try:
+            number = f"{int(raw_number):02d}"
+        except (TypeError, ValueError):
+            number = str(raw_number).zfill(2)
+        title = item.get("title") or item.get("lesson_title")
+        if title:
+            titles[number] = str(title).strip()
+    return titles
+
+
 def read_status_field(status_text: str, label: str) -> str:
     prefix = f"{label}:"
     for line in status_text.splitlines():
@@ -165,6 +180,7 @@ def summarize(course_slug: str) -> dict:
 
 def summarize_lessons(run: Path, manifest: dict) -> list[dict]:
     lessons: dict[str, dict] = {}
+    titles = lesson_titles(run)
     for item in manifest.get("artifacts", []):
         lesson = item.get("lesson")
         key = item.get("key", "")
@@ -174,6 +190,7 @@ def summarize_lessons(run: Path, manifest: dict) -> list[dict]:
             lesson,
             {
                 "lesson": lesson,
+                "title": titles.get(str(lesson).zfill(2), ""),
                 "study_guide": "missing",
                 "deck": "missing",
                 "pipeline_qa": "missing",

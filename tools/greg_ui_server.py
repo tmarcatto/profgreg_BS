@@ -150,6 +150,12 @@ def safe_artifact_path(value: str) -> Path:
     return resolved
 
 
+def safe_download_filename(value: str, fallback: str) -> str:
+    raw = unquote(value or "").strip() or fallback
+    name = re.sub(r"[^\w .()\-]+", "-", raw, flags=re.UNICODE).strip(" .-")
+    return name or fallback
+
+
 def upload_identifier(meta: dict) -> str:
     stable = f"{meta.get('stored_path', '')}|{meta.get('sha256', '')}|{meta.get('filename', '')}"
     return hashlib.sha256(stable.encode("utf-8")).hexdigest()[:16]
@@ -845,7 +851,7 @@ def ui_shell(default_course: str) -> str:
         title: 'Presentation',
         description: 'Approve the English presentation after reviewing the PPTX.',
         artifactType: 'deck',
-        artifactNames: lesson => [`lesson_${{lesson}}_deck_pptx`, 'deck_pptx', 'deck'],
+        artifactNames: lesson => [`lesson_${{lesson}}_deck_pptx`, 'deck_pptx'],
         approvalField: 'deck'
       }},
       {{
@@ -899,16 +905,56 @@ def ui_shell(default_course: str) -> str:
     }}
     function artifactByNames(names) {{
       const artifacts = currentStatus?.artifacts || [];
-      return artifacts.find(item => names.includes(item.name) && item.exists) || null;
+      return artifacts.find(item => names.includes(item.name) && item.exists && isDownloadablePath(item.path)) || null;
+    }}
+    function isDownloadablePath(path) {{
+      return /\\.(pdf|pptx|docx|md)$/i.test(String(path || ''));
     }}
     function selectedLessonTag() {{
       const value = Number(document.getElementById('targetLesson').value || 1);
       return String(Math.max(1, value)).padStart(2, '0');
     }}
-    function lessonStatus(field) {{
+    function selectedLessonRecord() {{
       const tag = selectedLessonTag();
-      const lesson = (currentStatus?.lessons || []).find(item => String(item.lesson).padStart(2, '0') === tag);
+      return (currentStatus?.lessons || []).find(item => String(item.lesson).padStart(2, '0') === tag) || null;
+    }}
+    function lessonStatus(field) {{
+      const lesson = selectedLessonRecord();
       return lesson ? lesson[field] : '';
+    }}
+    function lessonTitle() {{
+      const lesson = selectedLessonRecord();
+      return lesson?.title || `Lesson ${{selectedLessonTag()}}`;
+    }}
+    function fileExtension(path) {{
+      const match = String(path || '').match(/\\.[a-z0-9]+$/i);
+      return match ? match[0].toLowerCase() : '';
+    }}
+    function cleanFilenamePart(value) {{
+      return String(value || '').replace(/[\\\\/:*?"<>|]+/g, '-').replace(/\\s+/g, ' ').trim();
+    }}
+    function downloadFilename(group, artifactPath) {{
+      const ext = fileExtension(artifactPath) || (group.key.includes('deck') || group.key === 'deck' ? '.pptx' : '.pdf');
+      const lessonPart = `Lesson ${{selectedLessonTag()}}`;
+      const titlePart = cleanFilenamePart(lessonTitle());
+      const suffix = group.key.includes('deck') || group.key === 'deck' ? 'Presentation' : 'Course Book';
+      return `${{lessonPart}} - ${{titlePart}} - ${{suffix}}${{ext}}`;
+    }}
+    function artifactForGroup(group, tag) {{
+      const lesson = selectedLessonRecord();
+      const lessonPathByGroup = {{
+        study_guide: lesson?.study_guide_path,
+        deck: lesson?.deck_path,
+        pt_br_study_guide: lesson?.pt_br_study_guide_path,
+        pt_br_deck: lesson?.pt_br_deck_path,
+        es_study_guide: lesson?.es_study_guide_path,
+        es_deck: lesson?.es_deck_path
+      }};
+      const lessonPath = lessonPathByGroup[group.key];
+      if (isDownloadablePath(lessonPath)) {{
+        return {{path: lessonPath, exists: true, name: `${{group.key}}_file`}};
+      }}
+      return artifactByNames(group.artifactNames(tag));
     }}
     function stageState(key, names) {{
       if (artifactExists(names)) return 'done';
@@ -942,13 +988,14 @@ def ui_shell(default_course: str) -> str:
     function renderApprovals() {{
       const tag = selectedLessonTag();
       const rows = approvalGroups.map(group => {{
-        const artifact = artifactByNames(group.artifactNames(tag));
+        const artifact = artifactForGroup(group, tag);
         const status = lessonStatus(group.approvalField);
         if (!artifact && status !== 'approved') return '';
         const approved = status === 'approved';
         const css = approved ? 'approved' : 'ready';
         const noteId = `note-${{group.key}}`;
         const artifactPath = artifact?.path || '';
+        const filename = artifactPath ? downloadFilename(group, artifactPath) : '';
         return `<div class="approval-card ${{css}}">
           <div>
             <div class="approval-title">${{esc(group.title)}}</div>
@@ -959,7 +1006,7 @@ def ui_shell(default_course: str) -> str:
             <div class="approval-meta">${{artifactPath ? esc(artifactPath) : 'Approval already recorded.'}}</div>
           </div>
           <div class="approval-actions">
-            ${{artifactPath ? `<a class="download-link" href="/artifact?path=${{encodeURIComponent(artifactPath)}}" target="_blank" rel="noopener">Download</a>` : ''}}
+            ${{artifactPath ? `<a class="download-link" href="/artifact?path=${{encodeURIComponent(artifactPath)}}&filename=${{encodeURIComponent(filename)}}" target="_blank" rel="noopener">Download file</a>` : ''}}
             <button class="danger" onclick="requestEdits('${{group.artifactType}}', '${{noteId}}')">Request edits</button>
             <button class="primary" onclick="approveArtifact('${{group.artifactType}}', '${{noteId}}', '${{esc(artifactPath)}}')" ${{approved ? 'disabled' : ''}}>Approve</button>
           </div>
@@ -1148,13 +1195,14 @@ class GregUiHandler(BaseHTTPRequestHandler):
         self.end_headers()
         self.wfile.write(body)
 
-    def send_file(self, path: Path) -> None:
+    def send_file(self, path: Path, filename: str | None = None) -> None:
         content_type = mimetypes.guess_type(path.name)[0] or "application/octet-stream"
         body = path.read_bytes()
         self.send_response(HTTPStatus.OK.value)
         self.send_header("Content-Type", content_type)
         self.send_header("Content-Length", str(len(body)))
-        self.send_header("Content-Disposition", f'attachment; filename="{path.name}"')
+        download_name = safe_download_filename(filename or path.name, path.name)
+        self.send_header("Content-Disposition", f'attachment; filename="{download_name}"')
         self.send_header("Cache-Control", "no-store")
         self.end_headers()
         self.wfile.write(body)
@@ -1189,8 +1237,10 @@ class GregUiHandler(BaseHTTPRequestHandler):
                 self.send_json(HTTPStatus.OK, {"uploads": list_uploads(getattr(self.server, "upload_root"), course)})
                 return
             if parsed.path == "/artifact":
-                artifact = parse_qs(parsed.query).get("path", [""])[0]
-                self.send_file(safe_artifact_path(artifact))
+                query = parse_qs(parsed.query)
+                artifact = query.get("path", [""])[0]
+                filename = query.get("filename", [""])[0]
+                self.send_file(safe_artifact_path(artifact), filename=filename)
                 return
             self.send_json(HTTPStatus.NOT_FOUND, {"error": "Not found"})
         except Exception as error:

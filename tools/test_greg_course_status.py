@@ -26,6 +26,11 @@ class CourseStatusTests(unittest.TestCase):
             (run / "docx_pdf").mkdir(parents=True)
             (run / "deck").mkdir()
             (run / "process_review").mkdir()
+            (run / "course_map").mkdir()
+            (run / "course_map" / "course_map.json").write_text(
+                '{"lessons": [{"lesson_number": 1, "title": "The Modern Construction Project Manager"}]}',
+                encoding="utf-8",
+            )
             (run / "docx_pdf" / "lesson_01_study_guide.pdf").write_text("pdf", encoding="utf-8")
             (run / "deck" / "lesson_01_deck_r02.pptx").write_text("deck", encoding="utf-8")
             (run / "process_review" / "lesson_01_pipeline_qa.md").write_text("qa", encoding="utf-8")
@@ -55,6 +60,7 @@ class CourseStatusTests(unittest.TestCase):
             lessons = status.summarize_lessons(run, manifest)
 
             self.assertEqual(lessons[0]["lesson"], "01")
+            self.assertEqual(lessons[0]["title"], "The Modern Construction Project Manager")
             self.assertEqual(lessons[0]["study_guide"], "approved")
             self.assertEqual(lessons[0]["deck"], "approved")
             self.assertEqual(lessons[0]["pipeline_qa"], "present")

@@ -46,11 +46,28 @@ INTERNAL_PATTERNS = [
     r"\bAI workflow\b",
 ]
 
+INTRO_BOILERPLATE_PATTERNS = [
+    r"\bthis study guide is written for\b",
+    r"\bconstruction learners working in the united states\b",
+    r"\btarget user\b",
+    r"\btarget learner\b",
+]
+
+REFERENCE_PLACEHOLDER_PATTERNS = [
+    r"\bCurrent student references will be added after research expansion\b",
+    r"\bReferences?\s+pending\b",
+    r"\bSource research pending\b",
+]
+
 
 def read_text(path: Path) -> str:
     if not path.exists():
         return ""
     return path.read_text(encoding="utf-8", errors="replace")
+
+
+def word_count(text: str) -> int:
+    return len(re.findall(r"[A-Za-z0-9][A-Za-z0-9'-]*", text))
 
 
 def heading_name(line: str) -> str | None:
@@ -129,9 +146,18 @@ def run_checks(draft_path: Path) -> dict:
         if re.search(pattern, intro_text, flags=re.IGNORECASE):
             internal_found.append(pattern)
     if internal_found:
-        findings.append(Finding("warn", "student_facing_intro_metadata", f"Potential internal metadata language before lesson body: {internal_found}."))
+        findings.append(Finding("fail", "student_facing_intro_metadata", f"Internal metadata language before lesson body: {internal_found}."))
     else:
         findings.append(Finding("pass", "student_facing_intro_metadata", "No obvious internal metadata in student-facing intro area."))
+
+    intro_boilerplate = []
+    for pattern in INTRO_BOILERPLATE_PATTERNS:
+        if re.search(pattern, intro_text, flags=re.IGNORECASE):
+            intro_boilerplate.append(pattern)
+    if intro_boilerplate:
+        findings.append(Finding("fail", "course_focused_introduction", f"Introduction contains operator/audience boilerplate instead of course-facing orientation: {intro_boilerplate}."))
+    else:
+        findings.append(Finding("pass", "course_focused_introduction", "Introduction does not explain the target user as metadata."))
 
     blocks = callout_blocks(lines)
     if blocks:
@@ -171,6 +197,24 @@ def run_checks(draft_path: Path) -> dict:
         findings.append(Finding("fail", "no_access_dates", "Visible reference access date found."))
     else:
         findings.append(Finding("pass", "no_access_dates", "No visible reference access dates found."))
+
+    references_match = re.search(r"(?ims)^#\s+References\s*$([\s\S]+)$", text)
+    references_text = references_match.group(1).strip() if references_match else ""
+    if not references_match:
+        findings.append(Finding("fail", "references_present", "References section is missing."))
+    elif word_count(references_text) < 6:
+        findings.append(Finding("fail", "references_present", "References section has no usable source entries."))
+    else:
+        findings.append(Finding("pass", "references_present", "References section has usable source entries."))
+
+    placeholder_refs = []
+    for pattern in REFERENCE_PLACEHOLDER_PATTERNS:
+        if re.search(pattern, references_text, flags=re.IGNORECASE):
+            placeholder_refs.append(pattern)
+    if placeholder_refs:
+        findings.append(Finding("fail", "no_reference_placeholders", f"Placeholder reference language found: {placeholder_refs}."))
+    else:
+        findings.append(Finding("pass", "no_reference_placeholders", "No placeholder reference language found."))
 
     fail_count = sum(1 for item in findings if item.status == "fail")
     warn_count = sum(1 for item in findings if item.status == "warn")

@@ -58,6 +58,10 @@ class GregUiServerTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             ui.safe_artifact_path("../../secrets/.env.local")
 
+    def test_safe_download_filename_sanitizes_operator_names(self) -> None:
+        name = ui.safe_download_filename("Lesson 01: PM / Closeout?.pdf", "fallback.pdf")
+        self.assertEqual(name, "Lesson 01- PM - Closeout-.pdf")
+
     def test_build_server_rejects_unsafe_job_root(self) -> None:
         with self.assertRaises(ValueError):
             ui.build_server("127.0.0.1", 0, job_root=Path("/tmp/not-profgreg"), upload_root=ROOT / "tmp" / "uploads", default_course="demo")

@@ -197,7 +197,18 @@ def run_checks(ledger_path: Path, references_path: Path, production_date: date |
     if reference_lines:
         findings.append(Finding("pass", "student_reference_lines", f"Student references include {len(reference_lines)} entries."))
     else:
-        findings.append(Finding("warn", "student_reference_lines", "No bullet-style student references found."))
+        findings.append(Finding("fail", "student_reference_lines", "No bullet-style student references found."))
+
+    reference_placeholders = [
+        r"\bCurrent student references will be added after research expansion\b",
+        r"\bReferences?\s+pending\b",
+        r"\bSource research pending\b",
+    ]
+    found_placeholders = [pattern for pattern in reference_placeholders if re.search(pattern, references_text, flags=re.IGNORECASE)]
+    if found_placeholders:
+        findings.append(Finding("fail", "student_reference_placeholders", f"Placeholder reference language found: {found_placeholders}."))
+    else:
+        findings.append(Finding("pass", "student_reference_placeholders", "No placeholder reference language found."))
 
     formal_publications_with_links = []
     for source in sources:

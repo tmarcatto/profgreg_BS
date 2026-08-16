@@ -49,15 +49,16 @@ class GregV0ProductionTests(unittest.TestCase):
         if self.run.exists():
             shutil.rmtree(self.run)
 
-    def test_course_map_and_source_ledger_are_created(self) -> None:
+    def test_course_map_is_created(self) -> None:
         course_map = producer.produce_course_map(self.slug)
-        source_ledger = producer.produce_source_ledger(self.slug)
         self.assertTrue((self.run / "course_map" / "course_map.json").exists())
         self.assertTrue((self.run / "course_map" / "course_map_qa.md").exists())
-        self.assertTrue((self.run / "sources" / "source_ledger.json").exists())
-        self.assertTrue((self.run / "sources" / "student_references.md").exists())
         self.assertTrue(any("Course Map" in item for item in course_map))
-        self.assertTrue(any("source ledger" in item for item in source_ledger))
+
+    def test_source_ledger_blocks_placeholder_references(self) -> None:
+        with self.assertRaises(RuntimeError):
+            producer.produce_source_ledger(self.slug)
+        self.assertTrue((self.run / "sources" / "source_reference_qa.md").exists())
 
 
 if __name__ == "__main__":

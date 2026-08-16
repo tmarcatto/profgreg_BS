@@ -67,6 +67,20 @@ class SourceReferenceCheckTests(unittest.TestCase):
             self.assertFalse(result["passed"])
             self.assertGreaterEqual(result["fail_count"], 1)
 
+    def test_placeholder_student_references_fail(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            tmp_path = Path(tmp)
+            ledger = tmp_path / "ledger.json"
+            refs = tmp_path / "refs.md"
+            ledger.write_text(
+                '{"sources": [{"source_id": "S01", "title": "Source research pending", "author_or_organization": "Prof Greg", "source_type": "course-context-material", "authority_tier": "supplemental", "currency_validation": {"status": "unresolved"}, "claims_supported": []}], "validation": {"weak_sources_to_replace": ["S01"], "unsupported_claims": []}}',
+                encoding="utf-8",
+            )
+            refs.write_text("# References\n\n- Current student references will be added after research expansion.\n", encoding="utf-8")
+            result = checker.run_checks(ledger, refs, date(2026, 8, 10))
+            self.assertFalse(result["passed"])
+            self.assertTrue(any(item["check"] == "student_reference_placeholders" for item in result["findings"] if item["status"] == "fail"))
+
 
 if __name__ == "__main__":
     unittest.main()

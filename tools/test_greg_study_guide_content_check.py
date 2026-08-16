@@ -23,7 +23,7 @@ class StudyGuideContentCheckTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             path = Path(tmp) / "draft.md"
             path.write_text(
-                "# Intro\n\n# Section 01 - One\n\nBody text.\n\n> **KEY TERM**\n>\n> Contract: a project rule.\n\nMore text.\n\n# References\n\n- AIA. Contract Documents.\n",
+                "# Intro\n\n# Section 01 - One\n\nBody text.\n\n> **KEY TERM**\n>\n> Contract: a project rule.\n\nMore text.\n\n# References\n\n- American Institute of Architects. AIA Contract Documents.\n",
                 encoding="utf-8",
             )
             result = checker.run_checks(path)
@@ -42,6 +42,17 @@ class StudyGuideContentCheckTests(unittest.TestCase):
             path.write_text("# Section 01 - One\n\nClass activity: discuss this with your group.\n", encoding="utf-8")
             result = checker.run_checks(path)
             self.assertFalse(result["passed"])
+
+    def test_intro_target_user_boilerplate_fails(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "draft.md"
+            path.write_text(
+                "# Introduction\n\nThis study guide is written for construction learners working in the United States.\n\n# Section 01 - One\n\nBody text.\n\n# References\n\n- AIA. Contract Documents.\n",
+                encoding="utf-8",
+            )
+            result = checker.run_checks(path)
+            self.assertFalse(result["passed"])
+            self.assertTrue(any(item["check"] == "course_focused_introduction" for item in result["findings"] if item["status"] == "fail"))
 
 
 if __name__ == "__main__":
