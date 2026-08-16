@@ -178,6 +178,22 @@ class GregServerStatusTests(unittest.TestCase):
             job = checker.create_job(job_root=root, request_type="stage_next", course_slug="demo-course", lesson=1)
             result = checker.process_one_worker_job(root, backup_root=ROOT / "tmp" / "worker-backups", dry_run=True)
             self.assertEqual(result["job_id"], job["job_id"])
+        self.assertEqual(result["state"], "completed")
+
+    def test_worker_production_stage_dry_run_completes(self) -> None:
+        (ROOT / "tmp" / "jobs").mkdir(parents=True, exist_ok=True)
+        with tempfile.TemporaryDirectory(dir=ROOT / "tmp" / "jobs") as tmp:
+            root = Path(tmp)
+            job = checker.create_job(
+                job_root=root,
+                request_type="production_stage",
+                course_slug="demo-course",
+                input_summary="test production stage",
+                payload={"stage": "study_guide", "lessons": [1, 3]},
+            )
+            result = checker.process_one_worker_job(root, dry_run=True)
+            self.assertTrue(result["processed"])
+            self.assertEqual(result["job_id"], job["job_id"])
             self.assertEqual(result["state"], "completed")
             updated = checker.list_jobs(root)[0]
             self.assertEqual(updated["artifacts"][0]["kind"], "operator_report")

@@ -675,7 +675,7 @@ def ui_shell(default_course: str) -> str:
         <div>BuildStak Course Agent<small>Prof Greg operator console</small></div>
       </div>
       <div class="top-actions">
-        <button class="primary" id="startTop">Start production</button>
+        <button class="primary" id="startTop">Start Course Map</button>
       </div>
     </div>
     <nav class="nav" aria-label="Console sections">
@@ -689,8 +689,8 @@ def ui_shell(default_course: str) -> str:
   <main>
     <div class="slugbar">
       <input id="course" value="{course}" aria-label="Course slug">
-      <input id="targetLesson" type="number" min="1" value="1" aria-label="Target lesson" title="Lesson number">
-      <button class="primary" id="startProduction">Start production</button>
+      <input id="targetLesson" type="number" min="1" value="1" aria-label="Selected lesson" title="Selected lesson">
+      <button class="primary" id="startProduction">Start Course Map</button>
     </div>
 
     <section id="brief" class="card">
@@ -781,6 +781,20 @@ def ui_shell(default_course: str) -> str:
           <div class="metric"><div class="label">Next action</div><div class="value" id="next">Loading</div></div>
         </div>
         <div class="notice" id="message">Ready.</div>
+        <div class="notice" style="margin-top:12px">
+          <strong>Lesson production</strong><br>
+          Choose one or more lessons below. Each output is released to the approval queue only after its automatic QA passes.
+          <div class="actions" style="margin-top:10px">
+            <label><input id="selectAllLessons" type="checkbox"> All lessons</label>
+            <div id="lessonSelection" class="muted">Generate the Course Map first to choose lessons.</div>
+            <button class="primary" id="produceBooks">Generate selected course books</button>
+            <button id="produceDecks">Generate approved presentations</button>
+            <button id="producePtBrBooks">Generate PT-BR course books</button>
+            <button id="producePtBrDecks">Generate PT-BR presentations</button>
+            <button id="produceEsBooks">Generate ES course books</button>
+            <button id="produceEsDecks">Generate ES presentations</button>
+          </div>
+        </div>
         <div class="pipeline-strip" id="pipelineStrip"></div>
       </div>
     </section>
@@ -1111,6 +1125,7 @@ def ui_shell(default_course: str) -> str:
         document.getElementById('uploads').innerHTML = uploads.uploads.length ? uploads.uploads.map(uploadRow).join('') : '<tr><td colspan="5" class="muted">No source materials attached yet.</td></tr>';
         for (const item of uploads.uploads) toggleUploadLesson(item.upload_id);
         renderPipeline();
+        renderLessonSelection();
       }} catch (error) {{
         msg.textContent = error.message;
       }}
@@ -1153,7 +1168,28 @@ def ui_shell(default_course: str) -> str:
         const manualSlug = document.getElementById('courseSlug').value;
         course.value = created.course_slug || manualSlug || course.value;
       }}
-      return post('/api/stage-next', {{course: course.value, lesson: Number(document.getElementById('targetLesson').value || 1)}});
+      return post('/api/start-course', {{course: course.value}});
+    }}
+    function selectedLessons() {{
+      return [...document.querySelectorAll('[data-lesson-select]:checked')]
+        .map(input => Number(input.dataset.lessonSelect))
+        .filter(Number.isFinite);
+    }}
+    function renderLessonSelection() {{
+      const holder = document.getElementById('lessonSelection');
+      const lessons = currentStatus?.lessons || [];
+      holder.innerHTML = lessons.length
+        ? lessons.map(item => `<label style="margin-right:10px"><input type="checkbox" data-lesson-select="${{esc(item.lesson)}}"> Lesson ${{esc(item.lesson)}}: ${{esc(item.title || '')}}</label>`).join('')
+        : 'Generate the Course Map first to choose lessons.';
+      document.getElementById('selectAllLessons').checked = false;
+    }}
+    async function produceSelected(stage) {{
+      const lessons = selectedLessons();
+      if (!lessons.length) {{
+        msg.textContent = 'Select at least one lesson.';
+        return;
+      }}
+      await post('/api/produce', {{course: course.value, stage, lessons}});
     }}
     async function approveArtifact(artifactType, noteId, artifactPath) {{
       await post('/api/approve', {{
@@ -1200,6 +1236,15 @@ def ui_shell(default_course: str) -> str:
     document.getElementById('logSearch').oninput = renderJobs;
     document.getElementById('actorFilter').onchange = renderJobs;
     document.getElementById('targetLesson').onchange = renderApprovals;
+    document.getElementById('produceBooks').onclick = () => produceSelected('study_guide');
+    document.getElementById('produceDecks').onclick = () => produceSelected('deck');
+    document.getElementById('producePtBrBooks').onclick = () => produceSelected('pt_br_book');
+    document.getElementById('producePtBrDecks').onclick = () => produceSelected('pt_br_deck');
+    document.getElementById('produceEsBooks').onclick = () => produceSelected('es_book');
+    document.getElementById('produceEsDecks').onclick = () => produceSelected('es_deck');
+    document.getElementById('selectAllLessons').onchange = event => {{
+      document.querySelectorAll('[data-lesson-select]').forEach(input => input.checked = event.target.checked);
+    }};
     toggleLessonInput();
     refresh();
     setInterval(refresh, 10000);
@@ -1342,6 +1387,31 @@ class GregUiHandler(BaseHTTPRequestHandler):
                 )
                 self.send_json(HTTPStatus.OK, {"message": result.message, "job": result.job})
                 return
+            if parsed.path == "/api/start-course":
+                result = enqueue_job(
+                    job_root=job_root,
+                    request_type="course_start",
+                    course_slug=str(body.get("course") or getattr(self.server, "default_course", DEFAULT_COURSE)),
+                    summary="operator started Course Map and source research",
+                )
+                self.send_json(HTTPStatus.OK, {"message": result.message, "job": result.job})
+                return
+            if parsed.path == "/api/produce":
+                course = str(body.get("course") or getattr(self.server, "default_course", DEFAULT_COURSE))
+                stage = str(body.get("stage") or "")
+                lessons = [int(value) for value in (body.get("lessons") or [])]
+                if stage not in {"study_guide", "deck", "pt_br_book", "pt_br_deck", "es_book", "es_deck"} or not lessons:
+                    self.send_json(HTTPStatus.BAD_REQUEST, {"error": "Choose at least one lesson and a supported production type."})
+                    return
+                result = enqueue_job(
+                    job_root=job_root,
+                    request_type="production_stage",
+                    course_slug=course,
+                    summary=f"operator requested {stage} for lessons {lessons}",
+                    payload={"stage": stage, "lessons": lessons},
+                )
+                self.send_json(HTTPStatus.OK, {"message": result.message, "job": result.job})
+                return
             if parsed.path == "/api/stage-next":
                 result = enqueue_job(
                     job_root=job_root,
@@ -1373,7 +1443,18 @@ class GregUiHandler(BaseHTTPRequestHandler):
                         artifact_type=artifact_type,
                         note=note,
                     )
-                self.send_json(HTTPStatus.OK, {"message": "Approval recorded.", "approval": data})
+                job = None
+                if artifact_type == "study_guide":
+                    queued = enqueue_job(
+                        job_root=job_root,
+                        request_type="production_stage",
+                        course_slug=course,
+                        lesson=lesson,
+                        summary=f"study guide approved; produce presentation for Lesson {lesson}",
+                        payload={"stage": "deck", "lessons": [lesson]},
+                    )
+                    job = queued.job
+                self.send_json(HTTPStatus.OK, {"message": "Approval recorded." if not job else "Course book approved; presentation production queued.", "approval": data, "job": job})
                 return
             if parsed.path == "/api/request-changes":
                 course = str(body.get("course") or getattr(self.server, "default_course", DEFAULT_COURSE))
@@ -1381,12 +1462,25 @@ class GregUiHandler(BaseHTTPRequestHandler):
                 artifact_type = str(body.get("artifact_type") or "artifact")
                 note = str(body.get("note") or "")
                 feedback = record_revision_request(course_slug=course, lesson=lesson, artifact_type=artifact_type, note=note)
+                stage_by_artifact = {
+                    "study_guide": "study_guide",
+                    "deck": "deck",
+                    "pt_br_study_guide": "pt_br_book",
+                    "pt_br_deck": "pt_br_deck",
+                    "es_study_guide": "es_book",
+                    "es_deck": "es_deck",
+                }
+                stage = stage_by_artifact.get(artifact_type)
+                if not stage:
+                    self.send_json(HTTPStatus.BAD_REQUEST, {"error": "Unsupported artifact type for revision."})
+                    return
                 result = enqueue_job(
                     job_root=job_root,
-                    request_type="stage_next",
+                    request_type="production_stage",
                     course_slug=course,
                     lesson=lesson,
                     summary=f"ui revision request for {artifact_type}: {note[:180]}",
+                    payload={"stage": stage, "lessons": [lesson]},
                 )
                 self.send_json(HTTPStatus.OK, {"message": "Edit request recorded and queued.", "feedback": feedback, "job": result.job})
                 return

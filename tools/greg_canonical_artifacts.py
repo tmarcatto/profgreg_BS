@@ -183,6 +183,10 @@ def infer_manifest(course_slug: str) -> dict:
         deck_approval = run / "approval" / f"lesson_{lesson}_deck_approval.md"
         study_pdf = approved_or_default_study_guide(run, lesson, study_guide_approval)
         deck_pptx = approved_or_default_deck(run, lesson, deck_approval)
+        pt_br_book = latest_glob(run, [f"localization/pt-br/lesson_{lesson}_study_guide_pt_br_r*.pdf"])
+        pt_br_deck = latest_glob(run, [f"localization/pt-br/lesson_{lesson}_deck_pt_br_r*.pptx"])
+        es_book = latest_glob(run, [f"localization/es-419/lesson_{lesson}_study_guide_es_r*.pdf"])
+        es_deck = latest_glob(run, [f"localization/es-419/lesson_{lesson}_deck_es_r*.pptx"])
 
         artifacts.extend(
             [
@@ -229,6 +233,10 @@ def infer_manifest(course_slug: str) -> dict:
                     qa_path=run / "deck" / f"lesson_{lesson}_deck_qa.md",
                     notes="Machine-checkable visual plan for the lesson deck.",
                 ),
+                artifact(run, f"lesson_{lesson}_study_guide_pt_br_pdf", pt_br_book, "active", "LOCALIZATION", lesson=lesson, notes="Latest PT-BR course book."),
+                artifact(run, f"lesson_{lesson}_deck_pt_br_pptx", pt_br_deck, "active", "LOCALIZATION", lesson=lesson, notes="Latest PT-BR presentation."),
+                artifact(run, f"lesson_{lesson}_study_guide_es_pdf", es_book, "active", "LOCALIZATION", lesson=lesson, notes="Latest ES course book."),
+                artifact(run, f"lesson_{lesson}_deck_es_pptx", es_deck, "active", "LOCALIZATION", lesson=lesson, notes="Latest ES presentation."),
                 artifact(run, f"lesson_{lesson}_pipeline_qa", run / "process_review" / f"lesson_{lesson}_pipeline_qa.md", "supporting", "PROCESS_REVIEW", lesson=lesson),
             ]
         )

@@ -61,6 +61,7 @@ def enqueue_job(
     lesson: int | None = None,
     requested_by: str = "operator",
     summary: str = "",
+    payload: dict[str, Any] | None = None,
 ) -> OperatorResult:
     job = create_job(
         job_root=job_root,
@@ -69,6 +70,7 @@ def enqueue_job(
         lesson=lesson,
         requested_by=requested_by,
         input_summary=summary,
+        payload=payload,
     )
     return OperatorResult(
         action="enqueue",

@@ -81,11 +81,14 @@ def lesson_titles(run: Path) -> dict[str, str]:
     return titles
 
 
-def study_guide_quality_blockers(run: Path, lesson: str) -> list[str]:
-    draft = read_text(run / "lesson_draft" / f"lesson_{lesson}_draft.md")
+def study_guide_quality_blockers(run: Path, lesson: str, artifact_path: Path | None = None) -> list[str]:
+    revision_match = re.search(r"_r(\d+)\.pdf$", artifact_path.name) if artifact_path else None
+    revision = revision_match.group(1) if revision_match else ""
+    suffix = f"_r{revision}" if revision else ""
+    draft = read_text(run / "lesson_draft" / f"lesson_{lesson}_draft{suffix}.md")
     references = read_text(run / "sources" / "student_references.md")
-    content_qa = read_text(run / "lesson_draft" / f"lesson_{lesson}_content_qa.md")
-    layout_qa = read_text(run / "docx_pdf" / f"lesson_{lesson}_pdf_layout_qa.md")
+    content_qa = read_text(run / "lesson_draft" / f"lesson_{lesson}_content_qa{suffix}.md")
+    layout_qa = read_text(run / "docx_pdf" / f"lesson_{lesson}_pdf_layout_qa{suffix}.md")
     source_qa = read_text(run / "sources" / "source_reference_qa.md")
     blockers: list[str] = []
     intro_area = draft.split("# Section 01", 1)[0]
@@ -201,7 +204,20 @@ def summarize(course_slug: str) -> dict:
 
 
 def summarize_lessons(run: Path, manifest: dict) -> list[dict]:
-    lessons: dict[str, dict] = {}
+    lessons: dict[str, dict] = {
+        lesson: {
+            "lesson": lesson,
+            "title": title,
+            "study_guide": "missing",
+            "deck": "missing",
+            "pt_br_study_guide": "missing",
+            "pt_br_deck": "missing",
+            "es_study_guide": "missing",
+            "es_deck": "missing",
+            "pipeline_qa": "missing",
+        }
+        for lesson, title in lesson_titles(run).items()
+    }
     titles = lesson_titles(run)
     for item in manifest.get("artifacts", []):
         lesson = item.get("lesson")
@@ -215,6 +231,10 @@ def summarize_lessons(run: Path, manifest: dict) -> list[dict]:
                 "title": titles.get(str(lesson).zfill(2), ""),
                 "study_guide": "missing",
                 "deck": "missing",
+                "pt_br_study_guide": "missing",
+                "pt_br_deck": "missing",
+                "es_study_guide": "missing",
+                "es_deck": "missing",
                 "pipeline_qa": "missing",
             },
         )
@@ -222,7 +242,7 @@ def summarize_lessons(run: Path, manifest: dict) -> list[dict]:
         exists = path.exists()
         status = item.get("status", "missing")
         if key.endswith("_study_guide_pdf"):
-            blockers = study_guide_quality_blockers(run, str(lesson).zfill(2)) if exists else []
+            blockers = study_guide_quality_blockers(run, str(lesson).zfill(2), path) if exists else []
             if blockers:
                 row["study_guide"] = "blocked"
                 row["study_guide_blocked_path"] = rel(path)
@@ -238,6 +258,18 @@ def summarize_lessons(run: Path, manifest: dict) -> list[dict]:
             else:
                 row["deck"] = status if exists else "missing"
                 row["deck_path"] = rel(path)
+        elif key.endswith("_study_guide_pt_br_pdf"):
+            row["pt_br_study_guide"] = "approved" if (run / "approval" / f"lesson_{str(lesson).zfill(2)}_pt_br_study_guide_approval.md").exists() else (status if exists else "missing")
+            row["pt_br_study_guide_path"] = rel(path)
+        elif key.endswith("_deck_pt_br_pptx"):
+            row["pt_br_deck"] = "approved" if (run / "approval" / f"lesson_{str(lesson).zfill(2)}_pt_br_deck_approval.md").exists() else (status if exists else "missing")
+            row["pt_br_deck_path"] = rel(path)
+        elif key.endswith("_study_guide_es_pdf"):
+            row["es_study_guide"] = "approved" if (run / "approval" / f"lesson_{str(lesson).zfill(2)}_es_study_guide_approval.md").exists() else (status if exists else "missing")
+            row["es_study_guide_path"] = rel(path)
+        elif key.endswith("_deck_es_pptx"):
+            row["es_deck"] = "approved" if (run / "approval" / f"lesson_{str(lesson).zfill(2)}_es_deck_approval.md").exists() else (status if exists else "missing")
+            row["es_deck_path"] = rel(path)
         elif key.endswith("_pipeline_qa"):
             row["pipeline_qa"] = "present" if exists else "missing"
             row["pipeline_qa_path"] = rel(path)

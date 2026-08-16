@@ -34,7 +34,7 @@ LOCAL_JOB_ROOT = ROOT / "tmp" / "jobs"
 SERVER_JOB_ROOT = Path("/srv/profgreg/jobs")
 
 JOB_STATES = {"queued", "running", "needs_approval", "completed", "failed", "cancelled"}
-JOB_REQUEST_TYPES = {"course_status", "stage_next", "lesson_lifecycle", "backup", "full_flow_v1_test"}
+JOB_REQUEST_TYPES = {"course_status", "course_start", "stage_next", "lesson_lifecycle", "production_stage", "backup", "full_flow_v1_test"}
 JOB_TRANSITIONS = {
     "queued": {"running", "cancelled"},
     "running": {"needs_approval", "completed", "failed", "cancelled"},
@@ -187,6 +187,7 @@ def create_job(
     lesson: int | None = None,
     requested_by: str = "operator",
     input_summary: str = "",
+    payload: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     if request_type not in JOB_REQUEST_TYPES:
         raise ValueError(f"Unsupported request_type: {request_type}")
@@ -206,6 +207,7 @@ def create_job(
         "input_summary": input_summary[:500],
         "artifacts": [],
         "last_error": None,
+        "payload": payload or {},
     }
     write_job(job_dir, data)
     job_event(job_dir, "created", {"state": "queued", "request_type": request_type})
@@ -273,6 +275,22 @@ def execute_worker_job(job_root: Path, job: dict[str, Any], *, backup_root: Path
             {"kind": "backup_manifest", "path": result.get("manifest"), "created": result.get("backup_created")},
         ]
         return update_job(job_root, job, artifacts=artifacts, last_error=None)
+    if request_type == "course_start":
+        course_slug = job.get("course_slug")
+        if not course_slug:
+            raise ValueError("course_start job requires course_slug")
+        if dry_run:
+            return update_job(job_root, job, artifacts=[], last_error=None)
+        command = ["python3", "tools/greg_live_production.py", str(course_slug), "--stage", "course_map"]
+        code, output = run_command(command, ROOT)
+        if code != 0:
+            raise RuntimeError(output or f"course_start Course Map failed with exit code {code}")
+        command[-1] = "sources"
+        code, output = run_command(command, ROOT)
+        if code != 0:
+            raise RuntimeError(output or f"course_start source research failed with exit code {code}")
+        artifacts = [{"kind": "course_map", "path": f"runs/{course_slug}/course_map/course_map.md", "created": True}, {"kind": "source_ledger", "path": f"runs/{course_slug}/sources/source_ledger.json", "created": True}]
+        return update_job(job_root, job, artifacts=artifacts, last_error=None)
     if request_type == "lesson_lifecycle":
         course_slug = job.get("course_slug")
         lesson = job.get("lesson") or 1
@@ -322,6 +340,28 @@ def execute_worker_job(job_root: Path, job: dict[str, Any], *, backup_root: Path
         if code != 0:
             raise RuntimeError(output or f"stage_next failed with exit code {code}")
         artifacts = [{"kind": "operator_report", "path": f"runs/{course_slug}/process_review/lesson_{lesson:02d}_operator_report.md", "created": True}]
+        return update_job(job_root, job, artifacts=artifacts, last_error=None)
+    if request_type == "production_stage":
+        course_slug = job.get("course_slug")
+        payload = job.get("payload") or {}
+        stage = str(payload.get("stage") or "")
+        lessons = [int(value) for value in (payload.get("lessons") or [])]
+        if not course_slug or stage not in {"course_map", "sources", "study_guide", "deck", "pt_br_book", "pt_br_deck", "es_book", "es_deck"}:
+            raise ValueError("production_stage job requires a course and supported stage.")
+        if dry_run:
+            return update_job(
+                job_root,
+                job,
+                artifacts=[{"kind": "operator_report", "path": f"runs/{course_slug}/process_review/dry_run_{stage}.md", "created": False}],
+                last_error=None,
+            )
+        command = ["python3", "tools/greg_live_production.py", str(course_slug), "--stage", stage]
+        if lessons:
+            command.extend(["--lessons", ",".join(str(value) for value in lessons)])
+        code, output = run_command(command, ROOT)
+        if code != 0:
+            raise RuntimeError(output or f"production_stage failed with exit code {code}")
+        artifacts = [{"kind": stage, "path": f"runs/{course_slug}", "created": True}]
         return update_job(job_root, job, artifacts=artifacts, last_error=None)
     raise ValueError(f"Worker does not support request_type yet: {request_type}")
 

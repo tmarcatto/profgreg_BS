@@ -4,6 +4,7 @@ from __future__ import annotations
 import argparse
 import importlib.util
 import json
+import re
 import subprocess
 import sys
 from dataclasses import asdict, dataclass
@@ -59,6 +60,30 @@ def lid(lesson: int) -> str:
 
 def exists(run: Path, relative_path: str) -> bool:
     return (run / relative_path).exists()
+
+
+def lesson_artifact_exists(run: Path, lesson_tag: str, folder: str, suffix: str) -> bool:
+    name, extension = suffix.rsplit(".", 1)
+    base = run / folder
+    return (base / f"{lesson_tag}{suffix}").exists() or any(base.glob(f"{lesson_tag}{name}_r*.{extension}"))
+
+
+def lesson_has_quality_blockers(run: Path, lesson_tag: str) -> bool:
+    status = load_module("greg_course_status_for_operator", "tools/greg_course_status.py")
+    candidates = list((run / "docx_pdf").glob(f"{lesson_tag}_study_guide*.pdf"))
+    if not candidates:
+        return False
+    def version(path: Path) -> tuple[int, float]:
+        match = re.search(r"_r(\d+)\.pdf$", path.name)
+        return (int(match.group(1)) if match else 0, path.stat().st_mtime)
+    artifact = max(candidates, key=version)
+    revision = re.search(r"_r(\d+)\.pdf$", artifact.name)
+    suffix = f"_r{revision.group(1)}" if revision else ""
+    # Older test fixtures and manual artifacts without any QA record are not
+    # enough evidence to declare an approved lesson invalid.
+    if not ((run / "lesson_draft" / f"{lesson_tag}_content_qa{suffix}.md").exists() or (run / "docx_pdf" / f"{lesson_tag}_pdf_layout_qa{suffix}.md").exists()):
+        return False
+    return bool(status.study_guide_quality_blockers(run, lesson_tag, artifact))
 
 
 def intake_ready(run: Path) -> bool:
@@ -155,7 +180,7 @@ def infer_stage(run: Path, lesson: int) -> StageStatus:
             blockers=[],
         )
 
-    if not exists(run, f"lesson_draft/{lesson_tag}_draft.md"):
+    if not lesson_artifact_exists(run, lesson_tag, "lesson_draft", "_draft.md"):
         return StageStatus(
             stage="DRAFT",
             gate_status="Lesson draft missing.",
@@ -164,7 +189,16 @@ def infer_stage(run: Path, lesson: int) -> StageStatus:
             blockers=[],
         )
 
-    if not exists(run, f"docx_pdf/{lesson_tag}_study_guide.pdf"):
+    if lesson_has_quality_blockers(run, lesson_tag):
+        return StageStatus(
+            stage="DOCX_PDF",
+            gate_status="Existing study guide failed automatic QA and must be regenerated.",
+            next_action="Regenerate this lesson from the Course Map and validated source ledger.",
+            next_command=f"python3 tools/greg_live_production.py {run.name} --stage study_guide --lessons {lesson}",
+            blockers=[],
+        )
+
+    if not lesson_artifact_exists(run, lesson_tag, "docx_pdf", "_study_guide.pdf"):
         return StageStatus(
             stage="DOCX_PDF",
             gate_status="Final study guide PDF missing.",
@@ -275,15 +309,15 @@ def update_canonical_manifest(course_slug: str) -> None:
 
 
 def run_v0_production_stage(course_slug: str, lesson: int, stage_name: str) -> list[str]:
-    production = load_module("greg_v0_production", "tools/greg_v0_production.py")
+    production = load_module("greg_live_production", "tools/greg_live_production.py")
     if stage_name == "COURSE_MAP":
-        return production.produce_course_map(course_slug)
+        return production.run_stage(course_slug, "course_map")
     if stage_name == "SOURCE_LEDGER":
-        return production.produce_source_ledger(course_slug)
+        return production.run_stage(course_slug, "sources")
     if stage_name in {"DRAFT", "DOCX_PDF"}:
-        return production.produce_study_guide(course_slug, lesson)
+        return production.run_stage(course_slug, "study_guide", [lesson])
     if stage_name == "DECK":
-        return production.produce_deck(course_slug, lesson)
+        return production.run_stage(course_slug, "deck", [lesson])
     return []
 
 
