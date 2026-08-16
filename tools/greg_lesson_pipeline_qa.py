@@ -209,7 +209,7 @@ def run_pipeline(course_slug: str, lesson: int = 1, production_date: date | None
         )
     )
 
-    draft = run / "lesson_draft" / f"{lid}_draft.md"
+    draft = latest_glob(run, [f"lesson_draft/{lid}_draft_r*.md", f"lesson_draft/{lid}_draft.md"]) or run / "lesson_draft" / f"{lid}_draft.md"
     results.append(
         run_gate(
             "study_guide_content",
@@ -236,11 +236,13 @@ def run_pipeline(course_slug: str, lesson: int = 1, production_date: date | None
         )
     )
 
-    visual_plan = (
-        manifest_artifact(run, "deck_visual_plan", lesson)
-        or run / "deck" / f"{lid}_visual_plan.json"
-        or run / "review" / f"{lid}_visual_plan.json"
-    )
+    visual_candidates = [
+        manifest_artifact(run, "visual_plan", lesson),
+        run / "review" / f"{lid}_visual_plan.json",
+        manifest_artifact(run, "deck_visual_plan", lesson),
+        run / "deck" / f"{lid}_visual_plan.json",
+    ]
+    visual_plan = next((path for path in visual_candidates if path and path.exists()), run / "review" / f"{lid}_visual_plan.json")
     if visual_plan.exists():
         results.append(
             run_gate(
@@ -250,7 +252,24 @@ def run_pipeline(course_slug: str, lesson: int = 1, production_date: date | None
             )
         )
     else:
-        results.append(skipped("visual_plan", visual_plan, "No visual plan found for this lesson/run."))
+        results.append(failed_exception("visual_plan", visual_plan, FileNotFoundError("Required visual plan is missing.")))
+
+    for gate, suffix in (("pedagogy_review", "pedagogy_review"), ("citation_review", "citation_review"), ("design_qa", "design_qa")):
+        review_path = run / "review" / f"{lid}_{suffix}.md"
+        review_text = review_path.read_text(encoding="utf-8", errors="replace") if review_path.exists() else ""
+        review_passed = bool(re.search(r"(?im)^PASS\s*$", review_text))
+        results.append(
+            GateResult(
+                gate=gate,
+                status="pass" if review_passed else "fail",
+                passed=review_passed,
+                fail_count=0 if review_passed else 1,
+                warn_count=0,
+                path=rel(review_path),
+                note="Independent reviewer passed." if review_passed else "Required independent reviewer output is missing or failing.",
+                findings=[] if review_passed else [{"status": "fail", "check": gate, "note": "Reviewer did not pass."}],
+            )
+        )
 
     study_pdf = manifest_artifact(run, "study_guide_pdf", lesson) or run / "docx_pdf" / f"{lid}_study_guide.pdf"
     if study_pdf.exists():

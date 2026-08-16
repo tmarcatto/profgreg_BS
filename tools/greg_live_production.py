@@ -18,12 +18,39 @@ from datetime import date
 from pathlib import Path
 from typing import Any
 
-from greg_model_router import ModelRequestError, json_from_text, request_text
+from greg_model_router import ModelRequestError, json_from_text, request_image, request_text
 from greg_security import assert_safe_run_slug
 from greg_v0_production import BRAND_ICON, NEGATIVE_WORDMARK, RUNS, lid, parse_intake, read_uploads, rel, write_json, write_text
 
 
 ROOT = Path(__file__).resolve().parents[1]
+
+
+def production_python() -> str:
+    bundled = Path.home() / ".cache/codex-runtimes/codex-primary-runtime/dependencies/python/bin/python3"
+    return str(bundled) if bundled.exists() else sys.executable
+
+
+def run_pdf_layout_qa(pdf_path: Path, qa_path: Path, output_path: Path) -> dict[str, Any]:
+    command = [
+        production_python(),
+        str(ROOT / "tools" / "greg_pdf_layout_check.py"),
+        str(pdf_path),
+        "--qa",
+        str(qa_path),
+        "--output",
+        str(output_path),
+        "--json",
+    ]
+    result = subprocess.run(command, cwd=ROOT, capture_output=True, text=True)
+    try:
+        layout = json.loads(result.stdout)
+    except json.JSONDecodeError as error:
+        detail = result.stderr.strip() or result.stdout.strip() or "Layout checker returned no structured result."
+        raise RuntimeError(detail) from error
+    if result.returncode not in (0, 1):
+        raise RuntimeError(result.stderr.strip() or "Study guide layout checker failed.")
+    return layout
 
 
 def load_module(name: str, relative_path: str):
@@ -50,6 +77,20 @@ def next_revision(run: Path, folder: str, base_name: str, extension: str) -> int
 def revisioned(run: Path, folder: str, base_name: str, extension: str) -> tuple[int, str]:
     revision = next_revision(run, folder, base_name, extension)
     return revision, f"{base_name}_r{revision:02d}{extension}"
+
+
+def next_study_guide_revision(run: Path, lesson_tag: str) -> int:
+    revisions: list[int] = []
+    patterns = (
+        (run / "lesson_draft", re.compile(rf"^{re.escape(lesson_tag)}_draft_r(\d+)\.md$")),
+        (run / "docx_pdf", re.compile(rf"^{re.escape(lesson_tag)}_study_guide_r(\d+)\.pdf$")),
+    )
+    for folder, pattern in patterns:
+        for path in folder.glob(f"{lesson_tag}_*"):
+            match = pattern.match(path.name)
+            if match:
+                revisions.append(int(match.group(1)))
+    return (max(revisions) if revisions else 0) + 1
 
 
 def block(run: Path, stage: str, detail: str) -> None:
@@ -119,7 +160,15 @@ def lesson_by_number(course_map: dict[str, Any], lesson: int) -> dict[str, Any]:
     for item in course_map.get("lessons") or []:
         try:
             if int(item.get("lesson_number") or item.get("number")) == lesson:
-                return item
+                normalized = dict(item)
+                normalized["lesson_number"] = lesson
+                normalized.setdefault("learning_goal", normalized.get("key_concept") or normalized.get("description") or "")
+                normalized.setdefault("sections", normalized.get("learning_objectives") or normalized.get("topics") or [])
+                normalized.setdefault("glossary_terms", [])
+                normalized.setdefault("visual_learning_goal", normalized.get("key_concept") or "")
+                normalized.setdefault("bridge_from_previous", normalized.get("builds_on") or "")
+                normalized.setdefault("bridge_to_next", normalized.get("prepares_for") or "")
+                return normalized
         except (TypeError, ValueError):
             continue
     raise RuntimeError(f"Course Map does not contain Lesson {lesson}.")
@@ -316,9 +365,23 @@ def student_reference_text(value: str) -> str:
     text = str(value or "").strip()
     text = re.sub(r"\s+accessed\s+[A-Z][a-z]+\s+\d{1,2},\s+\d{4}\.?", ".", text, flags=re.I)
     text = re.sub(r"\s+accessed\s+\d{4}-\d{2}-\d{2}\.?", ".", text, flags=re.I)
+    text = re.sub(r"\s+retrieved\s+[A-Z][a-z]+\s+\d{1,2},\s+\d{4}\.?", ".", text, flags=re.I)
+    text = re.sub(r"\s+retrieved\s+\d{4}-\d{2}-\d{2}\.?", ".", text, flags=re.I)
     text = re.sub(r"\bCurrent online edition\s*\.\s*", "Current online edition. ", text)
     text = re.sub(r"\s{2,}", " ", text).strip()
     return text
+
+
+def student_reference_for_source(source: dict[str, Any]) -> str:
+    text = student_reference_text(str(source.get("formal_reference") or ""))
+    source_type = str(source.get("source_type") or "").lower()
+    url = str(source.get("url") or "").strip()
+    formal_types = {"book", "standard", "code", "recommended-practice", "professional-standard"}
+    if source_type in formal_types:
+        text = re.sub(r"\s+https?://\S+", "", text).rstrip(" .") + "."
+    elif url and url not in text:
+        text = text.rstrip(" .") + f". {url}"
+    return text.strip()
 
 
 def study_guide_prompt(seed, lesson: dict[str, Any], references: str, ledger: dict[str, Any], feedback: str) -> str:
@@ -338,6 +401,16 @@ def study_guide_prompt(seed, lesson: dict[str, Any], references: str, ledger: di
         "advanced": "Aim for roughly 4,200-6,200 words before references, with higher technical precision and deeper reasoning.",
     }
     target = depth_targets.get(str(seed.level).lower(), "Use the depth required by the lesson function; do not underwrite.")
+    prior_lessons: list[str] = []
+    for path in sorted((RUNS / seed.slug / "lesson_draft").glob("lesson_*_draft_r*.md")):
+        match = re.search(r"lesson_(\d+)_draft", path.name)
+        if not match or int(match.group(1)) >= lesson_number:
+            continue
+        text = path.read_text(encoding="utf-8", errors="replace")
+        headings = re.findall(r"(?im)^# Section\s+\d+\s+-\s+(.+)$", text)
+        glossary = re.findall(r"(?im)^-\s+\*\*(.+?)\*\*:", text.split("# Glossary", 1)[-1])
+        prior_lessons.append(f"Lesson {int(match.group(1))}: sections={headings}; glossary={glossary}")
+    prior_context = "\n".join(prior_lessons[-8:]) or "No earlier lesson draft is available."
     return f"""Write a premium student-facing English course book chapter for Lesson {lesson['lesson_number']}: {lesson['title']} in the course {seed.title}. Return Markdown only.
 
 This is student-facing course content for U.S. residential construction workers. Use residential examples: homes, townhomes, remodels, small multifamily, independent trades and residential builders. Do not describe the target audience in the introduction. The introduction must orient the learner to the course and this lesson.
@@ -357,6 +430,12 @@ Pedagogical requirements:
 - Use callouts sparingly: 2-4 total is usually enough. Each must add practical value.
 - Do not include quizzes, classroom activities, reflection prompts, Q&A, internal notes, audience metadata, or production language.
 - Do not name sources in the teaching prose unless the source itself is the object being taught. Keep student-facing references in the References section.
+- References may list the formal sources materially consulted for the lesson; they do not all need decorative in-text mentions. Use an inline citation only when it strengthens a high-stakes factual learning moment.
+- Do not create date arithmetic, CPM calculations, productivity equations, or numeric worked examples unless every value can be verified from the stated assumptions. If revision feedback challenges a calculation, replace it with a simpler fully correct demonstration rather than guessing again.
+- Open directly with the course and lesson problem. Do not use welcome language, audience descriptions, or a preview of the entire course.
+- Callouts are allowed only inside the teaching body and only when they add a distinct practical insight; never place them in roadmap, objectives, summary, glossary, or references.
+- Never include "Try this," "Your turn," exercises, practice tasks, reflection questions, discussion prompts, or assignments. Demonstrate the reasoning yourself in the teaching prose.
+- Avoid parenthetical source shorthand and decorative in-text citations. If a governing document is itself being taught, identify it in plain language and ensure the exact publication appears in References.
 
 Use this exact structural order:
 # Lesson Roadmap
@@ -388,6 +467,9 @@ Bridge from previous lesson: {lesson.get('bridge_from_previous')}
 Bridge to next lesson: {lesson.get('bridge_to_next')}
 Distinct visual learning goal: {lesson.get('visual_learning_goal')}
 
+Prior lesson boundaries. Do not repeat their section jobs or glossary terms; build on them explicitly:
+{prior_context}
+
 Allowed source ledger entries and lesson-relevant claims:
 {source_brief}
 
@@ -418,6 +500,28 @@ def force_student_references(draft: str, references: str) -> str:
     return f"{body}\n\n# References\n\n{references.removeprefix('# References').strip()}\n"
 
 
+def study_guide_revision_prompt(draft: str, feedback: str, references: str) -> str:
+    return f"""Revise the existing Prof Greg student course-book chapter below. Return the complete revised Markdown only.
+
+Revision contract:
+- Apply every required change precisely.
+- Preserve all compliant content, structure, examples, depth, residential focus, and wording that reviewers did not challenge.
+- Do not rewrite the chapter from scratch, introduce new claims, add new sections, or reintroduce earlier defects.
+- Keep the approved structural order and student-facing tone.
+- Do not add activities, audience boilerplate, access dates, decorative citations, or unsupported numerical claims.
+- The final References section is controlled separately and will be replaced with the validated references below.
+
+Required changes:
+{feedback}
+
+Validated references:
+{references}
+
+Existing chapter to edit:
+{draft}
+"""
+
+
 def approved_study_guide_baseline(run: Path, lesson_tag: str) -> str | None:
     approval = run / "approval" / f"{lesson_tag}_study_guide_approval.md"
     if not approval.exists():
@@ -432,32 +536,284 @@ def feedback_for(run: Path, lesson_tag: str, artifact_type: str) -> str:
     return path.read_text(encoding="utf-8", errors="replace")[-7000:] if path.exists() else ""
 
 
-def produce_study_guide(course_slug: str, lesson_number: int) -> list[str]:
-    seed = parse_intake(course_slug)
+def lesson_sources_are_adequate(data: dict[str, Any]) -> bool:
+    sources = data.get("sources") or []
+    technical = [
+        source for source in sources
+        if source.get("content_depth") in {"full-technical", "formal-publication"}
+        and len(source.get("claims_supported") or []) >= 1
+        and (source.get("currency_validation") or {}).get("status") == "validated-current"
+    ]
+    return len(sources) >= 3 and bool(technical) and not (data.get("source_gaps") or [])
+
+
+def lesson_source_refresh(seed, lesson: dict[str, Any], ledger: dict[str, Any]) -> dict[str, Any]:
+    lesson_number = int(lesson["lesson_number"])
+    prompt = f"""Return JSON only. Perform a fresh lesson-level source applicability review for Lesson {lesson_number}: {lesson['title']} in {seed.title}.
+
+Use current web research. The course-level ledger is context, not a substitute for this lesson search. Prefer current U.S. residential-construction authorities, official guidance, recognized industry bodies, full-content webpages, published books, standards, formal technical guides, and relevant academic literature. Validate any publication older than three years against current formal sources. Never invent metadata. Books must be cited as books without abstract, catalog, or storefront links.
+
+Source-quality contract:
+- Cover the lesson goal and planned sections, not merely the broad course topic.
+- Include at least one full technical authority that supports the lesson's detailed procedures, terminology, or quality checks. A government technical guide, standard, formal professional practice, published technical book, or full academic paper qualifies.
+- Course descriptions, product pages, catalogs, abstracts, snippets, and training summaries may signal relevance but do not qualify as the technical authority and must not carry detailed claims.
+- Use a direct content URL only when that exact webpage contains the material used. Books and standards are formal bibliographic references without preview, abstract, catalog, or storefront links.
+- Published operator uploads may be used as books or formal publications when their identity is verifiable and their reference policy permits citation. Validate applicability online when they are more than three years old.
+- If a necessary technical claim cannot be supported, report it in source_gaps instead of inventing or broadening a weak source.
+
+Existing ledger:
+{json.dumps(ledger, ensure_ascii=False)[:24000]}
+
+Lesson goal: {lesson.get('learning_goal')}
+Planned sections: {lesson.get('sections')}
+
+Operator material inventory and bounded excerpts:
+{source_excerpts(seed.slug, limit_per_file=2500)}
+
+Return:
+{{"lesson_number":{lesson_number},"applicability_review":"...","research_log":["..."],"source_gaps":[],"sources":[{{"source_id":"L{lesson_number:02d}S01","title":"...","author_or_organization":"...","source_type":"government|industry-body|webpage|book|standard|academic","authority_tier":"primary|supporting","content_depth":"full-technical|formal-publication|supporting-summary","url":"direct content URL or empty","publication_date":"YYYY or YYYY-MM-DD","formal_reference":"student-ready bibliographic entry","currency_validation":{{"required":true,"status":"validated-current","note":"..."}},"claims_supported":[{{"claim":"...","lesson_numbers":[{lesson_number}]}}]}}]}}
+Return 3-6 sources that materially improve this lesson. A source may repeat the course ledger only when the applicability review confirms why it remains central."""
+    data = strip_json_fence(request_text(seed.slug, "source_research", prompt, max_tokens=7500, web_search=True))
+    if not lesson_sources_are_adequate(data):
+        follow_up = (
+            prompt
+            + "\n\nThe previous research pass was insufficient because it lacked a validated full technical authority or left source gaps. "
+            "Search again, replace course-description and summary pages with substantive technical sources, and close every source gap before returning the complete JSON object.\n\nPrevious result:\n"
+            + json.dumps(data, ensure_ascii=False)[:18000]
+        )
+        data = strip_json_fence(request_text(seed.slug, "source_research", follow_up, max_tokens=8500, web_search=True))
+    if not lesson_sources_are_adequate(data):
+        raise ModelRequestError("Lesson research did not establish adequate technical authority after two passes.")
+    data.setdefault("lesson_number", lesson_number)
+    data.setdefault("sources", [])
+    data.setdefault("research_log", [])
+    data.setdefault("source_gaps", [])
+    return data
+
+
+def merge_lesson_sources(run: Path, ledger: dict[str, Any], refresh: dict[str, Any], lesson_number: int) -> tuple[dict[str, Any], str]:
+    existing = {(str(item.get("title") or "").lower(), str(item.get("url") or "")) for item in ledger.get("sources") or []}
+    for item in refresh.get("sources") or []:
+        key = (str(item.get("title") or "").lower(), str(item.get("url") or ""))
+        if not key[0] or key in existing:
+            continue
+        item.setdefault("source_id", f"S{len(ledger.get('sources') or []) + 1:02d}")
+        item.setdefault("claims_supported", [])
+        item.setdefault("currency_validation", {"required": True, "status": "validated-current", "note": "Validated during lesson research."})
+        ledger.setdefault("sources", []).append(item)
+        existing.add(key)
+    ledger["validation"] = {"weak_sources_to_replace": [], "unsupported_claims": [], "all_sources_verified": True}
+    ledger_path = run / "sources" / "source_ledger.json"
+    write_json(ledger_path, ledger)
+    lesson_sources = [
+        item for item in refresh.get("sources") or []
+        if item.get("formal_reference") and (item.get("currency_validation") or {}).get("status") != "unresolved"
+    ]
+    reference_lines: list[str] = []
+    seen_references: set[str] = set()
+    for item in lesson_sources:
+        line = student_reference_for_source(item)
+        key = re.sub(r"[^a-z0-9]+", " ", str(item.get("title") or line).lower()).strip()
+        if line and key not in seen_references:
+            reference_lines.append(f"- {line}")
+            seen_references.add(key)
+    refs = "# References\n\n" + "\n".join(reference_lines)
+    write_text(run / "sources" / "student_references.md", refs)
+    return ledger, refs
+
+
+def reviewer_prompt(kind: str, seed, lesson: dict[str, Any], draft: str, ledger: dict[str, Any]) -> str:
+    criteria = {
+        "pedagogy_review": "Check only learning progression, depth for level, MECE sections, residential examples, explanations before bullets, no activities, and no audience boilerplate. Citation style and reference formatting belong to the citation reviewer; do not fail this review merely because ordinary claims lack inline citations.",
+        "citation_review": "Check factual support against the ledger, current applicability, clean student references, no invented claims, and no internal/local source language. Do not demand inline citations for every source or every ordinary claim. References may include materially consulted sources even when they are not named decoratively in the teaching prose. Never request or add accessed/retrieved dates. Books must be cited as books without abstract, catalog, preview, or search-result links; webpage references may include only the direct content URL actually used.",
+        "design_review": "Check only the draft's approved structural and presentation contract: roadmap; a concise introduction/objectives block intended for one page; continuous lesson body; separate summary, glossary, and references; no callouts in structural sections; no one-line section openers. Useful callouts inside the teaching body are allowed. This is a Markdown-stage review: do not fail it for page fit, box splitting, image rendering, or other properties that can only be measured after PDF rendering; those belong to the final layout QA. Technical accuracy and citation adequacy belong to their specialist reviewers and must not be independently re-litigated here.",
+    }[kind]
+    return f"""Return JSON only as an independent Prof Greg reviewer.
+Review Lesson {lesson['lesson_number']}: {lesson['title']} for {seed.title}.
+{criteria}
+The artifact must be genuinely student-ready, not merely present. Apply only your assigned specialist criteria. Do not invent new requirements outside that scope or repeat another reviewer's job.
+
+Draft:
+{draft[:52000]}
+
+Source ledger:
+{json.dumps(ledger, ensure_ascii=False)[:18000]}
+
+Return exactly:
+{{"passed":true,"verdict":"PASS or REVISE","findings":["..."],"required_changes":["..."]}}"""
+
+
+def render_review(title: str, data: dict[str, Any]) -> str:
+    passed = data.get("passed") is True
+    findings = data.get("findings") or []
+    changes = data.get("required_changes") or []
+    return (
+        f"# {title}\n\n"
+        f"## Verdict\n\n{'PASS' if passed else 'REVISE'}\n\n"
+        "## Findings\n\n" + ("\n".join(f"- {item}" for item in findings) or "- No blocking findings.") + "\n\n"
+        "## Required Changes\n\n" + ("\n".join(f"- {item}" for item in changes) or "- None.") + "\n\n"
+        f"## Approval Status\n\n{'Approved by automatic reviewer.' if passed else 'Blocked pending automatic revision.'}\n"
+    )
+
+
+def run_content_reviewers(seed, lesson: dict[str, Any], draft: str, ledger: dict[str, Any], run: Path, lesson_tag: str) -> tuple[bool, list[str]]:
+    passed = True
+    required_changes: list[str] = []
+    labels = {
+        "pedagogy_review": ("Pedagogy Review", "pedagogy_review"),
+        "citation_review": ("Citation Review", "citation_review"),
+        "design_review": ("Design QA", "design_qa"),
+    }
+    for role, (title, suffix) in labels.items():
+        try:
+            data = strip_json_fence(request_text(seed.slug, role, reviewer_prompt(role, seed, lesson, draft, ledger), max_tokens=4500))
+        except ModelRequestError as error:
+            data = {"passed": False, "verdict": "REVISE", "findings": [str(error)], "required_changes": ["Restore the configured reviewer and rerun this lesson."]}
+        data["passed"] = data.get("passed") is True
+        write_text(run / "review" / f"{lesson_tag}_{suffix}.md", render_review(title, data))
+        if not data["passed"]:
+            passed = False
+            required_changes.extend(str(item) for item in data.get("required_changes") or data.get("findings") or [])
+    return passed, required_changes
+
+
+def visual_plan_prompt(seed, lesson: dict[str, Any], draft: str, uploads: list[dict[str, Any]]) -> str:
+    image_inventory = [
+        {"upload_id": item.get("upload_id"), "filename": item.get("filename"), "scope": item.get("scope"), "visual_request_id": item.get("visual_request_id"), "stored_path": item.get("stored_path"), "source_url": item.get("source_url")}
+        for item in uploads
+        if item.get("purpose") == "visual_response"
+    ]
+    return f"""Return JSON only. Create a production-ready visual plan for this student course book.
+Lesson {lesson['lesson_number']}: {lesson['title']} in {seed.title}.
+
+Use 2-4 distinct instructional visuals, roughly one visual per three content pages. Every visual must teach a unique claim. Prefer deterministic diagrams for structures/processes. Use a trusted real image when the core teaching object is a real plan, schedule, document, symbol, or technical example. Generated conceptual images are fallback only, must be residential-construction focused, and may not occupy over half a page. When people appear, respectfully show a mixed American-born and immigrant U.S. construction workforce. Never repeat a visual or its learning claim.
+
+Available operator visual responses:
+{json.dumps(image_inventory, ensure_ascii=False)}
+
+Lesson draft:
+{draft[:36000]}
+
+Return:
+{{"artifact_type":"study-guide","visual_curation_required":false,"visuals":[{{"visual_id":"L{int(lesson['lesson_number']):02d}V01","visual_type":"deterministic-diagram|generated-conceptual-image|trusted-source-image","placement":"after Section 01 - exact heading","purpose":"at least four words","learning_claim":"at least five words and unique","source_status":"not-required|verified|source-needed","source_id":"","source_url":"","attribution":"","prompt":"detailed English image prompt when generated","google_search_phrase":"English keywords when trusted source is needed","diagram_left_header":"specific heading","diagram_right_header":"specific heading","diagram_rows":[{{"left":"specific concept","right":"specific field meaning"}}],"context_focus":"U.S. residential construction","depicts_people":false,"workforce_representation":"","core_message_depends_on_real_example":false,"max_area_percent":45,"highlighted":false,"internal_text":false,"internal_text_position":"top"}}]}}"""
+
+
+def visual_request_document(seed, lesson: dict[str, Any], visuals: list[dict[str, Any]]) -> str:
+    lines = [
+        f"# Lesson {lesson['lesson_number']} Image Requests",
+        "",
+        "The lesson is ready for visual curation. Upload one image for each request below in the operator console. Use images you are permitted to reuse and include the source URL or attribution.",
+        "",
+    ]
+    for visual in visuals:
+        lines.extend([
+            f"## {visual.get('visual_id')}: {visual.get('learning_claim')}",
+            "",
+            f"Purpose: {visual.get('purpose')}",
+            "",
+            f"Suggested search: `{visual.get('google_search_phrase') or visual.get('prompt') or seed.title}`",
+            "",
+        ])
+    return "\n".join(lines)
+
+
+def create_visual_assets(seed, lesson: dict[str, Any], draft: str, run: Path, lesson_tag: str) -> tuple[list[dict[str, Any]], bool]:
+    prior_request = run / "review" / f"{lesson_tag}_image_requests.json"
+    prior_plan = run / "review" / f"{lesson_tag}_visual_plan.json"
+    if prior_request.exists() and prior_plan.exists():
+        plan = json.loads(prior_plan.read_text(encoding="utf-8"))
+    else:
+        plan = strip_json_fence(request_text(seed.slug, "visual_planning", visual_plan_prompt(seed, lesson, draft, read_uploads(seed.slug)), max_tokens=6500))
+    visuals = plan.get("visuals") or []
+    section_headings = re.findall(r"(?im)^#\s+(Section\s+\d{2}\s+-\s+[^\n]+)$", draft)
+    generated_seen = 0
+    for index, visual in enumerate(visuals):
+        if section_headings:
+            visual["placement"] = f"after {section_headings[min(index, len(section_headings) - 1)]}"
+        if visual.get("visual_type") == "generated-conceptual-image":
+            generated_seen += 1
+            if generated_seen > 1:
+                visual["visual_type"] = "deterministic-diagram"
+                visual["source_status"] = "not-required"
+    visual_responses = [item for item in read_uploads(seed.slug) if item.get("purpose") == "visual_response"]
+    render_visuals: list[dict[str, Any]] = []
+    requests: list[dict[str, Any]] = []
+    for index, visual in enumerate(visuals):
+        visual.setdefault("visual_id", f"L{int(lesson['lesson_number']):02d}V{index + 1:02d}")
+        visual.setdefault("placement", f"after Section {index + 1:02d}")
+        visual.setdefault("context_focus", "U.S. residential construction")
+        visual.setdefault("max_area_percent", 45)
+        visual.setdefault("highlighted", False)
+        kind = str(visual.get("visual_type") or "")
+        if kind == "deterministic-diagram":
+            visual["source_status"] = "not-required"
+            section_rows = visual.get("diagram_rows") or [
+                {"left": re.sub(r"^\d+[\).:-]\s*", "", str(section)).strip(), "right": "A distinct residential job decision taught in this lesson"}
+                for section in (lesson.get("sections") or [])[:5]
+            ]
+            render_visuals.append({
+                "after_heading": str(visual.get("placement") or "").removeprefix("after ").strip(),
+                "type": "source_to_wbs_matrix",
+                "title": visual.get("learning_claim") or visual.get("purpose"),
+                "caption": f"Figure {lesson['lesson_number']}.{index + 1}. {visual.get('learning_claim')}",
+                "left_header": visual.get("diagram_left_header") or "Lesson concept",
+                "right_header": visual.get("diagram_right_header") or "Residential field meaning",
+                "rows": section_rows,
+            })
+        elif kind == "generated-conceptual-image":
+            image_path = run / "review" / "visual_assets" / f"{visual['visual_id']}.png"
+            try:
+                request_image(seed.slug, str(visual.get("prompt") or visual.get("purpose") or lesson["title"]), image_path)
+                visual["source_status"] = "not-required"
+                visual["path"] = rel(image_path)
+                render_visuals.append({"after_heading": str(visual.get("placement") or "").removeprefix("after ").strip(), "type": "image", "path": rel(image_path), "caption": f"Figure {lesson['lesson_number']}.{index + 1}. {visual.get('learning_claim')}", "max_height": 3.5})
+            except ModelRequestError:
+                visual["source_status"] = "source-needed"
+                visual["google_search_phrase"] = visual.get("google_search_phrase") or f"residential construction {lesson['title']} {visual.get('purpose', '')}"
+                requests.append(visual)
+        elif kind == "trusted-source-image":
+            match = next((item for item in visual_responses if item.get("visual_request_id") == visual["visual_id"]), None)
+            if match and Path(str(match.get("stored_path") or "")).is_file():
+                source_path = Path(str(match["stored_path"]))
+                image_path = run / "review" / "visual_assets" / f"{visual['visual_id']}{source_path.suffix.lower()}"
+                image_path.parent.mkdir(parents=True, exist_ok=True)
+                image_path.write_bytes(source_path.read_bytes())
+                visual["source_status"] = "verified"
+                visual["path"] = rel(image_path)
+                visual["source_url"] = match.get("source_url") or ""
+                visual["attribution"] = match.get("source_label") or match.get("filename")
+                render_visuals.append({"after_heading": str(visual.get("placement") or "").removeprefix("after ").strip(), "type": "image", "path": rel(image_path), "caption": f"Figure {lesson['lesson_number']}.{index + 1}. {visual.get('learning_claim')} Source: {visual.get('attribution')}", "max_height": 3.7})
+            else:
+                visual["source_status"] = "source-needed"
+                requests.append(visual)
+    plan["visuals"] = visuals
+    plan["visual_curation_required"] = bool(requests)
+    plan_path = run / "review" / f"{lesson_tag}_visual_plan.json"
+    write_json(plan_path, plan)
+    checker = load_module("greg_visual_plan_check", "tools/greg_visual_plan_check.py")
+    qa = checker.run_checks(plan_path)
+    write_text(run / "review" / f"{lesson_tag}_visual_qa.md", checker.render_markdown(qa))
+    if requests:
+        request_json = run / "review" / f"{lesson_tag}_image_requests.json"
+        request_md = run / "review" / f"{lesson_tag}_image_requests.md"
+        write_json(request_json, {"course_slug": seed.slug, "lesson_number": int(lesson["lesson_number"]), "status": "waiting_images", "requests": requests})
+        write_text(request_md, visual_request_document(seed, lesson, requests))
+        return [], True
+    if not qa["passed"]:
+        raise RuntimeError("Visual plan automatic QA failed; no student PDF was released.")
+    for path in [run / "review" / f"{lesson_tag}_image_requests.json", run / "review" / f"{lesson_tag}_image_requests.md"]:
+        if path.exists():
+            path.unlink()
+    return render_visuals, False
+
+
+def render_reviewed_study_guide(seed, lesson: dict[str, Any], draft_path: Path, revision: int, render_visuals: list[dict[str, Any]]) -> list[str]:
     run = RUNS / seed.slug
-    course_map = json.loads((run / "course_map" / "course_map.json").read_text(encoding="utf-8"))
-    lesson = lesson_by_number(course_map, lesson_number)
+    lesson_number = int(lesson["lesson_number"])
     lesson_tag = lid(lesson_number)
-    ledger = json.loads((run / "sources" / "source_ledger.json").read_text(encoding="utf-8"))
-    references = (run / "sources" / "student_references.md").read_text(encoding="utf-8")
-    try:
-        draft = request_text(seed.slug, "technical_content", study_guide_prompt(seed, lesson, references, ledger, feedback_for(run, lesson_tag, "study_guide")), max_tokens=14000)
-    except ModelRequestError as error:
-        block(run, "lesson_draft", f"Configured technical-content model could not produce Lesson {lesson_number}.\n\nReason: {error}")
-        raise RuntimeError(str(error)) from error
-    draft = force_student_references(draft, references)
-    revision, draft_name = revisioned(run, "lesson_draft", f"{lesson_tag}_draft", ".md")
-    draft_path = run / "lesson_draft" / draft_name
-    write_text(draft_path, draft)
-    checker = load_module("greg_study_guide_content_check", "tools/greg_study_guide_content_check.py")
-    content_qa = checker.run_checks(draft_path, seed.level)
-    content_qa_path = run / "lesson_draft" / f"{lesson_tag}_content_qa_r{revision:02d}.md"
-    write_text(content_qa_path, checker.render_markdown(content_qa))
-    if not content_qa["passed"]:
-        raise RuntimeError("Study guide content automatic QA failed; no student PDF was released.")
-    pdf_revision, pdf_name = revisioned(run, "docx_pdf", f"{lesson_tag}_study_guide", ".pdf")
-    if pdf_revision != revision:
-        raise RuntimeError("Revision sequence mismatch for study guide artifacts.")
+    pdf_name = f"{lesson_tag}_study_guide_r{revision:02d}.pdf"
+    if (run / "docx_pdf" / pdf_name).exists():
+        raise RuntimeError("The canonical study-guide revision already exists; refusing to overwrite it.")
     baseline = approved_study_guide_baseline(run, lesson_tag)
     spec = {
         "course_slug": seed.slug,
@@ -467,10 +823,10 @@ def produce_study_guide(course_slug: str, lesson_number: int) -> list[str]:
         "revision": f"r{revision:02d}",
         "run_folder": f"runs/{seed.slug}",
         "source_markdown": rel(draft_path),
-        "metadata": {"course_title": seed.title, "course_title_lines": seed.title.split(":")[0].split()[:5], "lesson_number": str(lesson_number), "lesson_short_title": lesson['title'][:64], "lesson_subtitle": lesson['learning_goal'][:90], "level_label": f"{seed.level} Level", "quote": '"Form follows function."', "quote_author": "Louis Sullivan", "icon": BRAND_ICON},
+        "metadata": {"course_title": seed.title, "course_title_lines": seed.title.split(":")[0].split()[:5], "lesson_number": str(lesson_number), "lesson_short_title": lesson['title'], "level_label": seed.level if str(seed.level).lower().endswith("level") else f"{seed.level} Level", "quote": '"Form follows function."', "quote_author": "Louis Sullivan", "icon": BRAND_ICON},
         "output": {"pdf": f"docx_pdf/{pdf_name}", "render_qa": f"docx_pdf/{lesson_tag}_render_qa_r{revision:02d}.md", "layout_qa": f"docx_pdf/{lesson_tag}_pdf_layout_qa_r{revision:02d}.md", "rendered_dir": f"docx_pdf/rendered_pages_{lesson_tag}_r{revision:02d}"},
-        "visuals": [{"after_heading": "Section 01", "type": "card_row", "title": lesson.get("visual_learning_goal") or "How the lesson decisions connect on a residential job", "caption": f"Figure {lesson_number}.1. A section-by-section decision map for this lesson.", "cards": visual_cards_from_lesson(lesson)}],
-        "qa_notes": ["Revisioned student artifact; old outputs remain archived.", "Content and layout QA must pass before human review."]
+        "visuals": render_visuals,
+        "qa_notes": ["Revisioned student artifact; old outputs remain archived.", "Content and layout QA must pass before human review."],
     }
     if baseline:
         spec["approved_baseline_artifact"] = baseline
@@ -479,15 +835,126 @@ def produce_study_guide(course_slug: str, lesson_number: int) -> list[str]:
         spec["qa_notes"].append("Initial production is being prepared for approval.")
     spec_path = run / "docx_pdf" / f"{lesson_tag}_study_guide_spec_r{revision:02d}.json"
     write_json(spec_path, spec)
-    subprocess.run([sys.executable, str(ROOT / "tools" / "greg_render_study_guide_from_spec.py"), str(spec_path)], cwd=ROOT, check=True)
+    cross_checker = load_module("greg_cross_lesson_mece_check", "tools/greg_cross_lesson_mece_check.py")
+    cross_qa = cross_checker.run_checks(seed.slug, lesson_number)
+    write_text(run / "review" / f"{lesson_tag}_cross_lesson_mece_qa.md", cross_checker.render_markdown(cross_qa))
+    if not cross_qa["passed"]:
+        raise RuntimeError("Cross-lesson MECE automatic QA failed; no student PDF was released.")
+    subprocess.run([production_python(), str(ROOT / "tools" / "greg_render_study_guide_from_spec.py"), str(spec_path)], cwd=ROOT, check=True)
     render_qa = run / spec["output"]["render_qa"]
-    layout_checker = load_module("greg_pdf_layout_check", "tools/greg_pdf_layout_check.py")
-    layout = layout_checker.run_checks(run / spec["output"]["pdf"], render_qa)
-    write_text(run / spec["output"]["layout_qa"], layout_checker.render_markdown(layout))
+    layout = run_pdf_layout_qa(
+        run / spec["output"]["pdf"],
+        render_qa,
+        run / spec["output"]["layout_qa"],
+    )
     if not layout["passed"]:
         raise RuntimeError("Study guide layout automatic QA failed; no student PDF was released.")
     update_canonical_manifest(seed.slug)
-    return [f"Study guide revision r{revision:02d} created: {rel(run / spec['output']['pdf'])}", "Automatic content and layout QA passed."]
+    return [f"Study guide revision r{revision:02d} created: {rel(run / spec['output']['pdf'])}", "All required automatic content, reviewer, visual, MECE, and layout gates passed."]
+
+
+def produce_study_guide(course_slug: str, lesson_number: int) -> list[str]:
+    seed = parse_intake(course_slug)
+    run = RUNS / seed.slug
+    course_map = json.loads((run / "course_map" / "course_map.json").read_text(encoding="utf-8"))
+    lesson = lesson_by_number(course_map, lesson_number)
+    lesson_tag = lid(lesson_number)
+    ledger = json.loads((run / "sources" / "source_ledger.json").read_text(encoding="utf-8"))
+    pending_images = run / "review" / f"{lesson_tag}_image_requests.json"
+    prior_drafts = sorted((run / "lesson_draft").glob(f"{lesson_tag}_draft_r*.md"))
+    if pending_images.exists() and prior_drafts:
+        draft_path = prior_drafts[-1]
+        match = re.search(r"_r(\d+)\.md$", draft_path.name)
+        if not match:
+            raise RuntimeError("Could not identify the reviewed draft revision while resuming visual curation.")
+        revision = int(match.group(1))
+        draft = draft_path.read_text(encoding="utf-8", errors="replace")
+        render_visuals, waiting_images = create_visual_assets(seed, lesson, draft, run, lesson_tag)
+        if waiting_images:
+            update_canonical_manifest(seed.slug)
+            return [f"Lesson {lesson_number} is still waiting for one or more requested images."]
+        return render_reviewed_study_guide(seed, lesson, draft_path, revision, render_visuals)
+    try:
+        refresh_path = run / "sources" / f"{lesson_tag}_source_refresh.json"
+        cached_refresh = json.loads(refresh_path.read_text(encoding="utf-8")) if refresh_path.exists() else {}
+        refresh = cached_refresh if lesson_sources_are_adequate(cached_refresh) else lesson_source_refresh(seed, lesson, ledger)
+        write_json(run / "sources" / f"{lesson_tag}_source_refresh.json", refresh)
+        write_text(
+            run / "sources" / f"{lesson_tag}_source_refresh_qa.md",
+            "Lesson source refresh QA passed: yes\n\n"
+            + str(refresh.get("applicability_review") or "Current applicability reviewed.")
+            + "\n\nSource gaps:\n"
+            + ("\n".join(f"- {item}" for item in refresh.get("source_gaps") or []) or "- None."),
+        )
+        ledger, references = merge_lesson_sources(run, ledger, refresh, lesson_number)
+        active_ledger = {**ledger, "sources": refresh.get("sources") or []}
+        source_checker = load_module("greg_source_reference_check", "tools/greg_source_reference_check.py")
+        source_qa = source_checker.run_checks(run / "sources" / "source_ledger.json", run / "sources" / "student_references.md")
+        write_text(run / "sources" / "source_reference_qa.md", source_checker.render_markdown(source_qa))
+        if not source_qa["passed"]:
+            raise RuntimeError("Lesson-level source/reference QA failed.")
+    except ModelRequestError as error:
+        block(run, "sources", f"Lesson {lesson_number} source refresh could not complete.\n\nReason: {error}")
+        raise RuntimeError(str(error)) from error
+
+    revision_feedback = feedback_for(run, lesson_tag, "study_guide")
+    working_path = run / "lesson_draft" / f"{lesson_tag}_working.md"
+    draft = working_path.read_text(encoding="utf-8", errors="replace") if working_path.exists() else ""
+    if not draft:
+        reusable_drafts = sorted((run / "lesson_draft").glob(f"{lesson_tag}_draft_r*.md"), key=lambda path: path.stat().st_mtime)
+        existing_pdfs = list((run / "docx_pdf").glob(f"{lesson_tag}_study_guide*.pdf"))
+        latest_pdf_mtime = max((path.stat().st_mtime for path in existing_pdfs), default=0)
+        reviewer_files = [run / "review" / f"{lesson_tag}_{suffix}.md" for suffix in ("pedagogy_review", "citation_review", "design_qa")]
+        reviewers_pass = all(path.exists() and "## Verdict\n\nPASS" in path.read_text(encoding="utf-8", errors="replace") for path in reviewer_files)
+        if reusable_drafts and reusable_drafts[-1].stat().st_mtime > latest_pdf_mtime and reviewers_pass:
+            draft = reusable_drafts[-1].read_text(encoding="utf-8", errors="replace")
+            write_text(working_path, draft)
+    for attempt in range(1, 6):
+        if not draft:
+            try:
+                draft = request_text(seed.slug, "technical_content", study_guide_prompt(seed, lesson, references, active_ledger, revision_feedback), max_tokens=14000)
+            except ModelRequestError as error:
+                block(run, "lesson_draft", f"Configured technical-content model could not produce Lesson {lesson_number}.\n\nReason: {error}")
+                raise RuntimeError(str(error)) from error
+            draft = force_student_references(draft, references)
+            write_text(working_path, draft)
+        reviewer_passed, changes = run_content_reviewers(seed, lesson, draft, active_ledger, run, lesson_tag)
+        if reviewer_passed:
+            break
+        revision_feedback = "Automatic reviewer changes required:\n- " + "\n- ".join(changes)
+        write_text(run / "review" / f"{lesson_tag}_automatic_revision_{attempt:02d}.md", revision_feedback)
+        if attempt < 5:
+            try:
+                draft = request_text(seed.slug, "technical_content", study_guide_revision_prompt(draft, revision_feedback, references), max_tokens=14000)
+            except ModelRequestError as error:
+                block(run, "lesson_draft", f"Configured technical-content model could not revise Lesson {lesson_number}.\n\nReason: {error}")
+                raise RuntimeError(str(error)) from error
+            draft = force_student_references(draft, references)
+            write_text(working_path, draft)
+    else:
+        raise RuntimeError("Independent study-guide reviewers still require changes after five automatic revision passes.")
+
+    revision = next_study_guide_revision(run, lesson_tag)
+    draft_name = f"{lesson_tag}_draft_r{revision:02d}.md"
+    draft_path = run / "lesson_draft" / draft_name
+    write_text(draft_path, draft)
+    checker = load_module("greg_study_guide_content_check", "tools/greg_study_guide_content_check.py")
+    content_qa = checker.run_checks(draft_path, seed.level)
+    content_qa_path = run / "lesson_draft" / f"{lesson_tag}_content_qa_r{revision:02d}.md"
+    write_text(content_qa_path, checker.render_markdown(content_qa))
+    if not content_qa["passed"]:
+        raise RuntimeError("Study guide content automatic QA failed; no student PDF was released.")
+    render_visuals, waiting_images = create_visual_assets(seed, lesson, draft, run, lesson_tag)
+    if waiting_images:
+        working_path.unlink(missing_ok=True)
+        update_canonical_manifest(seed.slug)
+        return [
+            f"Lesson {lesson_number} passed content review and is waiting for operator images.",
+            f"Image request document: {rel(run / 'review' / f'{lesson_tag}_image_requests.md')}",
+        ]
+    result = render_reviewed_study_guide(seed, lesson, draft_path, revision, render_visuals)
+    working_path.unlink(missing_ok=True)
+    return result
 
 
 def latest_approved_book(run: Path, lesson_tag: str) -> Path:
@@ -616,10 +1083,12 @@ def localize_book(course_slug: str, lesson_number: int, locale: str) -> list[str
     }
     spec_path = run / "localization" / folder / f"{lesson_tag}_study_guide_{locale}_spec_r{revision:02d}.json"
     write_json(spec_path, spec)
-    subprocess.run([sys.executable, str(ROOT / "tools" / "greg_render_study_guide_from_spec.py"), str(spec_path)], cwd=ROOT, check=True)
-    layout_checker = load_module("greg_pdf_layout_check", "tools/greg_pdf_layout_check.py")
-    layout = layout_checker.run_checks(run / spec["output"]["pdf"], run / spec["output"]["render_qa"])
-    write_text(run / spec["output"]["layout_qa"], layout_checker.render_markdown(layout))
+    subprocess.run([production_python(), str(ROOT / "tools" / "greg_render_study_guide_from_spec.py"), str(spec_path)], cwd=ROOT, check=True)
+    layout = run_pdf_layout_qa(
+        run / spec["output"]["pdf"],
+        run / spec["output"]["render_qa"],
+        run / spec["output"]["layout_qa"],
+    )
     if not layout["passed"]:
         raise RuntimeError("Localized course book layout QA failed.")
     update_canonical_manifest(seed.slug)

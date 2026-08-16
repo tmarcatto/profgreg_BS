@@ -27,7 +27,8 @@ SERVER_UPLOAD_ROOT = Path("/srv/profgreg/uploads")
 LOCAL_UPLOAD_ROOT = ROOT / "tmp" / "uploads"
 MAX_UPLOAD_FILE_BYTES = 200 * 1024 * 1024
 MAX_UPLOAD_REQUEST_BYTES = 500 * 1024 * 1024
-ALLOWED_UPLOAD_EXTENSIONS = {".pdf", ".docx", ".txt", ".md"}
+MAX_IMAGE_UPLOAD_BYTES = 25 * 1024 * 1024
+ALLOWED_UPLOAD_EXTENSIONS = {".pdf", ".docx", ".txt", ".md", ".png", ".jpg", ".jpeg", ".webp"}
 REFERENCE_POLICIES = {
     "context_only": "Use as production context only; do not cite in student references and do not reuse images.",
     "image_only": "Do not cite text in student references; images may be reused when properly referenced.",
@@ -138,6 +139,22 @@ def safe_filename(value: str) -> str:
     return clean[:120]
 
 
+def validate_image_upload(filename: str, data: bytes) -> None:
+    suffix = Path(filename).suffix.lower()
+    if suffix not in {".png", ".jpg", ".jpeg", ".webp"}:
+        return
+    if len(data) > MAX_IMAGE_UPLOAD_BYTES:
+        raise ValueError(f"Image is too large. Maximum image size is {MAX_IMAGE_UPLOAD_BYTES // (1024 * 1024)} MB.")
+    valid = {
+        ".png": data.startswith(b"\x89PNG\r\n\x1a\n"),
+        ".jpg": data.startswith(b"\xff\xd8\xff"),
+        ".jpeg": data.startswith(b"\xff\xd8\xff"),
+        ".webp": len(data) >= 12 and data.startswith(b"RIFF") and data[8:12] == b"WEBP",
+    }[suffix]
+    if not valid:
+        raise ValueError("The selected image extension does not match the file contents.")
+
+
 def file_sha256(path: Path) -> str:
     digest = hashlib.sha256()
     with path.open("rb") as handle:
@@ -199,6 +216,10 @@ def normalize_upload_meta(meta: dict) -> dict:
     meta = dict(meta)
     meta["upload_id"] = str(meta.get("upload_id") or upload_identifier(meta))
     apply_reference_policy(meta, str(meta.get("reference_policy") or "context_only"))
+    meta["purpose"] = str(meta.get("purpose") or "source_material")
+    meta["visual_request_id"] = str(meta.get("visual_request_id") or "")
+    meta["source_label"] = str(meta.get("source_label") or "")
+    meta["source_url"] = str(meta.get("source_url") or "")
     return meta
 
 
@@ -240,10 +261,15 @@ def save_uploaded_file(
     scope: str = "course",
     lesson: int | None = None,
     reference_policy: str = "context_only",
+    purpose: str = "source_material",
+    visual_request_id: str = "",
+    source_label: str = "",
+    source_url: str = "",
 ) -> dict:
     if len(data) > MAX_UPLOAD_FILE_BYTES:
         raise ValueError(f"Upload is too large. Maximum per file is {MAX_UPLOAD_FILE_BYTES // (1024 * 1024)} MB.")
     clean_name = safe_filename(filename)
+    validate_image_upload(clean_name, data)
     scope_name = scope_name_from_input(scope, lesson)
     policy = normalize_reference_policy(reference_policy)
     target_dir = upload_course_dir(upload_root, course_slug) / scope_name
@@ -263,6 +289,10 @@ def save_uploaded_file(
         "images_allowed": policy in {"image_only", "reference_and_images"},
         "size_bytes": len(data),
         "sha256": file_sha256(target),
+        "purpose": "visual_response" if purpose == "visual_response" else "source_material",
+        "visual_request_id": visual_request_id.strip()[:80],
+        "source_label": source_label.strip()[:300],
+        "source_url": source_url.strip()[:1000],
     }
     meta["upload_id"] = upload_identifier(meta)
     manifest = upload_manifest_path(upload_root, course_slug)
@@ -844,8 +874,8 @@ def ui_shell(default_course: str) -> str:
       <div class="body">
         <div class="dropzone" id="dropzone">
           <strong>Drop source materials here</strong>
-          <span class="muted">PDF, DOCX, TXT, or Markdown. Multiple files are supported.</span>
-          <input id="files" type="file" multiple accept=".pdf,.docx,.txt,.md">
+          <span class="muted">PDF, DOCX, TXT, Markdown, PNG, JPG, or WebP. Multiple files are supported.</span>
+          <input id="files" type="file" multiple accept=".pdf,.docx,.txt,.md,.png,.jpg,.jpeg,.webp">
         </div>
         <div class="upload-controls">
           <select id="uploadScope">
@@ -901,6 +931,7 @@ def ui_shell(default_course: str) -> str:
           <div class="metric"><div class="label">Next action</div><div class="value" id="next">Loading</div></div>
         </div>
         <div class="notice hidden" id="message">Ready.</div>
+        <div id="visualCurationPanel"></div>
         <div>
           <div class="lesson-toolbar">
             <div>
@@ -922,6 +953,7 @@ def ui_shell(default_course: str) -> str:
                 <tr>
                   <th style="width:56px"><input id="selectAllLessons" type="checkbox" aria-label="Select all lessons"></th>
                   <th>Lesson</th>
+                  <th>Visuals</th>
                   <th>Course book</th>
                   <th>Presentation</th>
                   <th>PT-BR book</th>
@@ -930,7 +962,7 @@ def ui_shell(default_course: str) -> str:
                   <th>ES deck</th>
                 </tr>
               </thead>
-              <tbody id="lessonSelection"><tr><td colspan="8" class="muted">Generate the Course Map first to choose lessons.</td></tr></tbody>
+              <tbody id="lessonSelection"><tr><td colspan="9" class="muted">Generate the Course Map first to choose lessons.</td></tr></tbody>
             </table>
           </div>
         </div>
@@ -1120,7 +1152,24 @@ def ui_shell(default_course: str) -> str:
       const approved = approvalGroups.filter(group => lessonStatus(group.approvalField) === 'approved').length;
       document.getElementById('approvalCount').textContent = `${{approved}} approvals`;
       renderCourseMapPanel();
+      renderVisualCuration();
       renderApprovals();
+    }}
+    function renderVisualCuration() {{
+      const holder = document.getElementById('visualCurationPanel');
+      const waiting = (currentStatus?.lessons || []).filter(item => item.visual_status === 'waiting_images');
+      if (!waiting.length) {{ holder.innerHTML = ''; return; }}
+      holder.innerHTML = waiting.map(item => {{
+        const requestLink = item.image_request_path
+          ? `<a class="download-link" href="/artifact?path=${{encodeURIComponent(item.image_request_path)}}&filename=${{encodeURIComponent(`Lesson ${{item.lesson}} - Image Requests.md`)}}" target="_blank" rel="noopener">Download image request</a>`
+          : '';
+        const requests = (item.image_requests || []).map(request => `<div class="approval-card ready">
+          <div><div class="approval-title">${{esc(request.visual_id)}}</div><div class="approval-meta">${{esc(request.learning_claim || request.purpose || '')}}</div></div>
+          <div><label>Image file</label><input id="visual-file-${{esc(request.visual_id)}}" type="file" accept=".png,.jpg,.jpeg,.webp"><label>Source or attribution</label><input id="visual-label-${{esc(request.visual_id)}}" placeholder="Organization, publication, photographer, or generated by operator"><label>Source URL (when applicable)</label><input id="visual-url-${{esc(request.visual_id)}}" placeholder="https://..."></div>
+          <div class="approval-actions"><button class="primary" onclick="uploadVisualResponse('${{esc(item.lesson)}}','${{esc(request.visual_id)}}')">Send image</button></div>
+        </div>`).join('');
+        return `<div class="notice"><strong>Lesson ${{esc(item.lesson)}} is waiting for images.</strong> ${{requestLink}}<br>The PDF remains withheld until all requested visuals are supplied and visual QA passes.</div>${{requests}}`;
+      }}).join('');
     }}
     function renderCourseMapPanel() {{
       const map = artifactByNames(['course_map_md']);
@@ -1136,6 +1185,11 @@ def ui_shell(default_course: str) -> str:
     }}
     function renderApprovals() {{
       const tag = selectedLessonTag();
+      const selectedLesson = selectedLessonRecord();
+      if (selectedLesson?.visual_status === 'waiting_images') {{
+        document.getElementById('approvalPanels').innerHTML = '<div class="notice"><strong>Approval is paused while this lesson waits for images.</strong> Supply every requested visual above. Greg will resume production, rerun visual and layout QA, and only then release the new artifact for review.</div>';
+        return;
+      }}
       const rows = approvalGroups.map(group => {{
         const artifact = artifactForGroup(group, tag);
         const status = lessonStatus(group.approvalField);
@@ -1247,6 +1301,11 @@ def ui_shell(default_course: str) -> str:
       const active = currentJobs.slice().reverse().find(j => ['queued', 'running'].includes(j.state));
       const latest = active || currentJobs[currentJobs.length - 1];
       const holder = document.getElementById('currentActivity');
+      const waiting = (currentStatus?.lessons || []).filter(item => item.visual_status === 'waiting_images');
+      if (!active && waiting.length) {{
+        holder.innerHTML = `<span class="state queued">waiting for images</span> · Lesson ${{waiting.map(item => Number(item.lesson)).join(', ')}}`;
+        return;
+      }}
       if (!latest) {{
         holder.textContent = 'Idle.';
         return;
@@ -1305,6 +1364,7 @@ def ui_shell(default_course: str) -> str:
         ? lessons.map(item => `<tr>
             <td><input type="checkbox" data-lesson-select="${{esc(item.lesson)}}" aria-label="Select Lesson ${{esc(item.lesson)}}"></td>
             <td class="lesson-title-cell">Lesson ${{esc(item.lesson)}}<br><span class="muted">${{esc(item.title || '')}}</span></td>
+            <td>${{statusPill(item.visual_status === 'waiting_images' ? 'waiting images' : item.visual_status || 'pending')}}</td>
             <td>${{documentCell(item, 'study_guide', 'study_guide_path', 'Course Book')}}</td>
             <td>${{documentCell(item, 'deck', 'deck_path', 'Presentation')}}</td>
             <td>${{documentCell(item, 'pt_br_study_guide', 'pt_br_study_guide_path', 'PT-BR Book')}}</td>
@@ -1312,7 +1372,7 @@ def ui_shell(default_course: str) -> str:
             <td>${{documentCell(item, 'es_study_guide', 'es_study_guide_path', 'ES Book')}}</td>
             <td>${{documentCell(item, 'es_deck', 'es_deck_path', 'ES Deck')}}</td>
           </tr>`).join('')
-        : '<tr><td colspan="8" class="muted">Generate the Course Map first to choose lessons.</td></tr>';
+        : '<tr><td colspan="9" class="muted">Generate the Course Map first to choose lessons.</td></tr>';
       document.getElementById('selectAllLessons').checked = false;
     }}
     function documentCell(item, statusField, pathField, label) {{
@@ -1373,6 +1433,27 @@ def ui_shell(default_course: str) -> str:
         const data = await res.json();
         if (!res.ok) throw new Error(data.error || 'Upload failed');
         msg.textContent = data.message || 'Uploaded.';
+        await refresh();
+      }} catch (error) {{ msg.textContent = error.message; }}
+    }}
+    async function uploadVisualResponse(lesson, requestId) {{
+      try {{
+        const input = document.getElementById('visual-file-' + requestId);
+        if (!input?.files?.length) throw new Error('Choose an image for this request.');
+        const form = new FormData();
+        form.append('course', course.value);
+        form.append('scope', 'lesson');
+        form.append('lesson', lesson);
+        form.append('reference_policy', 'image_only');
+        form.append('purpose', 'visual_response');
+        form.append('visual_request_id', requestId);
+        form.append('source_label', document.getElementById('visual-label-' + requestId)?.value || 'Operator supplied image');
+        form.append('source_url', document.getElementById('visual-url-' + requestId)?.value || '');
+        form.append('files', input.files[0]);
+        const res = await fetch('/api/upload', {{method:'POST', body:form}});
+        const data = await res.json();
+        if (!res.ok) throw new Error(data.error || 'Image upload failed');
+        msg.textContent = 'Image received. Resume course book production when all requested images are present.';
         await refresh();
       }} catch (error) {{ msg.textContent = error.message; }}
     }}
@@ -1486,6 +1567,10 @@ class GregUiHandler(BaseHTTPRequestHandler):
                 scope = str(fields.get("scope") or "course")
                 lesson = int(fields.get("lesson") or 1)
                 reference_policy = str(fields.get("reference_policy") or "context_only")
+                purpose = str(fields.get("purpose") or "source_material")
+                visual_request_id = str(fields.get("visual_request_id") or "")
+                source_label = str(fields.get("source_label") or "")
+                source_url = str(fields.get("source_url") or "")
                 saved = []
                 for field in file_fields:
                     filename = str(field.get("filename") or "")
@@ -1501,6 +1586,10 @@ class GregUiHandler(BaseHTTPRequestHandler):
                             scope=scope,
                             lesson=lesson,
                             reference_policy=reference_policy,
+                            purpose=purpose,
+                            visual_request_id=visual_request_id,
+                            source_label=source_label,
+                            source_url=source_url,
                         )
                     )
                 self.send_json(HTTPStatus.OK, {"message": f"Uploaded {len(saved)} file(s).", "uploads": saved})

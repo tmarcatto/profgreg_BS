@@ -82,8 +82,8 @@ def visual_title(visual: dict[str, Any]) -> str:
 
 def previous_lessons(run: Path, lesson: int) -> list[int]:
     found: list[int] = []
-    for path in (run / "lesson_draft").glob("lesson_*_draft.md"):
-        match = re.fullmatch(r"lesson_(\d+)_draft\.md", path.name)
+    for path in (run / "lesson_draft").glob("lesson_*_draft*.md"):
+        match = re.fullmatch(r"lesson_(\d+)_draft(?:_r\d+)?\.md", path.name)
         if match and int(match.group(1)) < lesson:
             found.append(int(match.group(1)))
     return sorted(found)
@@ -91,10 +91,9 @@ def previous_lessons(run: Path, lesson: int) -> list[int]:
 
 def lesson_paths(run: Path, lesson: int) -> tuple[Path, Path]:
     lid = lesson_id(lesson)
-    return (
-        run / "lesson_draft" / f"{lid}_draft.md",
-        run / "docx_pdf" / f"{lid}_study_guide_spec.json",
-    )
+    drafts = sorted((run / "lesson_draft").glob(f"{lid}_draft_r*.md"))
+    specs = sorted((run / "docx_pdf").glob(f"{lid}_study_guide_spec_r*.json"))
+    return (drafts[-1] if drafts else run / "lesson_draft" / f"{lid}_draft.md", specs[-1] if specs else run / "docx_pdf" / f"{lid}_study_guide_spec.json")
 
 
 def run_checks(course_slug: str, lesson: int) -> dict[str, Any]:

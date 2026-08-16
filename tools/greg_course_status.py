@@ -102,6 +102,20 @@ def study_guide_quality_blockers(run: Path, lesson: str, artifact_path: Path | N
         blockers.append("PDF layout QA report is failing.")
     if re.search(r"Source/reference QA passed:\s*no", source_qa, flags=re.I):
         blockers.append("Source/reference QA report is failing.")
+    required_reviews = {
+        "pedagogy": run / "review" / f"lesson_{lesson}_pedagogy_review.md",
+        "citation": run / "review" / f"lesson_{lesson}_citation_review.md",
+        "design": run / "review" / f"lesson_{lesson}_design_qa.md",
+        "visual": run / "review" / f"lesson_{lesson}_visual_qa.md",
+    }
+    for label, path in required_reviews.items():
+        text = read_text(path)
+        if label == "visual":
+            passed = bool(re.search(r"Visual plan QA passed:\s*yes", text, flags=re.I))
+        else:
+            passed = bool(re.search(r"(?im)^PASS\s*$", text))
+        if not passed:
+            blockers.append(f"Required {label} review is missing or has not passed.")
     return blockers
 
 
@@ -211,6 +225,14 @@ def summarize(course_slug: str) -> dict:
         gate_status = "Course Map is ready. Source research is next."
         next_action = "run source research before lesson production."
 
+    lessons_summary = summarize_lessons(run, manifest)
+    waiting_images = [item for item in lessons_summary if item.get("visual_status") == "waiting_images"]
+    if waiting_images:
+        stage = "WAITING_IMAGES"
+        numbers = ", ".join(str(int(item["lesson"])) for item in waiting_images)
+        gate_status = f"Waiting for operator-provided images for Lesson(s) {numbers}. No student PDF is released until visual QA passes."
+        next_action = "download the image request, upload the requested images with attribution, and resume course book production."
+
     return {
         "course_slug": course_slug,
         "run_folder": rel(run),
@@ -222,7 +244,7 @@ def summarize(course_slug: str) -> dict:
         "workspace_status": rel(workspace_status) if workspace_status.exists() else None,
         "canonical_manifest": rel(canonical_json) if canonical_json.exists() else None,
         "next_recommended_action": next_action,
-        "lessons": summarize_lessons(run, manifest),
+        "lessons": lessons_summary,
     }
 
 
@@ -238,6 +260,7 @@ def summarize_lessons(run: Path, manifest: dict) -> list[dict]:
             "es_study_guide": "missing",
             "es_deck": "missing",
             "pipeline_qa": "missing",
+            "visual_status": "pending",
         }
         for lesson, title in lesson_titles(run).items()
     }
@@ -259,6 +282,7 @@ def summarize_lessons(run: Path, manifest: dict) -> list[dict]:
                 "es_study_guide": "missing",
                 "es_deck": "missing",
                 "pipeline_qa": "missing",
+                "visual_status": "pending",
             },
         )
         item_path = str(item.get("path") or "")
@@ -303,6 +327,19 @@ def summarize_lessons(run: Path, manifest: dict) -> list[dict]:
         elif key.endswith("_pipeline_qa"):
             row["pipeline_qa"] = "present" if exists else "missing"
             row["pipeline_qa_path"] = rel(path)
+    for lesson, row in lessons.items():
+        request_json = run / "review" / f"lesson_{lesson}_image_requests.json"
+        request_md = run / "review" / f"lesson_{lesson}_image_requests.md"
+        visual_plan = run / "review" / f"lesson_{lesson}_visual_plan.json"
+        visual_qa = run / "review" / f"lesson_{lesson}_visual_qa.md"
+        if request_json.exists():
+            row["visual_status"] = "waiting_images"
+            row["image_request_path"] = rel(request_md if request_md.exists() else request_json)
+            row["image_requests"] = (load_json(request_json).get("requests") or [])
+            row["study_guide"] = "waiting_images"
+            row.pop("study_guide_path", None)
+        elif visual_plan.exists() and report_passed(visual_qa, "Visual plan QA passed") is not False:
+            row["visual_status"] = "ready"
     return [lessons[key] for key in sorted(lessons)]
 
 

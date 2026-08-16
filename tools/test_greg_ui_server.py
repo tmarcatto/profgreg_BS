@@ -35,6 +35,10 @@ class GregUiServerTests(unittest.TestCase):
         self.assertIn("Can cite + images allowed", html)
         self.assertIn("Create intake and start Course Map", html)
         self.assertIn("Download Course Map", html)
+        self.assertIn("waiting for images", html)
+        self.assertIn("Download image request", html)
+        self.assertIn("uploadVisualResponse", html)
+        self.assertIn("Approval is paused while this lesson waits for images", html)
         self.assertIn("/api/start-course", html)
         self.assertIn("/api/produce", html)
         self.assertIn("Generate course books", html)
@@ -122,6 +126,25 @@ class GregUiServerTests(unittest.TestCase):
         self.assertFalse(result["can_appear_in_references"])
         self.assertTrue(result["images_allowed"])
 
+    def test_visual_response_records_request_and_attribution(self) -> None:
+        upload_root = ROOT / "tmp" / "uploads"
+        result = ui.save_uploaded_file(
+            upload_root=upload_root,
+            course_slug="Visual Response Course",
+            filename="field-photo.png",
+            data=b"\x89PNG\r\n\x1a\nminimal-test-payload",
+            scope="lesson",
+            lesson=2,
+            reference_policy="image_only",
+            purpose="visual_response",
+            visual_request_id="L02V01",
+            source_label="Operator supplied field photo",
+            source_url="https://example.com/photo",
+        )
+        self.assertEqual(result["purpose"], "visual_response")
+        self.assertEqual(result["visual_request_id"], "L02V01")
+        self.assertEqual(result["scope"], "lesson_02")
+
     def test_update_and_delete_upload_manifest_entry(self) -> None:
         (ROOT / "tmp" / "uploads").mkdir(parents=True, exist_ok=True)
         with tempfile.TemporaryDirectory(dir=ROOT / "tmp" / "uploads") as tmp:
@@ -186,6 +209,15 @@ class GregUiServerTests(unittest.TestCase):
     def test_rejects_unsupported_upload_extension(self) -> None:
         with self.assertRaises(ValueError):
             ui.safe_filename("../bad.exe")
+
+    def test_rejects_image_with_mismatched_signature(self) -> None:
+        with self.assertRaises(ValueError):
+            ui.save_uploaded_file(
+                upload_root=ROOT / "tmp" / "uploads",
+                course_slug="Bad Image",
+                filename="not-really.png",
+                data=b"not an image",
+            )
 
     def test_parse_multipart_form(self) -> None:
         boundary = "----prof-greg-test"

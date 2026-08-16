@@ -229,17 +229,22 @@ Rules:
 - access from the operator machine through SSH tunnel;
 - use the same private operator commands and gates;
 - create course intake files under `runs/[course-slug]/input/intake.md`;
-- accept uploads only for allowed source-material extensions: PDF, DOCX, TXT, and MD;
+- accept source uploads as PDF, DOCX, TXT, MD, PNG, JPG, JPEG, and WebP;
 - store uploaded materials outside Git under `/srv/profgreg/uploads/[course-slug]/`;
 - accept one or multiple files in the same upload batch;
 - show the lesson-number field only when the upload is lesson-specific;
 - allow the operator to delete an incorrectly uploaded file before production uses it;
 - allow the operator to edit each upload's course/lesson scope and reference/image-use policy after bulk upload;
 - record upload metadata including filename, scope, reference/image-use policy, size, and SHA-256 hash;
-- support three user-facing upload policies:
+- support four user-facing upload policies:
   - `context_only`: use as production context only; do not cite in student references and do not reuse images;
   - `reference_only`: may appear in student references; do not reuse images;
   - `reference_and_images`: may appear in student references and images may be reused when properly referenced;
+  - `image_only`: do not cite the text; images may be reused when properly referenced;
+- expose `waiting_images` as a first-class lesson status when visual curation is incomplete;
+- provide the image-request document for download and show every requested visual by ID and teaching purpose;
+- accept one operator image response per visual-request ID with source label and source URL/attribution;
+- keep the student PDF unavailable until every required image is present and visual QA passes;
 - do not show secrets, raw prompts, full source content, or internal stack traces.
 
 Recommended intake order:

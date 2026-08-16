@@ -275,7 +275,9 @@ def run_checks(pdf_path: Path, qa_path: Path | None = None) -> dict:
     expected_figures = []
     lesson_match_for_figures = re.search(r"lesson_(\d{2})_", pdf_path.name)
     if lesson_match_for_figures:
-        spec_path = pdf_path.parent / f"lesson_{lesson_match_for_figures.group(1)}_study_guide_spec.json"
+        revision_for_figures = re.search(r"_(r\d+)\.pdf$", pdf_path.name)
+        revision_suffix = f"_{revision_for_figures.group(1)}" if revision_for_figures else ""
+        spec_path = pdf_path.parent / f"lesson_{lesson_match_for_figures.group(1)}_study_guide_spec{revision_suffix}.json"
         if spec_path.exists():
             try:
                 spec = json.loads(spec_path.read_text(encoding="utf-8"))
@@ -298,11 +300,18 @@ def run_checks(pdf_path: Path, qa_path: Path | None = None) -> dict:
 
     revision_match = re.search(r"_(r\d+)\.pdf$", pdf_path.name)
     lesson_match = re.search(r"lesson_(\d{2})_", pdf_path.name)
+    exact_rendered_dir = (
+        pdf_path.parent / f"rendered_pages_lesson_{lesson_match.group(1)}_{revision_match.group(1)}"
+        if lesson_match and revision_match
+        else None
+    )
     lesson_rendered_dir = pdf_path.parent / f"rendered_pages_lesson_{lesson_match.group(1)}" if lesson_match else None
     if lesson_rendered_dir and not lesson_rendered_dir.exists() and lesson_match:
         lesson_rendered_dir = pdf_path.parent / f"rendered_pages_lesson_{int(lesson_match.group(1))}"
     revision_rendered_dir = pdf_path.parent / f"rendered_pages_{revision_match.group(1)}" if revision_match else None
-    if revision_rendered_dir and revision_rendered_dir.exists():
+    if exact_rendered_dir and exact_rendered_dir.exists():
+        rendered_dir = exact_rendered_dir
+    elif revision_rendered_dir and revision_rendered_dir.exists():
         rendered_dir = revision_rendered_dir
     elif lesson_rendered_dir and lesson_rendered_dir.exists():
         rendered_dir = lesson_rendered_dir
@@ -317,18 +326,19 @@ def run_checks(pdf_path: Path, qa_path: Path | None = None) -> dict:
     else:
         findings.append(Finding("warn", "rendered_pages_count", "No rendered page PNGs found for visual inspection."))
 
-    qa_requirements = [
-        ("qa_cover", "Cover"),
-        ("qa_roadmap", "roadmap"),
-        ("qa_references_no_access_dates", "access dates"),
-        ("qa_orphans", "orphan"),
-        ("qa_status", "Passed"),
-    ]
-    for check, needle in qa_requirements:
-        if needle.lower() in qa_text.lower():
-            findings.append(Finding("pass", check, f"Render QA mentions `{needle}`."))
-        else:
-            findings.append(Finding("warn", check, f"Render QA does not mention `{needle}`."))
+    if qa_path and qa_path.exists():
+        qa_requirements = [
+            ("qa_cover", "Cover"),
+            ("qa_roadmap", "roadmap"),
+            ("qa_references_no_access_dates", "access dates"),
+            ("qa_orphans", "orphan"),
+            ("qa_status", "Passed"),
+        ]
+        for check, needle in qa_requirements:
+            if needle.lower() in qa_text.lower():
+                findings.append(Finding("pass", check, f"Render QA mentions `{needle}`."))
+            else:
+                findings.append(Finding("warn", check, f"Render QA does not mention `{needle}`."))
 
     fail_count = sum(1 for item in findings if item.status == "fail")
     warn_count = sum(1 for item in findings if item.status == "warn")

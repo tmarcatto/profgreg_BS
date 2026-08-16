@@ -3,7 +3,7 @@ Failures: 0
 Warnings: 0
 
 Findings:
-- PASS scripts_found: Scanned 68 renderer/tool scripts.
+- PASS scripts_found: Scanned 74 renderer/tool scripts.
 - PASS reusable_targets_present: Core reusable operator/QA targets exist.
 - PASS absolute_paths: No hardcoded local absolute paths found.
 - PASS course_tied_scripts: No course-tied scripts found outside Greg tools.

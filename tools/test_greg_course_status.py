@@ -29,6 +29,7 @@ class CourseStatusTests(unittest.TestCase):
             (run / "course_map").mkdir()
             (run / "lesson_draft").mkdir()
             (run / "sources").mkdir()
+            (run / "review").mkdir()
             (run / "course_map" / "course_map.json").write_text(
                 '{"lessons": [{"lesson_number": 1, "title": "The Modern Construction Project Manager"}]}',
                 encoding="utf-8",
@@ -36,6 +37,9 @@ class CourseStatusTests(unittest.TestCase):
             (run / "docx_pdf" / "lesson_01_study_guide.pdf").write_text("pdf", encoding="utf-8")
             (run / "deck" / "lesson_01_deck_r02.pptx").write_text("deck", encoding="utf-8")
             (run / "process_review" / "lesson_01_pipeline_qa.md").write_text("qa", encoding="utf-8")
+            for name in ("pedagogy_review", "citation_review", "design_qa"):
+                (run / "review" / f"lesson_01_{name}.md").write_text("## Verdict\n\nPASS\n", encoding="utf-8")
+            (run / "review" / "lesson_01_visual_qa.md").write_text("Visual plan QA passed: yes\n", encoding="utf-8")
             manifest = {
                 "artifacts": [
                     {

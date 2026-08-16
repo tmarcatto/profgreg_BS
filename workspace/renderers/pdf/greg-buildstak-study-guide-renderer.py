@@ -95,12 +95,30 @@ def wrap_lines(text: str, font: str, size: int, max_width: float) -> list[str]:
     return lines
 
 
+def draw_visual_title(canvas, title: str, width: float, height: float) -> int:
+    """Draw a readable visual title without crossing the content frame."""
+    max_width = width - 4
+    for font_size in (15, 14, 13, 12, 11):
+        if stringWidth(title, "Helvetica-Bold", font_size) <= max_width:
+            canvas.setFillColor(NAVY)
+            canvas.setFont("Helvetica-Bold", font_size)
+            canvas.drawString(0, height - 18, title)
+            return 1
+    lines = wrap_lines(title, "Helvetica-Bold", 11, max_width)[:2]
+    canvas.setFillColor(NAVY)
+    canvas.setFont("Helvetica-Bold", 11)
+    for index, line in enumerate(lines):
+        canvas.drawString(0, height - 18 - index * 14, line)
+    return len(lines)
+
+
 class SectionHeader(Flowable):
     def __init__(self, number: int, title: str):
         super().__init__()
         self.number = number
         self.title = title
         self.height = 58
+        self.keepWithNext = 1
 
     def wrap(self, availWidth, availHeight):
         self.width = availWidth
@@ -164,9 +182,7 @@ class CardRowDiagram(Flowable):
     def draw(self):
         c = self.canv
         w = self.width
-        c.setFillColor(NAVY)
-        c.setFont("Helvetica-Bold", 15)
-        c.drawString(0, self.height - 18, self.title)
+        draw_visual_title(c, self.title, w, self.height)
         card_gap = 12
         card_w = (w - card_gap * (len(self.cards) - 1)) / len(self.cards)
         y = 58 if self.pill else 42
@@ -204,9 +220,7 @@ class TimelineDiagram(Flowable):
     def draw(self):
         c = self.canv
         w = self.width
-        c.setFillColor(NAVY)
-        c.setFont("Helvetica-Bold", 15)
-        c.drawString(0, self.height - 18, self.title)
+        draw_visual_title(c, self.title, w, self.height)
         c.setFont("Helvetica-Bold", 10)
         c.drawString(0, 184, "Weak timeline")
         c.setStrokeColor(LINE)
@@ -265,12 +279,10 @@ class SourceToWBSMatrix(Flowable):
     def draw(self):
         c = self.canv
         w = self.width
-        c.setFillColor(NAVY)
-        c.setFont("Helvetica-Bold", 15)
-        c.drawString(0, self.height - 18, self.title)
+        title_lines = draw_visual_title(c, self.title, w, self.height)
 
         table_x = 24
-        table_y = self.height - 52
+        table_y = self.height - 52 - (12 if title_lines > 1 else 0)
         table_w = w - 48
         left_w = table_w * 0.42
         right_w = table_w - left_w
@@ -326,9 +338,7 @@ class CPMNetworkDiagram(Flowable):
     def draw(self):
         c = self.canv
         w = self.width
-        c.setFillColor(NAVY)
-        c.setFont("Helvetica-Bold", 15)
-        c.drawString(0, self.height - 18, self.title)
+        draw_visual_title(c, self.title, w, self.height)
 
         start_x = 20
         finish_x = w - 68
@@ -418,8 +428,14 @@ def parse_markdown(markdown: str) -> list[dict[str, Any]]:
                 if stripped:
                     quote_lines.append(stripped)
                 index += 1
-            label = re.sub(r"^\*\*|\*\*$", "", quote_lines[0]) if quote_lines else "NOTE"
-            body = " ".join(quote_lines[1:]).strip()
+            first_line = quote_lines[0] if quote_lines else ""
+            labeled = re.match(r"^\*\*(.+?):\*\*\s*(.*)$", first_line)
+            if labeled:
+                label = labeled.group(1).strip()
+                body = " ".join([labeled.group(2).strip(), *quote_lines[1:]]).strip()
+            else:
+                label = re.sub(r"^\*\*|\*\*$", "", first_line) or "NOTE"
+                body = " ".join(quote_lines[1:]).strip()
             blocks.append({"type": "callout", "label": label, "body": body})
             continue
         paragraph: list[str] = [line]
@@ -485,16 +501,20 @@ def make_doc(output: Path, metadata: dict[str, Any]):
         canvas.setLineWidth(5)
         canvas.line(1.75 * inch, H - 4.58 * inch, W - 2.4 * inch, H - 4.58 * inch)
         canvas.setFillColor(colors.HexColor("#111827"))
-        canvas.setFont("Helvetica-Bold", 17)
-        canvas.drawString(1.75 * inch, H - 5.27 * inch, metadata["lesson_short_title"])
-        canvas.setFont("Helvetica", 11.2)
-        canvas.drawString(1.75 * inch, H - 5.56 * inch, metadata.get("lesson_subtitle", ""))
+        lesson_font = 16
+        lesson_lines = wrap_lines(metadata["lesson_short_title"], "Helvetica-Bold", lesson_font, W - 3.5 * inch)[:3]
+        lesson_text = canvas.beginText(1.75 * inch, H - 5.18 * inch)
+        lesson_text.setFont("Helvetica-Bold", lesson_font)
+        lesson_text.setLeading(19)
+        for line in lesson_lines:
+            lesson_text.textLine(line)
+        canvas.drawText(lesson_text)
         canvas.setFillColor(ORANGE)
         canvas.setFont("Helvetica-Bold", 15)
-        canvas.drawString(1.75 * inch, H - 6.35 * inch, f"Lesson {metadata['lesson_number']}")
+        canvas.drawString(1.75 * inch, H - 6.25 * inch, f"Lesson {metadata['lesson_number']}")
         canvas.setFillColor(colors.HexColor("#4b5563"))
         canvas.setFont("Helvetica", 12)
-        canvas.drawString(1.75 * inch, H - 6.65 * inch, metadata.get("level_label", "Basic Level"))
+        canvas.drawString(1.75 * inch, H - 6.55 * inch, metadata.get("level_label", "Basic Level"))
         if metadata.get("quote"):
             canvas.setFillColor(NAVY)
             canvas.setFont("Helvetica-Bold", 13)
@@ -514,7 +534,18 @@ def make_doc(output: Path, metadata: dict[str, Any]):
 
 def visual_flowables(visual: dict[str, Any]) -> list[Any]:
     diagram_type = visual.get("type")
-    if diagram_type == "card_row":
+    if diagram_type == "image":
+        path = resolve_path(str(visual.get("path") or ""))
+        if not path.is_file():
+            raise ValueError(f"Visual image does not exist: {path}")
+        flowable = Image(str(path))
+        max_width = min(float(visual.get("max_width", 6.2)) * inch, 6.9 * inch)
+        max_height = min(float(visual.get("max_height", 3.7)) * inch, 4.2 * inch)
+        scale = min(max_width / flowable.imageWidth, max_height / flowable.imageHeight, 1.0)
+        flowable.drawWidth = flowable.imageWidth * scale
+        flowable.drawHeight = flowable.imageHeight * scale
+        flowable.hAlign = "CENTER"
+    elif diagram_type == "card_row":
         flowable = CardRowDiagram(visual["title"], visual["cards"], visual.get("pill"))
     elif diagram_type == "timeline":
         flowable = TimelineDiagram(visual["title"])
@@ -527,7 +558,7 @@ def visual_flowables(visual: dict[str, Any]) -> list[Any]:
     result = [flowable]
     if visual.get("caption"):
         result.append(Paragraph(inline(visual["caption"]), styles["Caption"]))
-    return result
+    return [KeepTogether(result)]
 
 
 def add_page_break(story: list[Any]) -> None:
@@ -557,6 +588,7 @@ def build_story(blocks: list[dict[str, Any]], visuals: list[dict[str, Any]]) -> 
     visual_after_heading = [item for item in visuals if item.get("after_heading")]
     content_blocks = front_matter_blocks(blocks)
     current_heading = ""
+    inserted_visuals: set[int] = set()
     for block in content_blocks:
         block_type = block["type"]
         if block_type == "page_break":
@@ -567,7 +599,9 @@ def build_story(blocks: list[dict[str, Any]], visuals: list[dict[str, Any]]) -> 
                 add_page_break(story)
             match = re.match(r"Section\s+(\d{2})\s+-\s+(.+)", block["text"], flags=re.IGNORECASE)
             if match:
-                story.append(KeepTogether([SectionHeader(int(match.group(1)), match.group(2)), Spacer(1, 2)]))
+                spacer = Spacer(1, 2)
+                spacer.keepWithNext = 1
+                story.extend([SectionHeader(int(match.group(1)), match.group(2)), spacer])
             else:
                 story.append(Paragraph(inline(block["text"]), styles["H1Greg"]))
         elif block_type == "h2":
@@ -582,10 +616,10 @@ def build_story(blocks: list[dict[str, Any]], visuals: list[dict[str, Any]]) -> 
             story.append(Callout(block["label"], block["body"]).flowable())
         elif block_type == "paragraph":
             story.append(p(block["text"], "IntroBody" if len(story) < 20 else "BodyGreg"))
-        if block.get("text"):
-            for visual in visual_after_heading:
-                if visual_matches_heading(str(visual["after_heading"]), block["text"]):
+            for index, visual in enumerate(visual_after_heading):
+                if index not in inserted_visuals and visual_matches_heading(str(visual["after_heading"]), current_heading):
                     story.extend(visual_flowables(visual))
+                    inserted_visuals.add(index)
     return story
 
 

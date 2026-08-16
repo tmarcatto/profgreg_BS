@@ -86,6 +86,8 @@ def lesson_numbers(run: Path) -> list[str]:
         "deck/lesson_*_deck*.pptx",
         "approval/lesson_*_study_guide_approval.md",
         "approval/lesson_*_deck_approval.md",
+        "review/lesson_*_visual_plan.json",
+        "review/lesson_*_image_requests.json",
     ]:
         for path in run.glob(pattern):
             match = re.search(r"lesson_(\d+)_", path.name)
@@ -204,6 +206,12 @@ def infer_manifest(course_slug: str) -> dict:
                     qa_path=run / "sources" / f"lesson_{lesson}_source_refresh_qa.md",
                     notes="Lesson-level source applicability refresh.",
                 ),
+                artifact(run, f"lesson_{lesson}_pedagogy_review", run / "review" / f"lesson_{lesson}_pedagogy_review.md", "supporting", "REVIEW", lesson=lesson),
+                artifact(run, f"lesson_{lesson}_citation_review", run / "review" / f"lesson_{lesson}_citation_review.md", "supporting", "REVIEW", lesson=lesson),
+                artifact(run, f"lesson_{lesson}_design_qa", run / "review" / f"lesson_{lesson}_design_qa.md", "supporting", "REVIEW", lesson=lesson),
+                artifact(run, f"lesson_{lesson}_visual_plan", run / "review" / f"lesson_{lesson}_visual_plan.json", "supporting", "REVIEW", lesson=lesson),
+                artifact(run, f"lesson_{lesson}_visual_qa", run / "review" / f"lesson_{lesson}_visual_qa.md", "supporting", "REVIEW", lesson=lesson),
+                artifact(run, f"lesson_{lesson}_image_requests", run / "review" / f"lesson_{lesson}_image_requests.md", "waiting_images", "VISUAL_CURATION", lesson=lesson),
                 artifact(
                     run,
                     f"lesson_{lesson}_study_guide_pdf",
