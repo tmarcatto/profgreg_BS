@@ -96,54 +96,61 @@ class GregUiServerTests(unittest.TestCase):
             self.assertEqual(server.default_course, "demo")
 
     def test_save_uploaded_file_records_manifest(self) -> None:
-        upload_root = ROOT / "tmp" / "uploads"
-        result = ui.save_uploaded_file(
-            upload_root=upload_root,
-            course_slug="Demo Course",
-            filename="sample.pdf",
-            data=b"pdf bytes",
-            scope="course",
-            reference_policy="reference_and_images",
-        )
-        self.assertEqual(result["filename"], "sample.pdf")
-        self.assertEqual(result["reference_policy"], "reference_and_images")
-        self.assertTrue(result["can_appear_in_references"])
-        self.assertTrue(result["images_allowed"])
-        uploads = ui.list_uploads(upload_root, "demo-course")
-        self.assertTrue(uploads)
+        base = ROOT / "tmp" / "uploads"
+        base.mkdir(parents=True, exist_ok=True)
+        with tempfile.TemporaryDirectory(dir=base) as tmp:
+            upload_root = Path(tmp)
+            result = ui.save_uploaded_file(
+                upload_root=upload_root,
+                course_slug="Demo Course",
+                filename="sample.pdf",
+                data=b"pdf bytes",
+                scope="course",
+                reference_policy="reference_and_images",
+            )
+            self.assertEqual(result["filename"], "sample.pdf")
+            self.assertEqual(result["reference_policy"], "reference_and_images")
+            self.assertTrue(result["can_appear_in_references"])
+            self.assertTrue(result["images_allowed"])
+            uploads = ui.list_uploads(upload_root, "demo-course")
+            self.assertTrue(uploads)
 
     def test_image_only_policy_allows_images_without_references(self) -> None:
-        upload_root = ROOT / "tmp" / "uploads"
-        result = ui.save_uploaded_file(
-            upload_root=upload_root,
-            course_slug="Image Only Course",
-            filename="image-policy.pdf",
-            data=b"image policy pdf",
-            scope="course",
-            reference_policy="image_only",
-        )
-        self.assertEqual(result["reference_policy"], "image_only")
-        self.assertFalse(result["can_appear_in_references"])
-        self.assertTrue(result["images_allowed"])
+        base = ROOT / "tmp" / "uploads"
+        base.mkdir(parents=True, exist_ok=True)
+        with tempfile.TemporaryDirectory(dir=base) as tmp:
+            result = ui.save_uploaded_file(
+                upload_root=Path(tmp),
+                course_slug="Image Only Course",
+                filename="image-policy.pdf",
+                data=b"image policy pdf",
+                scope="course",
+                reference_policy="image_only",
+            )
+            self.assertEqual(result["reference_policy"], "image_only")
+            self.assertFalse(result["can_appear_in_references"])
+            self.assertTrue(result["images_allowed"])
 
     def test_visual_response_records_request_and_attribution(self) -> None:
-        upload_root = ROOT / "tmp" / "uploads"
-        result = ui.save_uploaded_file(
-            upload_root=upload_root,
-            course_slug="Visual Response Course",
-            filename="field-photo.png",
-            data=b"\x89PNG\r\n\x1a\nminimal-test-payload",
-            scope="lesson",
-            lesson=2,
-            reference_policy="image_only",
-            purpose="visual_response",
-            visual_request_id="L02V01",
-            source_label="Operator supplied field photo",
-            source_url="https://example.com/photo",
-        )
-        self.assertEqual(result["purpose"], "visual_response")
-        self.assertEqual(result["visual_request_id"], "L02V01")
-        self.assertEqual(result["scope"], "lesson_02")
+        base = ROOT / "tmp" / "uploads"
+        base.mkdir(parents=True, exist_ok=True)
+        with tempfile.TemporaryDirectory(dir=base) as tmp:
+            result = ui.save_uploaded_file(
+                upload_root=Path(tmp),
+                course_slug="Visual Response Course",
+                filename="field-photo.png",
+                data=b"\x89PNG\r\n\x1a\nminimal-test-payload",
+                scope="lesson",
+                lesson=2,
+                reference_policy="image_only",
+                purpose="visual_response",
+                visual_request_id="L02V01",
+                source_label="Operator supplied field photo",
+                source_url="https://example.com/photo",
+            )
+            self.assertEqual(result["purpose"], "visual_response")
+            self.assertEqual(result["visual_request_id"], "L02V01")
+            self.assertEqual(result["scope"], "lesson_02")
 
     def test_update_and_delete_upload_manifest_entry(self) -> None:
         (ROOT / "tmp" / "uploads").mkdir(parents=True, exist_ok=True)
