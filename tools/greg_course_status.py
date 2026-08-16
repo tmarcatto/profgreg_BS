@@ -233,7 +233,7 @@ def summarize_lessons(run: Path, manifest: dict) -> list[dict]:
         elif key.endswith("_deck_pptx"):
             if row.get("study_guide") == "blocked":
                 row["deck"] = "blocked"
-                row["deck_blocked_path"] = rel(path) if exists else ""
+                row["deck_blocked_path"] = rel(path) if exists and path.is_file() else ""
                 row["deck_quality_blockers"] = ["Course book is blocked; presentation review is gated until the course book is regenerated and passes QA."]
             else:
                 row["deck"] = status if exists else "missing"
