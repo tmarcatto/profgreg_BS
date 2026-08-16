@@ -620,6 +620,7 @@ def ui_shell(default_course: str) -> str:
     }}
     .approval-card.ready {{ border-color: var(--orange); box-shadow: inset 3px 0 0 var(--orange); }}
     .approval-card.approved {{ border-color: #b8dec8; background: #f4fbf6; }}
+    .approval-card.blocked {{ border-color: #f4b0aa; background: #fff7f6; box-shadow: inset 3px 0 0 var(--bad); }}
     .approval-title {{ color: var(--navy); font-weight: 820; }}
     .approval-meta {{ margin-top: 5px; color: var(--muted); font-size: 13px; line-height: 1.35; }}
     .approval-actions {{ display: flex; gap: 8px; flex-wrap: wrap; justify-content: flex-end; }}
@@ -954,7 +955,16 @@ def ui_shell(default_course: str) -> str:
       if (isDownloadablePath(lessonPath)) {{
         return {{path: lessonPath, exists: true, name: `${{group.key}}_file`}};
       }}
+      if (lesson) return null;
       return artifactByNames(group.artifactNames(tag));
+    }}
+    function lessonBlockers(group) {{
+      const lesson = selectedLessonRecord();
+      const blockersByGroup = {{
+        study_guide: lesson?.study_guide_quality_blockers,
+        deck: lesson?.deck_quality_blockers
+      }};
+      return blockersByGroup[group.key] || [];
     }}
     function stageState(key, names) {{
       if (artifactExists(names)) return 'done';
@@ -990,25 +1000,27 @@ def ui_shell(default_course: str) -> str:
       const rows = approvalGroups.map(group => {{
         const artifact = artifactForGroup(group, tag);
         const status = lessonStatus(group.approvalField);
-        if (!artifact && status !== 'approved') return '';
+        const blockers = lessonBlockers(group);
+        if (!artifact && status !== 'approved' && status !== 'blocked') return '';
         const approved = status === 'approved';
-        const css = approved ? 'approved' : 'ready';
+        const blocked = status === 'blocked';
+        const css = approved ? 'approved' : blocked ? 'blocked' : 'ready';
         const noteId = `note-${{group.key}}`;
         const artifactPath = artifact?.path || '';
         const filename = artifactPath ? downloadFilename(group, artifactPath) : '';
         return `<div class="approval-card ${{css}}">
           <div>
             <div class="approval-title">${{esc(group.title)}}</div>
-            <div class="approval-meta">${{esc(group.description)}}<br>Status: <strong>${{approved ? 'approved' : 'waiting for review'}}</strong></div>
+            <div class="approval-meta">${{esc(group.description)}}<br>Status: <strong>${{approved ? 'approved' : blocked ? 'blocked by QA' : 'waiting for review'}}</strong></div>
           </div>
           <div>
             <textarea class="approval-note" id="${{noteId}}" placeholder="Write edit requests or approval notes here."></textarea>
-            <div class="approval-meta">${{artifactPath ? esc(artifactPath) : 'Approval already recorded.'}}</div>
+            <div class="approval-meta">${{blocked ? esc(blockers.join(' ')) : artifactPath ? esc(artifactPath) : 'Approval already recorded.'}}</div>
           </div>
           <div class="approval-actions">
             ${{artifactPath ? `<a class="download-link" href="/artifact?path=${{encodeURIComponent(artifactPath)}}&filename=${{encodeURIComponent(filename)}}" target="_blank" rel="noopener">Download file</a>` : ''}}
             <button class="danger" onclick="requestEdits('${{group.artifactType}}', '${{noteId}}')">Request edits</button>
-            <button class="primary" onclick="approveArtifact('${{group.artifactType}}', '${{noteId}}', '${{esc(artifactPath)}}')" ${{approved ? 'disabled' : ''}}>Approve</button>
+            <button class="primary" onclick="approveArtifact('${{group.artifactType}}', '${{noteId}}', '${{esc(artifactPath)}}')" ${{approved || blocked || !artifactPath ? 'disabled' : ''}}>Approve</button>
           </div>
         </div>`;
       }}).filter(Boolean).join('');

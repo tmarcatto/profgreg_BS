@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import re
 from dataclasses import dataclass, asdict
 from pathlib import Path
 
@@ -78,6 +79,27 @@ def lesson_titles(run: Path) -> dict[str, str]:
         if title:
             titles[number] = str(title).strip()
     return titles
+
+
+def study_guide_quality_blockers(run: Path, lesson: str) -> list[str]:
+    draft = read_text(run / "lesson_draft" / f"lesson_{lesson}_draft.md")
+    references = read_text(run / "sources" / "student_references.md")
+    content_qa = read_text(run / "lesson_draft" / f"lesson_{lesson}_content_qa.md")
+    layout_qa = read_text(run / "docx_pdf" / f"lesson_{lesson}_pdf_layout_qa.md")
+    source_qa = read_text(run / "sources" / "source_reference_qa.md")
+    blockers: list[str] = []
+    intro_area = draft.split("# Section 01", 1)[0]
+    if re.search(r"\bthis study guide is written for\b|\bconstruction learners working in the united states\b", intro_area, flags=re.I):
+        blockers.append("Introduction contains audience/operator boilerplate instead of course-facing orientation.")
+    if re.search(r"\bCurrent student references will be added after research expansion\b|\bReferences?\s+pending\b|\bSource research pending\b", references, flags=re.I):
+        blockers.append("References contain placeholder text instead of real student-facing sources.")
+    if "Study guide content QA passed: no" in content_qa:
+        blockers.append("Content QA report is failing.")
+    if "PDF layout QA passed: no" in layout_qa:
+        blockers.append("PDF layout QA report is failing.")
+    if re.search(r"Source/reference QA passed:\s*no", source_qa, flags=re.I):
+        blockers.append("Source/reference QA report is failing.")
+    return blockers
 
 
 def read_status_field(status_text: str, label: str) -> str:
@@ -200,11 +222,20 @@ def summarize_lessons(run: Path, manifest: dict) -> list[dict]:
         exists = path.exists()
         status = item.get("status", "missing")
         if key.endswith("_study_guide_pdf"):
-            row["study_guide"] = status if exists else "missing"
-            row["study_guide_path"] = rel(path)
+            blockers = study_guide_quality_blockers(run, str(lesson).zfill(2)) if exists else []
+            if blockers:
+                row["study_guide"] = "blocked"
+                row["study_guide_quality_blockers"] = blockers
+            else:
+                row["study_guide"] = status if exists else "missing"
+                row["study_guide_path"] = rel(path)
         elif key.endswith("_deck_pptx"):
-            row["deck"] = status if exists else "missing"
-            row["deck_path"] = rel(path)
+            if row.get("study_guide") == "blocked":
+                row["deck"] = "blocked"
+                row["deck_quality_blockers"] = ["Course book is blocked; presentation review is gated until the course book is regenerated and passes QA."]
+            else:
+                row["deck"] = status if exists else "missing"
+                row["deck_path"] = rel(path)
         elif key.endswith("_pipeline_qa"):
             row["pipeline_qa"] = "present" if exists else "missing"
             row["pipeline_qa_path"] = rel(path)

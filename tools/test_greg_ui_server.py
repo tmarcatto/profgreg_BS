@@ -35,6 +35,8 @@ class GregUiServerTests(unittest.TestCase):
         self.assertIn("/api/stage-next", html)
         self.assertIn("Request edits", html)
         self.assertIn("Download", html)
+        self.assertIn("blocked by QA", html)
+        self.assertIn(".approval-card.blocked", html)
         self.assertIn("/artifact?path=", html)
         self.assertIn("approveArtifact", html)
         self.assertIn("/api/approve", html)

@@ -27,6 +27,8 @@ class CourseStatusTests(unittest.TestCase):
             (run / "deck").mkdir()
             (run / "process_review").mkdir()
             (run / "course_map").mkdir()
+            (run / "lesson_draft").mkdir()
+            (run / "sources").mkdir()
             (run / "course_map" / "course_map.json").write_text(
                 '{"lessons": [{"lesson_number": 1, "title": "The Modern Construction Project Manager"}]}',
                 encoding="utf-8",
@@ -64,6 +66,40 @@ class CourseStatusTests(unittest.TestCase):
             self.assertEqual(lessons[0]["study_guide"], "approved")
             self.assertEqual(lessons[0]["deck"], "approved")
             self.assertEqual(lessons[0]["pipeline_qa"], "present")
+
+    def test_stale_study_guide_is_blocked(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            run = root / "runs" / "demo"
+            (run / "docx_pdf").mkdir(parents=True)
+            (run / "lesson_draft").mkdir()
+            (run / "sources").mkdir()
+            (run / "course_map").mkdir()
+            (run / "docx_pdf" / "lesson_01_study_guide.pdf").write_text("pdf", encoding="utf-8")
+            (run / "lesson_draft" / "lesson_01_draft.md").write_text(
+                "# Introduction\n\nThis study guide is written for construction learners working in the United States.\n\n# Section 01 - One\n\nBody.",
+                encoding="utf-8",
+            )
+            (run / "sources" / "student_references.md").write_text(
+                "# References\n\n- Current student references will be added after research expansion.\n",
+                encoding="utf-8",
+            )
+            manifest = {
+                "artifacts": [
+                    {
+                        "key": "lesson_01_study_guide_pdf",
+                        "path": "docx_pdf/lesson_01_study_guide.pdf",
+                        "status": "active",
+                        "lesson": "01",
+                    }
+                ]
+            }
+
+            lessons = status.summarize_lessons(run, manifest)
+
+            self.assertEqual(lessons[0]["study_guide"], "blocked")
+            self.assertNotIn("study_guide_path", lessons[0])
+            self.assertTrue(lessons[0]["study_guide_quality_blockers"])
 
     def test_render_markdown_includes_lesson_table(self) -> None:
         text = status.render_markdown(
