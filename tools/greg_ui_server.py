@@ -5,12 +5,13 @@ import argparse
 import hashlib
 import html
 import json
+import mimetypes
 import os
 import re
 from http import HTTPStatus
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
-from urllib.parse import parse_qs, urlparse
+from urllib.parse import parse_qs, unquote, urlparse
 
 from greg_operator import course_status, default_job_root, enqueue_job, handle_request
 from greg_record_approval import record_approval
@@ -130,6 +131,23 @@ def upload_course_dir(upload_root: Path, course_slug: str) -> Path:
 
 def upload_manifest_path(upload_root: Path, course_slug: str) -> Path:
     return upload_course_dir(upload_root, course_slug) / "upload_manifest.jsonl"
+
+
+def safe_artifact_path(value: str) -> Path:
+    raw = unquote(value or "").strip()
+    if not raw:
+        raise ValueError("Missing artifact path.")
+    path = Path(raw)
+    if path.is_absolute():
+        resolved = path.resolve()
+    else:
+        resolved = (ROOT / path).resolve()
+    runs_root = (ROOT / "runs").resolve()
+    if resolved != runs_root and runs_root not in resolved.parents:
+        raise ValueError("Artifact download must stay inside the runs folder.")
+    if not resolved.exists() or not resolved.is_file():
+        raise FileNotFoundError(f"Artifact not found: {raw}")
+    return resolved
 
 
 def upload_identifier(meta: dict) -> str:
@@ -600,6 +618,19 @@ def ui_shell(default_course: str) -> str:
     .approval-meta {{ margin-top: 5px; color: var(--muted); font-size: 13px; line-height: 1.35; }}
     .approval-actions {{ display: flex; gap: 8px; flex-wrap: wrap; justify-content: flex-end; }}
     .approval-note {{ min-height: 74px; }}
+    .download-link {{
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      min-height: 42px;
+      padding: 10px 14px;
+      border: 1px solid #cbd6e3;
+      border-radius: 6px;
+      background: #fff;
+      color: var(--navy);
+      text-decoration: none;
+      font-weight: 760;
+    }}
     .checklist {{ display: grid; gap: 8px; margin-top: 10px; }}
     .check {{ display: flex; gap: 8px; align-items: flex-start; color: #344054; font-size: 13px; }}
     .check span:first-child {{ width: 18px; height: 18px; border-radius: 50%; background: #e8f0f8; display: grid; place-items: center; color: var(--navy); font-size: 11px; flex: 0 0 auto; }}
@@ -928,6 +959,7 @@ def ui_shell(default_course: str) -> str:
             <div class="approval-meta">${{artifactPath ? esc(artifactPath) : 'Approval already recorded.'}}</div>
           </div>
           <div class="approval-actions">
+            ${{artifactPath ? `<a class="download-link" href="/artifact?path=${{encodeURIComponent(artifactPath)}}" target="_blank" rel="noopener">Download</a>` : ''}}
             <button class="danger" onclick="requestEdits('${{group.artifactType}}', '${{noteId}}')">Request edits</button>
             <button class="primary" onclick="approveArtifact('${{group.artifactType}}', '${{noteId}}', '${{esc(artifactPath)}}')" ${{approved ? 'disabled' : ''}}>Approve</button>
           </div>
@@ -1116,6 +1148,17 @@ class GregUiHandler(BaseHTTPRequestHandler):
         self.end_headers()
         self.wfile.write(body)
 
+    def send_file(self, path: Path) -> None:
+        content_type = mimetypes.guess_type(path.name)[0] or "application/octet-stream"
+        body = path.read_bytes()
+        self.send_response(HTTPStatus.OK.value)
+        self.send_header("Content-Type", content_type)
+        self.send_header("Content-Length", str(len(body)))
+        self.send_header("Content-Disposition", f'attachment; filename="{path.name}"')
+        self.send_header("Cache-Control", "no-store")
+        self.end_headers()
+        self.wfile.write(body)
+
     def send_json(self, status: HTTPStatus, data: object) -> None:
         self.send_bytes(status, json_bytes(data), "application/json; charset=utf-8")
 
@@ -1144,6 +1187,10 @@ class GregUiHandler(BaseHTTPRequestHandler):
             if parsed.path == "/api/uploads":
                 course = parse_qs(parsed.query).get("course", [getattr(self.server, "default_course", DEFAULT_COURSE)])[0]
                 self.send_json(HTTPStatus.OK, {"uploads": list_uploads(getattr(self.server, "upload_root"), course)})
+                return
+            if parsed.path == "/artifact":
+                artifact = parse_qs(parsed.query).get("path", [""])[0]
+                self.send_file(safe_artifact_path(artifact))
                 return
             self.send_json(HTTPStatus.NOT_FOUND, {"error": "Not found"})
         except Exception as error:

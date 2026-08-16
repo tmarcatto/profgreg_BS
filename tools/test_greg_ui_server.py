@@ -34,6 +34,8 @@ class GregUiServerTests(unittest.TestCase):
         self.assertIn("Start production", html)
         self.assertIn("/api/stage-next", html)
         self.assertIn("Request edits", html)
+        self.assertIn("Download", html)
+        self.assertIn("/artifact?path=", html)
         self.assertIn("approveArtifact", html)
         self.assertIn("/api/approve", html)
         self.assertIn("/api/request-changes", html)
@@ -42,6 +44,19 @@ class GregUiServerTests(unittest.TestCase):
     def test_json_bytes_preserves_utf8(self) -> None:
         data = ui.json_bytes({"message": "ação"})
         self.assertIn("ação".encode("utf-8"), data)
+
+    def test_safe_artifact_path_allows_runs_file(self) -> None:
+        target = ROOT / "runs" / "tmp-ui-artifact" / "docx_pdf" / "sample.pdf"
+        target.parent.mkdir(parents=True, exist_ok=True)
+        target.write_bytes(b"pdf")
+        try:
+            self.assertEqual(ui.safe_artifact_path("runs/tmp-ui-artifact/docx_pdf/sample.pdf"), target.resolve())
+        finally:
+            shutil.rmtree(ROOT / "runs" / "tmp-ui-artifact")
+
+    def test_safe_artifact_path_blocks_path_traversal(self) -> None:
+        with self.assertRaises(ValueError):
+            ui.safe_artifact_path("../../secrets/.env.local")
 
     def test_build_server_rejects_unsafe_job_root(self) -> None:
         with self.assertRaises(ValueError):
