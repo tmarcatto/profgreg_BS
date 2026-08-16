@@ -572,6 +572,8 @@ def build_story(blocks: list[dict[str, Any]], visuals: list[dict[str, Any]]) -> 
                 story.append(Paragraph(inline(block["text"]), styles["H1Greg"]))
         elif block_type == "h2":
             current_heading = block["text"]
+            if normalized_heading(current_heading) == "introduction":
+                add_page_break(story)
             story.append(Paragraph(inline(block["text"]), styles["H2Keep"]))
         elif block_type == "bullets":
             style = "RefGreg" if current_heading == "References" else "BodyGreg"
