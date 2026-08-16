@@ -300,7 +300,7 @@ def produce_source_ledger(course_slug: str) -> list[str]:
     ledger_path = run / "sources" / "source_ledger.json"
     refs_path = run / "sources" / "student_references.md"
     write_json(ledger_path, ledger)
-    write_text(refs_path, "# References\n\n" + "\n".join(f"- {item.get('formal_reference', '')}" for item in sources if item.get('formal_reference')))
+    write_text(refs_path, "# References\n\n" + "\n".join(f"- {student_reference_text(item.get('formal_reference', ''))}" for item in sources if item.get('formal_reference')))
     write_text(run / "sources" / "research_log.md", "# Research Log\n\n" + "\n".join(f"- {item}" for item in data.get("research_log") or ["Current source research completed through the configured research role."]))
     write_text(run / "sources" / "source_gaps.md", "# Source Gaps\n\nNo unresolved critical source gaps were identified for the current production pass.\n")
     checker = load_module("greg_source_reference_check", "tools/greg_source_reference_check.py")
@@ -310,6 +310,15 @@ def produce_source_ledger(course_slug: str) -> list[str]:
         raise RuntimeError("Source/reference automatic QA failed.")
     update_canonical_manifest(seed.slug)
     return [f"Source ledger created: {rel(ledger_path)}", f"Source/reference QA passed: {rel(run / 'sources' / 'source_reference_qa.md')}"]
+
+
+def student_reference_text(value: str) -> str:
+    text = str(value or "").strip()
+    text = re.sub(r"\s+accessed\s+[A-Z][a-z]+\s+\d{1,2},\s+\d{4}\.?", ".", text, flags=re.I)
+    text = re.sub(r"\s+accessed\s+\d{4}-\d{2}-\d{2}\.?", ".", text, flags=re.I)
+    text = re.sub(r"\bCurrent online edition\s*\.\s*", "Current online edition. ", text)
+    text = re.sub(r"\s{2,}", " ", text).strip()
+    return text
 
 
 def study_guide_prompt(seed, lesson: dict[str, Any], references: str, ledger: dict[str, Any], feedback: str) -> str:

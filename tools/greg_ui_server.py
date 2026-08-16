@@ -565,25 +565,43 @@ def ui_shell(default_course: str) -> str:
     }}
     .workspace-field label {{ margin-bottom: 5px; }}
     .workspace-actions {{ display: flex; gap: 8px; justify-content: flex-end; align-items: end; }}
-    .primary-flow {{
+    .activity-now {{
+      border-left: 4px solid var(--orange);
+      background: #fff8f1;
+      border-radius: 8px;
+      padding: 12px 14px;
+      color: var(--ink);
+      box-shadow: var(--shadow);
+    }}
+    .activity-now strong {{ display: block; color: var(--navy); margin-bottom: 3px; }}
+    .progress-card {{
       border: 1px solid #fed7aa;
       border-radius: 8px;
       background: #fffaf5;
+      box-shadow: var(--shadow);
+      padding: 14px 16px;
     }}
-    .flow-steps {{
+    .progress-top {{ display: flex; justify-content: space-between; gap: 12px; align-items: center; margin-bottom: 10px; }}
+    .progress-track {{ height: 10px; border-radius: 999px; background: #ffe7cf; overflow: hidden; }}
+    .progress-fill {{ width: 0; height: 100%; background: var(--orange); transition: width .2s ease; }}
+    .progress-steps {{
       display: grid;
-      grid-template-columns: repeat(4, minmax(160px, 1fr));
+      grid-template-columns: repeat(4, minmax(140px, 1fr));
       gap: 10px;
       margin-top: 12px;
     }}
-    .flow-step {{
+    .progress-step {{
       border: 1px solid var(--line);
       border-radius: 8px;
-      padding: 12px;
+      padding: 10px 12px;
       background: #fff;
+      color: var(--muted);
+      font-size: 13px;
+      line-height: 1.35;
     }}
-    .flow-step strong {{ color: var(--navy); display: block; margin-bottom: 4px; }}
-    .flow-step span {{ color: var(--muted); font-size: 13px; line-height: 1.35; }}
+    .progress-step.done {{ border-color: #b8dec8; background: #f4fbf6; color: var(--ok); }}
+    .progress-step.active {{ border-color: var(--orange); background: #fff8f1; color: var(--navy); }}
+    .progress-step strong {{ display: block; color: var(--navy); font-size: 14px; margin-bottom: 2px; }}
     .brief-actions {{
       display: flex;
       gap: 10px;
@@ -634,35 +652,6 @@ def ui_shell(default_course: str) -> str:
     th, td {{ text-align: left; border-bottom: 1px solid var(--line); padding: 12px 10px; vertical-align: top; font-size: 14px; }}
     tr:last-child td {{ border-bottom: 0; }}
     th {{ color: var(--muted); font-size: 12px; text-transform: uppercase; letter-spacing: .04em; background: #f7f9fc; }}
-    .pipeline-strip {{
-      display: grid;
-      grid-template-columns: repeat(9, minmax(116px, 1fr));
-      gap: 10px;
-      overflow-x: auto;
-      padding-bottom: 4px;
-    }}
-    .stage-card {{
-      min-height: 96px;
-      border: 1px solid var(--line);
-      border-radius: 8px;
-      padding: 12px;
-      background: #fff;
-      cursor: pointer;
-    }}
-    .stage-card.active {{ border-color: var(--orange); background: var(--orange-soft); box-shadow: inset 3px 0 0 var(--orange); }}
-    .stage-card.selected {{ outline: 2px solid var(--orange); outline-offset: 2px; }}
-    .stage-card.done {{ border-color: #b8dec8; background: #f4fbf6; }}
-    .stage-card.blocked {{ border-color: #f4b0aa; background: #fff7f6; }}
-    .stage-kicker {{ display: flex; align-items: center; gap: 7px; color: var(--muted); font-size: 12px; font-weight: 760; }}
-    .dot {{ width: 8px; height: 8px; border-radius: 50%; background: #b7c2cf; }}
-    .done .dot {{ background: var(--ok); }}
-    .active .dot {{ background: var(--orange); }}
-    .blocked .dot {{ background: var(--bad); }}
-    .stage-title {{ margin-top: 8px; color: var(--navy); font-weight: 800; line-height: 1.2; }}
-    .stage-status {{ margin-top: 5px; color: var(--muted); font-size: 12px; }}
-    .gate-grid {{ display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }}
-    .gate-box {{ border: 1px solid var(--line); border-radius: 8px; padding: 14px; background: #fff; min-height: 172px; }}
-    .gate-box h3 {{ margin: 0 0 8px; font-size: 15px; color: var(--navy); }}
     .approval-list {{ display: grid; gap: 12px; }}
     .approval-card {{
       border: 1px solid var(--line);
@@ -715,6 +704,9 @@ def ui_shell(default_course: str) -> str:
     .lesson-table {{ min-width: 980px; }}
     .lesson-table th, .lesson-table td {{ font-size: 13px; vertical-align: middle; }}
     .lesson-title-cell {{ max-width: 340px; font-weight: 760; color: var(--navy); line-height: 1.25; }}
+    .doc-cell {{ display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }}
+    .doc-link {{ color: var(--navy); font-weight: 760; text-decoration: none; border-bottom: 1px solid rgba(30,58,95,.35); }}
+    .course-map-actions {{ display: flex; gap: 10px; flex-wrap: wrap; align-items: center; }}
     .status-pill {{
       display: inline-flex;
       align-items: center;
@@ -732,6 +724,8 @@ def ui_shell(default_course: str) -> str:
     .status-pill.blocked {{ background: #fff1f0; color: var(--bad); }}
     .status-pill.missing {{ background: #f2f4f7; color: #667085; }}
     .status-pill.pending {{ background: #fff6e8; color: var(--warn); }}
+    .status-pill.not-generated {{ background: #f2f4f7; color: #667085; }}
+    .status-pill.not-approved {{ background: #fff6e8; color: var(--warn); }}
     .status-summary {{ display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px; }}
     .metric {{ border: 1px solid var(--line); border-radius: 8px; padding: 12px; background: #fff; }}
     .metric .label {{ color: var(--muted); font-size: 12px; text-transform: uppercase; letter-spacing: .04em; font-weight: 760; }}
@@ -749,7 +743,7 @@ def ui_shell(default_course: str) -> str:
     .hidden {{ display: none !important; }}
     code {{ font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; font-size: 12px; }}
     @media (max-width: 980px) {{
-      .topbar, .workspace-bar, .brief-grid, .field-grid, .flow-steps, .gate-grid, .status-summary, .upload-controls, .log-tools, .approval-card, .lesson-toolbar {{ grid-template-columns: 1fr; }}
+      .topbar, .workspace-bar, .brief-grid, .field-grid, .progress-steps, .status-summary, .upload-controls, .log-tools, .approval-card, .lesson-toolbar {{ grid-template-columns: 1fr; }}
       .approval-actions {{ justify-content: flex-start; }}
       .top-actions {{ justify-content: flex-start; }}
       main {{ padding: 18px 14px 36px; }}
@@ -771,9 +765,9 @@ def ui_shell(default_course: str) -> str:
     <nav class="nav" aria-label="Console sections">
       <a href="#brief">Brief</a>
       <a href="#materials">Materials</a>
-      <a href="#pipeline">Status</a>
+      <a href="#course-map">Course Map</a>
+      <a href="#pipeline">Lessons</a>
       <a href="#approvals">Approvals</a>
-      <a href="#activity">Activity log</a>
     </nav>
   </header>
   <main>
@@ -789,6 +783,18 @@ def ui_shell(default_course: str) -> str:
       <div class="workspace-actions">
         <button id="refreshWorkspace">Refresh</button>
       </div>
+    </div>
+    <div class="activity-now">
+      <strong>Current activity</strong>
+      <span id="currentActivity">Idle.</span>
+    </div>
+    <div class="progress-card">
+      <div class="progress-top">
+        <strong style="color:var(--navy)">Operating progress</strong>
+        <span class="muted" id="progressPercent">0%</span>
+      </div>
+      <div class="progress-track"><div class="progress-fill" id="progressFill"></div></div>
+      <div class="progress-steps" id="progressSteps"></div>
     </div>
 
     <section id="brief" class="card">
@@ -824,21 +830,6 @@ def ui_shell(default_course: str) -> str:
         <div>
           <label class="required" for="syllabus">Syllabus</label>
           <textarea id="syllabus" style="min-height:260px" placeholder="Lesson 1: ...&#10;Lesson 2: ...&#10;Learning outcomes, topics, and notes"></textarea>
-        </div>
-        <div style="grid-column: 1 / -1" class="primary-flow">
-          <div class="body">
-            <strong style="color:var(--navy)">Normal operating order</strong>
-            <div class="flow-steps">
-              <div class="flow-step"><strong>1. Course Map</strong><span>Greg reads the brief and sources, adapts the syllabus, and opens lesson production only after QA.</span></div>
-              <div class="flow-step"><strong>2. Course books</strong><span>Select one, several, or all lessons. Each book appears for review only after automatic QA passes.</span></div>
-              <div class="flow-step"><strong>3. Presentations</strong><span>Decks unlock after the English course book for that lesson is approved.</span></div>
-              <div class="flow-step"><strong>4. Translations</strong><span>PT-BR and ES versions follow the approved English artifacts.</span></div>
-            </div>
-            <div class="brief-actions">
-              <button class="primary" id="startProduction">Create intake and start Course Map</button>
-              <span class="muted">Use this once the course brief is filled and source materials are attached.</span>
-            </div>
-          </div>
         </div>
       </div>
     </section>
@@ -879,11 +870,27 @@ def ui_shell(default_course: str) -> str:
       </div>
     </section>
 
-    <section id="pipeline" class="card">
+    <section id="course-map" class="card">
       <div class="section-head">
         <div class="title-row">
           <div class="step-num">3</div>
-          <div><h2>Production Status</h2><div class="hint">The system advances through the pipeline after the main start button and each approval decision.</div></div>
+          <div><h2>Course Map</h2><div class="hint">Start here after the brief and source materials are ready. When Greg creates the map, it appears here for review and download.</div></div>
+        </div>
+      </div>
+      <div class="body">
+        <div class="course-map-actions">
+          <button class="primary" id="startProduction">Create intake and start Course Map</button>
+          <span class="muted">This launches Course Map generation and source research.</span>
+        </div>
+        <div id="courseMapPanel" class="notice">Course Map has not been generated for this course yet.</div>
+      </div>
+    </section>
+
+    <section id="pipeline" class="card">
+      <div class="section-head">
+        <div class="title-row">
+          <div class="step-num">4</div>
+          <div><h2>Lesson Production</h2><div class="hint">Select one, several, or all lessons. Produced files appear in this table when they are ready to review.</div></div>
         </div>
         <div class="muted" id="approvalCount">0 approvals</div>
       </div>
@@ -893,8 +900,8 @@ def ui_shell(default_course: str) -> str:
           <div class="metric"><div class="label">Gate</div><div class="value" id="gate">Loading</div></div>
           <div class="metric"><div class="label">Next action</div><div class="value" id="next">Loading</div></div>
         </div>
-        <div class="notice" id="message">Ready.</div>
-        <div class="notice" style="margin-top:12px">
+        <div class="notice hidden" id="message">Ready.</div>
+        <div>
           <div class="lesson-toolbar">
             <div>
               <strong>Lesson production</strong><br>
@@ -927,14 +934,13 @@ def ui_shell(default_course: str) -> str:
             </table>
           </div>
         </div>
-        <div class="pipeline-strip" id="pipelineStrip"></div>
       </div>
     </section>
 
     <section id="approvals" class="card">
       <div class="section-head">
         <div class="title-row">
-          <div class="step-num">4</div>
+          <div class="step-num">5</div>
           <div><h2>Approval Queue</h2><div class="hint">Only the relevant approval sections appear here. Use approve to continue, or request edits to send feedback back into the production flow.</div></div>
         </div>
       </div>
@@ -943,27 +949,6 @@ def ui_shell(default_course: str) -> str:
       </div>
     </section>
 
-    <section id="activity" class="card">
-      <div class="section-head">
-        <div class="title-row">
-          <div class="step-num">5</div>
-          <div><h2>Activity Log</h2><div class="hint">Jobs and operator events, newest first.</div></div>
-        </div>
-      </div>
-      <div class="body">
-        <div class="log-tools">
-          <input id="logSearch" placeholder="Search jobs and messages">
-          <select id="stageFilter"><option value="">All stages</option></select>
-          <select id="actorFilter"><option value="">All states</option><option>queued</option><option>running</option><option>completed</option><option>failed</option><option>cancelled</option></select>
-        </div>
-        <div class="table-wrap">
-          <table>
-            <thead><tr><th>Job</th><th>State</th><th>Type</th><th>Message</th></tr></thead>
-            <tbody id="jobs"><tr><td colspan="4" class="muted">Loading</td></tr></tbody>
-          </table>
-        </div>
-      </div>
-    </section>
   </main>
   <script>
     const course = document.getElementById('course');
@@ -971,18 +956,11 @@ def ui_shell(default_course: str) -> str:
     const expectedLessonsByLevel = {{ Basic: 10, Intermediate: 15, Advanced: 15 }};
     let currentStatus = null;
     let currentJobs = [];
-    let selectedStageKey = 'INTAKE';
-    let userSelectedStage = false;
-    const stages = [
-      ['INTAKE', 'Input', ['intake']],
-      ['COURSE_MAP', 'Course Map', ['course_map', 'course_map_md']],
-      ['SOURCE_LEDGER', 'Sources', ['source_ledger']],
-      ['DOCX_PDF', 'Course Book', ['study_guide_pdf', 'lesson_01_study_guide_pdf']],
-      ['HUMAN_APPROVAL', 'Book Approval', ['study_guide_approval', 'lesson_01_study_guide_approval']],
-      ['DECK', 'Presentation', ['deck', 'deck_pptx', 'lesson_01_deck_pptx']],
-      ['DECK_APPROVAL', 'Deck Approval', ['deck_approval', 'lesson_01_deck_approval']],
-      ['LOCALIZATION', 'Localization', ['localization_pt_br', 'localization_es_419']],
-      ['FINAL_REVIEW', 'Final Review', ['process_review', 'lesson_01_pipeline_qa']]
+    const progressSteps = [
+      ['course_map', 'Course Map', 'Map and source research'],
+      ['book', 'Course books', 'English PDFs by lesson'],
+      ['deck', 'Presentations', 'PPTX after book approval'],
+      ['translation', 'Translations', 'PT-BR and ES artifacts']
     ];
     const approvalGroups = [
       {{
@@ -1043,10 +1021,6 @@ def ui_shell(default_course: str) -> str:
       if (key === 'COURSE_MAP_QA_BLOCKED') return 'COURSE_MAP';
       if (key === 'PROCESS_REVIEW' || key === 'FULL_FLOW_CONFIRMATION_COMPLETE') return 'FINAL_REVIEW';
       return key || 'INTAKE';
-    }}
-    function stageIndex(key) {{
-      const index = stages.findIndex(stage => stage[0] === normalizedStage(key));
-      return index >= 0 ? index : stages.length - 1;
     }}
     function artifactExists(names) {{
       const artifacts = currentStatus?.artifacts || [];
@@ -1122,37 +1096,43 @@ def ui_shell(default_course: str) -> str:
       }};
       return blockersByGroup[group.key] || [];
     }}
-    function stageState(key, names) {{
-      const lesson = selectedLessonRecord();
-      if (lesson?.study_guide === 'blocked' && ['DOCX_PDF', 'HUMAN_APPROVAL'].includes(key)) return 'blocked';
-      if (lesson?.deck === 'blocked' && ['DECK', 'DECK_APPROVAL'].includes(key)) return 'blocked';
-      if (artifactExists(names)) return 'done';
-      const currentStage = normalizedStage(currentStatus?.stage);
-      if (key === currentStage) return 'active';
-      const current = stageIndex(currentStatus?.stage || 'INTAKE');
-      const mine = stageIndex(key);
-      if (mine < current) return 'done';
-      return 'pending';
-    }}
     function renderPipeline() {{
-      const strip = document.getElementById('pipelineStrip');
-      strip.innerHTML = stages.map(([key, title, names], index) => {{
-        const state = stageState(key, names);
-        const label = state === 'done' ? 'approved / present' : state === 'active' ? 'active' : state === 'blocked' ? 'blocked by QA' : 'pending';
-        return `<div class="stage-card ${{state}} ${{selectedStageKey === key ? 'selected' : ''}}" onclick="selectStage('${{key}}')">
-          <div class="stage-kicker"><span class="dot"></span> Stage ${{index + 1}}</div>
-          <div class="stage-title">${{esc(title)}}</div>
-          <div class="stage-status">${{esc(label)}}</div>
-        </div>`;
+      const lessons = currentStatus?.lessons || [];
+      const hasCourseMap = artifactByNames(['course_map_md', 'course_map_json']);
+      const hasBook = lessons.some(item => item.study_guide && item.study_guide !== 'missing');
+      const hasDeck = lessons.some(item => item.deck && item.deck !== 'missing');
+      const hasTranslation = lessons.some(item =>
+        (item.pt_br_study_guide && item.pt_br_study_guide !== 'missing') ||
+        (item.pt_br_deck && item.pt_br_deck !== 'missing') ||
+        (item.es_study_guide && item.es_study_guide !== 'missing') ||
+        (item.es_deck && item.es_deck !== 'missing')
+      );
+      const done = [hasCourseMap, hasBook, hasDeck, hasTranslation];
+      const firstOpen = done.findIndex(value => !value);
+      const activeIndex = firstOpen === -1 ? 3 : firstOpen;
+      const percent = Math.round((done.filter(Boolean).length / progressSteps.length) * 100);
+      document.getElementById('progressPercent').textContent = `${{percent}}%`;
+      document.getElementById('progressFill').style.width = `${{percent}}%`;
+      document.getElementById('progressSteps').innerHTML = progressSteps.map((step, index) => {{
+        const state = done[index] ? 'done' : index === activeIndex ? 'active' : '';
+        return `<div class="progress-step ${{state}}"><strong>${{index + 1}}. ${{esc(step[1])}}</strong>${{esc(step[2])}}</div>`;
       }}).join('');
       const approved = approvalGroups.filter(group => lessonStatus(group.approvalField) === 'approved').length;
       document.getElementById('approvalCount').textContent = `${{approved}} approvals`;
+      renderCourseMapPanel();
       renderApprovals();
     }}
-    function selectStage(key) {{
-      selectedStageKey = key;
-      userSelectedStage = true;
-      renderPipeline();
+    function renderCourseMapPanel() {{
+      const map = artifactByNames(['course_map_md']);
+      const qa = artifactByNames(['course_map_qa']);
+      const panel = document.getElementById('courseMapPanel');
+      if (!map) {{
+        panel.innerHTML = 'Course Map has not been generated for this course yet.';
+        return;
+      }}
+      const mapName = `${{cleanFilenamePart(course.value)}} - Course Map.md`;
+      const qaLink = qa ? ` · <a class="doc-link" href="/artifact?path=${{encodeURIComponent(qa.path)}}&filename=${{encodeURIComponent(cleanFilenamePart(course.value) + ' - Course Map QA.md')}}" target="_blank" rel="noopener">QA report</a>` : '';
+      panel.innerHTML = `<strong>Course Map ready.</strong> <a class="download-link" href="/artifact?path=${{encodeURIComponent(map.path)}}&filename=${{encodeURIComponent(mapName)}}" target="_blank" rel="noopener">Download Course Map</a>${{qaLink}}`;
     }}
     function renderApprovals() {{
       const tag = selectedLessonTag();
@@ -1251,7 +1231,6 @@ def ui_shell(default_course: str) -> str:
         document.getElementById('stage').textContent = currentStatus.stage || 'Unknown';
         document.getElementById('gate').textContent = currentStatus.gate_status || 'Unknown';
         document.getElementById('next').textContent = currentStatus.next_recommended_action || 'Review status.';
-        if (!userSelectedStage) selectedStageKey = normalizedStage(currentStatus.stage || selectedStageKey);
         const jobs = await api('/api/jobs?course=' + encodeURIComponent(course.value));
         currentJobs = jobs.jobs || [];
         renderJobs();
@@ -1265,10 +1244,20 @@ def ui_shell(default_course: str) -> str:
       }}
     }}
     function renderJobs() {{
-      const state = document.getElementById('actorFilter').value;
-      const query = document.getElementById('logSearch').value.toLowerCase();
-      const filtered = currentJobs.filter(j => (!state || j.state === state) && (!query || JSON.stringify(j).toLowerCase().includes(query)));
-      document.getElementById('jobs').innerHTML = filtered.length ? filtered.slice().reverse().map(j => `<tr><td><code>${{esc(j.job_id)}}</code></td><td class="state ${{esc(j.state)}}">${{esc(j.state)}}</td><td>${{esc(j.request_type)}}</td><td>${{esc(j.last_error || j.input_summary || '')}}</td></tr>`).join('') : '<tr><td colspan="4" class="muted">No activity recorded.</td></tr>';
+      const active = currentJobs.slice().reverse().find(j => ['queued', 'running'].includes(j.state));
+      const latest = active || currentJobs[currentJobs.length - 1];
+      const holder = document.getElementById('currentActivity');
+      if (!latest) {{
+        holder.textContent = 'Idle.';
+        return;
+      }}
+      if (!active && latest.state !== 'failed') {{
+        holder.textContent = 'Idle.';
+        return;
+      }}
+      const state = active ? latest.state : 'needs attention';
+      const detail = latest.last_error || latest.input_summary || latest.request_type || '';
+      holder.innerHTML = `<span class="state ${{esc(latest.state)}}">${{esc(state)}}</span> · ${{esc(detail)}}`;
     }}
     async function saveUpload(id) {{
       await post('/api/upload-update', {{ course: course.value, upload_id: id, scope: document.getElementById('scope-' + id).value, lesson: Number(document.getElementById('lesson-' + id).value || 1), reference_policy: document.getElementById('policy-' + id).value }});
@@ -1316,15 +1305,26 @@ def ui_shell(default_course: str) -> str:
         ? lessons.map(item => `<tr>
             <td><input type="checkbox" data-lesson-select="${{esc(item.lesson)}}" aria-label="Select Lesson ${{esc(item.lesson)}}"></td>
             <td class="lesson-title-cell">Lesson ${{esc(item.lesson)}}<br><span class="muted">${{esc(item.title || '')}}</span></td>
-            <td>${{statusPill(item.study_guide)}}</td>
-            <td>${{statusPill(item.deck)}}</td>
-            <td>${{statusPill(item.pt_br_study_guide)}}</td>
-            <td>${{statusPill(item.pt_br_deck)}}</td>
-            <td>${{statusPill(item.es_study_guide)}}</td>
-            <td>${{statusPill(item.es_deck)}}</td>
+            <td>${{documentCell(item, 'study_guide', 'study_guide_path', 'Course Book')}}</td>
+            <td>${{documentCell(item, 'deck', 'deck_path', 'Presentation')}}</td>
+            <td>${{documentCell(item, 'pt_br_study_guide', 'pt_br_study_guide_path', 'PT-BR Book')}}</td>
+            <td>${{documentCell(item, 'pt_br_deck', 'pt_br_deck_path', 'PT-BR Deck')}}</td>
+            <td>${{documentCell(item, 'es_study_guide', 'es_study_guide_path', 'ES Book')}}</td>
+            <td>${{documentCell(item, 'es_deck', 'es_deck_path', 'ES Deck')}}</td>
           </tr>`).join('')
         : '<tr><td colspan="8" class="muted">Generate the Course Map first to choose lessons.</td></tr>';
       document.getElementById('selectAllLessons').checked = false;
+    }}
+    function documentCell(item, statusField, pathField, label) {{
+      const status = item[statusField] || 'missing';
+      const path = item[pathField] || '';
+      const normalized = status === 'approved' ? 'approved' : path ? 'not approved' : 'not generated';
+      const pill = statusPill(normalized);
+      if (!isDownloadablePath(path)) return `<span class="doc-cell">${{pill}}</span>`;
+      const title = cleanFilenamePart(item.title || `Lesson ${{item.lesson}}`);
+      const ext = fileExtension(path) || (label.toLowerCase().includes('deck') || label.toLowerCase().includes('presentation') ? '.pptx' : '.pdf');
+      const filename = `Lesson ${{String(item.lesson).padStart(2, '0')}} - ${{title}} - ${{label}}${{ext}}`;
+      return `<span class="doc-cell">${{pill}} <a class="doc-link" href="/artifact?path=${{encodeURIComponent(path)}}&filename=${{encodeURIComponent(filename)}}" target="_blank" rel="noopener">open</a></span>`;
     }}
     function statusPill(value) {{
       const clean = String(value || 'missing').replace(/_/g, ' ');
@@ -1383,9 +1383,7 @@ def ui_shell(default_course: str) -> str:
     document.getElementById('startProduction').onclick = startProductionFlow;
     document.getElementById('uploadScope').onchange = toggleLessonInput;
     document.getElementById('upload').onclick = uploadFiles;
-    document.getElementById('logSearch').oninput = renderJobs;
-    document.getElementById('actorFilter').onchange = renderJobs;
-    document.getElementById('targetLesson').onchange = renderApprovals;
+    document.getElementById('targetLesson').onchange = () => {{ renderApprovals(); renderLessonSelection(); }};
     document.getElementById('produceBooks').onclick = () => produceSelected('study_guide');
     document.getElementById('produceDecks').onclick = () => produceSelected('deck');
     document.getElementById('producePtBrBooks').onclick = () => produceSelected('pt_br_book');
