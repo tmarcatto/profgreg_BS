@@ -530,17 +530,41 @@ def visual_flowables(visual: dict[str, Any]) -> list[Any]:
     return result
 
 
+def add_page_break(story: list[Any]) -> None:
+    if not story or not isinstance(story[-1], PageBreak):
+        story.append(PageBreak())
+
+
+def normalized_heading(text: str) -> str:
+    return re.sub(r"\s+", " ", text.strip()).lower()
+
+
+def starts_structural_page(heading: str) -> bool:
+    normalized = normalized_heading(heading)
+    if normalized in {"introduction", "summary and key takeaways", "glossary", "references"}:
+        return True
+    return bool(re.match(r"section\s+01\s+-\s+", heading, flags=re.IGNORECASE))
+
+
+def visual_matches_heading(visual_heading: str, rendered_heading: str) -> bool:
+    expected = normalized_heading(visual_heading)
+    actual = normalized_heading(rendered_heading)
+    return actual == expected or actual.startswith(f"{expected} -")
+
+
 def build_story(blocks: list[dict[str, Any]], visuals: list[dict[str, Any]]) -> list[Any]:
     story: list[Any] = [Spacer(1, 1), NextPageTemplate("normal"), PageBreak()]
-    visual_after_heading = {item["after_heading"]: item for item in visuals if item.get("after_heading")}
+    visual_after_heading = [item for item in visuals if item.get("after_heading")]
     content_blocks = front_matter_blocks(blocks)
     current_heading = ""
     for block in content_blocks:
         block_type = block["type"]
         if block_type == "page_break":
-            story.append(PageBreak())
+            add_page_break(story)
         elif block_type == "h1":
             current_heading = block["text"]
+            if starts_structural_page(current_heading):
+                add_page_break(story)
             match = re.match(r"Section\s+(\d{2})\s+-\s+(.+)", block["text"], flags=re.IGNORECASE)
             if match:
                 story.append(KeepTogether([SectionHeader(int(match.group(1)), match.group(2)), Spacer(1, 2)]))
@@ -556,8 +580,10 @@ def build_story(blocks: list[dict[str, Any]], visuals: list[dict[str, Any]]) -> 
             story.append(Callout(block["label"], block["body"]).flowable())
         elif block_type == "paragraph":
             story.append(p(block["text"], "IntroBody" if len(story) < 20 else "BodyGreg"))
-        if block.get("text") in visual_after_heading:
-            story.extend(visual_flowables(visual_after_heading[block["text"]]))
+        if block.get("text"):
+            for visual in visual_after_heading:
+                if visual_matches_heading(str(visual["after_heading"]), block["text"]):
+                    story.extend(visual_flowables(visual))
     return story
 
 
