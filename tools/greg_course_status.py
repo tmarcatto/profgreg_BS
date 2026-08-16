@@ -261,8 +261,9 @@ def summarize_lessons(run: Path, manifest: dict) -> list[dict]:
                 "pipeline_qa": "missing",
             },
         )
-        path = run / item.get("path", "")
-        exists = path.exists()
+        item_path = str(item.get("path") or "")
+        path = run / item_path
+        exists = bool(item_path) and path.exists() and path.is_file()
         status = item.get("status", "missing")
         if key.endswith("_study_guide_pdf"):
             blockers = study_guide_quality_blockers(run, str(lesson).zfill(2), path) if exists else []
