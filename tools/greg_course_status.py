@@ -113,6 +113,16 @@ def read_status_field(status_text: str, label: str) -> str:
     return ""
 
 
+def report_passed(path: Path, label: str) -> bool | None:
+    text = read_text(path)
+    if not text:
+        return None
+    match = re.search(rf"{re.escape(label)}\s*:\s*(yes|no)", text, flags=re.I)
+    if not match:
+        return None
+    return match.group(1).lower() == "yes"
+
+
 def infer_stage(artifacts: list[ArtifactStatus]) -> str:
     by_name = {item.name: item.exists for item in artifacts}
     if by_name.get("approval"):
@@ -187,6 +197,19 @@ def summarize(course_slug: str) -> dict:
         blockers.append("Missing input/intake.md.")
 
     stage = run_stage or infer_stage(artifacts)
+    course_map_passed = report_passed(run / "course_map" / "course_map_qa.md", "Course Map QA passed")
+    if course_map_passed is False:
+        stage = "COURSE_MAP_QA_BLOCKED"
+        gate_status = "Course Map is blocked by automatic QA. Greg must revise the Course Map before lesson production."
+        next_action = "re-run Course Map production; automatic QA must pass before lesson selection."
+    elif course_map_passed is True and (run / "sources" / "source_ledger.json").exists():
+        stage = "LESSON_PRODUCTION"
+        gate_status = "Course Map and source ledger are ready. Select lesson(s) for course book production."
+        next_action = "select one, several, or all lessons and generate course books."
+    elif course_map_passed is True:
+        stage = "SOURCE_LEDGER"
+        gate_status = "Course Map is ready. Source research is next."
+        next_action = "run source research before lesson production."
 
     return {
         "course_slug": course_slug,

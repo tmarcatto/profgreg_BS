@@ -240,15 +240,28 @@ def transition_job(job_root: Path, job_id: str, to_state: str, *, note: str = ""
         raise ValueError(f"Invalid transition: {from_state} -> {to_state}")
     data["state"] = to_state
     data["updated_at"] = iso_now()
-    if to_state == "failed" and note:
-        data["last_error"] = note[:500]
+    display_note = compact_error_note(note)
+    if to_state == "failed" and display_note:
+        data["last_error"] = display_note
     write_job(job_dir, data)
-    job_event(job_dir, "transition", {"from_state": from_state, "to_state": to_state, "note": note[:500]})
+    job_event(job_dir, "transition", {"from_state": from_state, "to_state": to_state, "note": display_note})
     return data
 
 
+def compact_error_note(note: str, limit: int = 900) -> str:
+    text = re.sub(r"\s+", " ", str(note or "")).strip()
+    if len(text) <= limit:
+        return text
+    tail = text[-limit:]
+    marker = "RuntimeError:"
+    marker_index = tail.find(marker)
+    if marker_index >= 0:
+        tail = tail[marker_index:]
+    return "..." + tail
+
+
 def summarize_worker_error(error: Exception) -> str:
-    return f"{type(error).__name__}: {error}".replace("\n", " ")[:500]
+    return compact_error_note(f"{type(error).__name__}: {error}")
 
 
 def update_job(job_root: Path, job: dict[str, Any], **updates: Any) -> dict[str, Any]:

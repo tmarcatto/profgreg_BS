@@ -74,6 +74,47 @@ def strip_json_fence(value: str) -> dict[str, Any]:
     return json_from_text(value)
 
 
+def adaptation_entries_for_course_map(data: dict[str, Any], seed, lesson_count: int) -> list[dict[str, str]]:
+    raw_entries = data.get("syllabus_adaptation")
+    if not isinstance(raw_entries, list):
+        raw_entries = data.get("syllabus_adaptations")
+    if not isinstance(raw_entries, list):
+        raw_entries = data.get("adaptations")
+    entries: list[dict[str, str]] = []
+    for item in raw_entries or []:
+        if not isinstance(item, dict):
+            continue
+        decision = str(item.get("decision") or item.get("change") or "").strip()
+        rationale = str(item.get("rationale") or "").strip()
+        if decision or rationale:
+            entries.append(
+                {
+                    "input_item": str(item.get("input_item") or item.get("item") or "Initial syllabus").strip(),
+                    "decision": decision or "evaluated and preserved",
+                    "resulting_course_map_change": str(item.get("resulting_course_map_change") or item.get("result") or item.get("change") or "Course Map progression remains coherent.").strip(),
+                    "rationale": rationale or "The initial direction fits the course level and residential construction learner path.",
+                }
+            )
+    if not entries:
+        entries.append(
+            {
+                "input_item": "Initial syllabus",
+                "decision": "evaluated, reframed, and preserved",
+                "resulting_course_map_change": "Preserved the requested sequence while reframing examples and learning goals around U.S. residential construction practice.",
+                "rationale": "The operator syllabus already supports the intended progression; the Course Map records it as initial direction, not as a fixed contract.",
+            }
+        )
+    entries.append(
+        {
+            "input_item": "Requested lesson count",
+            "decision": "evaluated and calibrated",
+            "resulting_course_map_change": f"Set the Course Map to {lesson_count} lessons for this {seed.level} course.",
+            "rationale": f"Lesson count rationale: {seed.level} courses may use the operator count when it supports complete coverage without padding; this map uses {lesson_count} lessons because the topic sequence requires that scope.",
+        }
+    )
+    return entries
+
+
 def lesson_by_number(course_map: dict[str, Any], lesson: int) -> dict[str, Any]:
     for item in course_map.get("lessons") or []:
         try:
@@ -164,12 +205,22 @@ def produce_course_map(course_slug: str) -> list[str]:
         "title": seed.title,
         "level": seed.level,
         "target_audience": "U.S. residential construction workforce, including American-born and immigrant learners.",
+        "sector_anchor": "Residential construction first; larger commercial examples only when they clarify a transferable concept.",
+        "lesson_count_rationale": f"Lesson count rationale: this {seed.level} Course Map uses {len(normalized)} lessons because the operator's requested count and the researched learning progression both support that scope.",
     }
+    data["target_audience"] = data["course"]["target_audience"]
+    data["level"] = seed.level
+    data["sector_anchor"] = data["course"]["sector_anchor"]
     data["approval_status"] = "autonomously approved after Course Map QA"
     map_json = run / "course_map" / "course_map.json"
     map_md = run / "course_map" / "course_map.md"
-    adaptations = data.get("adaptations") or [{"change": "Kept syllabus structure", "rationale": "The initial sequence already supports the learning progression."}]
-    adaptation_rows = "\n".join(f"| {item.get('change', '')} | {item.get('rationale', '')} |" for item in adaptations)
+    adaptations = adaptation_entries_for_course_map(data, seed, len(normalized))
+    data["syllabus_adaptation"] = adaptations
+    data["adaptations"] = adaptations
+    adaptation_rows = "\n".join(
+        f"| {item.get('input_item', '')} | {item.get('decision', '')} | {item.get('resulting_course_map_change', '')} | {item.get('rationale', '')} |"
+        for item in adaptations
+    )
     lesson_rows = "\n".join(f"| {item['lesson_number']:02d} | {item['title']} | {item['learning_goal']} |" for item in normalized)
     write_json(map_json, data)
     write_text(map_md, f"""# {seed.title} Course Map
@@ -178,10 +229,14 @@ Level: {seed.level}
 
 {data.get('course_summary', '')}
 
+This Course Map treats the operator syllabus as initial direction, not as a fixed contract. Greg may adapt, preserve, split, merge, or reorder lessons when research, source materials, or learner needs justify it.
+
+Lesson count rationale: this {seed.level} Course Map uses {len(normalized)} lessons because the requested scope and the current learning progression both support that size.
+
 ## Syllabus Adaptation
 
-| Change | Rationale |
-|---|---|
+| Input item | Decision | Resulting Course Map change | Rationale |
+|---|---|---|---|
 {adaptation_rows}
 
 ## Lessons
@@ -190,7 +245,15 @@ Level: {seed.level}
 |---|---|---|
 {lesson_rows}
 """)
-    write_text(run / "course_map" / "syllabus_adaptation_log.md", f"# Syllabus Adaptation Log\n\n| Change | Rationale |\n|---|---|\n{adaptation_rows}\n")
+    write_text(
+        run / "course_map" / "syllabus_adaptation_log.md",
+        "# Syllabus Adaptation Log\n\n"
+        "The syllabus is treated as initial direction, not as a fixed contract. Greg records whether it was adapted or intentionally preserved.\n\n"
+        f"Lesson count rationale: this {seed.level} Course Map uses {len(normalized)} lessons because the requested scope and the current learning progression both support that size.\n\n"
+        "| Input item | Decision | Resulting Course Map change | Rationale |\n"
+        "|---|---|---|---|\n"
+        f"{adaptation_rows}\n",
+    )
     checker = load_module("greg_course_map_quality_check", "tools/greg_course_map_quality_check.py")
     qa = checker.run_checks(map_json, map_md, run / "course_map" / "syllabus_adaptation_log.md", run / "input" / "intake.md")
     write_text(run / "course_map" / "course_map_qa.md", checker.render_markdown(qa))

@@ -151,7 +151,10 @@ def approved_or_default_study_guide(run: Path, lesson: str, approval: Path) -> P
     canonical = run / "docx_pdf" / f"lesson_{lesson}_study_guide.pdf"
     if approval.exists() and canonical.exists():
         return canonical
-    return latest_glob(run, [f"docx_pdf/lesson_{lesson}_study_guide_r*.pdf", f"docx_pdf/lesson_{lesson}_study_guide.pdf"])
+    revisioned = latest_glob(run, [f"docx_pdf/lesson_{lesson}_study_guide_r*.pdf"])
+    if revisioned:
+        return revisioned
+    return None
 
 
 def approved_or_default_deck(run: Path, lesson: str, approval: Path) -> Path | None:
@@ -160,7 +163,7 @@ def approved_or_default_deck(run: Path, lesson: str, approval: Path) -> Path | N
         return approved
     if approval.exists():
         return latest_glob(run, [f"deck/lesson_{lesson}_deck_r*.pptx", f"deck/lesson_{lesson}_deck.pptx"])
-    return latest_glob(run, [f"deck/lesson_{lesson}_deck.pptx", f"deck/lesson_{lesson}_deck_r*.pptx"])
+    return latest_glob(run, [f"deck/lesson_{lesson}_deck_r*.pptx"])
 
 
 def infer_manifest(course_slug: str) -> dict:
