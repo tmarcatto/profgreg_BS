@@ -273,7 +273,8 @@ def summarize_lessons(run: Path, manifest: dict) -> list[dict]:
                 row["study_guide_quality_blockers"] = blockers
             else:
                 row["study_guide"] = status if exists else "missing"
-                row["study_guide_path"] = rel(path)
+                if exists:
+                    row["study_guide_path"] = rel(path)
         elif key.endswith("_deck_pptx"):
             if row.get("study_guide") == "blocked":
                 row["deck"] = "blocked"
@@ -281,19 +282,24 @@ def summarize_lessons(run: Path, manifest: dict) -> list[dict]:
                 row["deck_quality_blockers"] = ["Course book is blocked; presentation review is gated until the course book is regenerated and passes QA."]
             else:
                 row["deck"] = status if exists else "missing"
-                row["deck_path"] = rel(path)
+                if exists:
+                    row["deck_path"] = rel(path)
         elif key.endswith("_study_guide_pt_br_pdf"):
             row["pt_br_study_guide"] = "approved" if (run / "approval" / f"lesson_{str(lesson).zfill(2)}_pt_br_study_guide_approval.md").exists() else (status if exists else "missing")
-            row["pt_br_study_guide_path"] = rel(path)
+            if exists:
+                row["pt_br_study_guide_path"] = rel(path)
         elif key.endswith("_deck_pt_br_pptx"):
             row["pt_br_deck"] = "approved" if (run / "approval" / f"lesson_{str(lesson).zfill(2)}_pt_br_deck_approval.md").exists() else (status if exists else "missing")
-            row["pt_br_deck_path"] = rel(path)
+            if exists:
+                row["pt_br_deck_path"] = rel(path)
         elif key.endswith("_study_guide_es_pdf"):
             row["es_study_guide"] = "approved" if (run / "approval" / f"lesson_{str(lesson).zfill(2)}_es_study_guide_approval.md").exists() else (status if exists else "missing")
-            row["es_study_guide_path"] = rel(path)
+            if exists:
+                row["es_study_guide_path"] = rel(path)
         elif key.endswith("_deck_es_pptx"):
             row["es_deck"] = "approved" if (run / "approval" / f"lesson_{str(lesson).zfill(2)}_es_deck_approval.md").exists() else (status if exists else "missing")
-            row["es_deck_path"] = rel(path)
+            if exists:
+                row["es_deck_path"] = rel(path)
         elif key.endswith("_pipeline_qa"):
             row["pipeline_qa"] = "present" if exists else "missing"
             row["pipeline_qa_path"] = rel(path)
