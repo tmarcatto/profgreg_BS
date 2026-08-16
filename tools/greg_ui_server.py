@@ -37,6 +37,27 @@ REFERENCE_POLICIES = {
 DEFAULT_LESSON_COUNT_BY_LEVEL = {"Basic": 10, "Intermediate": 15, "Advanced": 15}
 
 
+def operator_visible_jobs(jobs: list[dict[str, object]], *, limit: int = 30) -> list[dict[str, object]]:
+    """Hide failed attempts that were superseded by a later successful retry."""
+    latest_completed_by_type: dict[tuple[str, str], str] = {}
+    for job in jobs:
+        if job.get("state") != "completed":
+            continue
+        key = (str(job.get("course_slug") or ""), str(job.get("request_type") or ""))
+        timestamp = str(job.get("updated_at") or job.get("created_at") or "")
+        if timestamp > latest_completed_by_type.get(key, ""):
+            latest_completed_by_type[key] = timestamp
+
+    visible: list[dict[str, object]] = []
+    for job in jobs:
+        key = (str(job.get("course_slug") or ""), str(job.get("request_type") or ""))
+        timestamp = str(job.get("updated_at") or job.get("created_at") or "")
+        if job.get("state") == "failed" and latest_completed_by_type.get(key, "") > timestamp:
+            continue
+        visible.append(job)
+    return visible[-limit:]
+
+
 def json_bytes(data: object) -> bytes:
     return json.dumps(data, indent=2, ensure_ascii=False).encode("utf-8")
 
@@ -531,11 +552,46 @@ def ui_shell(default_course: str) -> str:
     h2 {{ margin: 0; color: var(--navy); font-size: 16px; letter-spacing: .01em; text-transform: uppercase; }}
     .hint {{ color: var(--muted); font-size: 13px; margin-top: 3px; line-height: 1.35; }}
     .body {{ padding: 18px; }}
-    .slugbar {{
+    .workspace-bar {{
       display: grid;
-      grid-template-columns: minmax(240px, 1fr) auto auto;
+      grid-template-columns: minmax(280px, 1fr) 160px auto;
+      gap: 12px;
+      align-items: center;
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      background: #fff;
+      box-shadow: var(--shadow);
+      padding: 14px 16px;
+    }}
+    .workspace-field label {{ margin-bottom: 5px; }}
+    .workspace-actions {{ display: flex; gap: 8px; justify-content: flex-end; align-items: end; }}
+    .primary-flow {{
+      border: 1px solid #fed7aa;
+      border-radius: 8px;
+      background: #fffaf5;
+    }}
+    .flow-steps {{
+      display: grid;
+      grid-template-columns: repeat(4, minmax(160px, 1fr));
+      gap: 10px;
+      margin-top: 12px;
+    }}
+    .flow-step {{
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      padding: 12px;
+      background: #fff;
+    }}
+    .flow-step strong {{ color: var(--navy); display: block; margin-bottom: 4px; }}
+    .flow-step span {{ color: var(--muted); font-size: 13px; line-height: 1.35; }}
+    .brief-actions {{
+      display: flex;
       gap: 10px;
       align-items: center;
+      flex-wrap: wrap;
+      margin-top: 14px;
+      padding-top: 14px;
+      border-top: 1px solid var(--line);
     }}
     .brief-grid {{
       display: grid;
@@ -642,6 +698,40 @@ def ui_shell(default_course: str) -> str:
     .check {{ display: flex; gap: 8px; align-items: flex-start; color: #344054; font-size: 13px; }}
     .check span:first-child {{ width: 18px; height: 18px; border-radius: 50%; background: #e8f0f8; display: grid; place-items: center; color: var(--navy); font-size: 11px; flex: 0 0 auto; }}
     .actions {{ display: flex; flex-wrap: wrap; gap: 10px; margin-top: 12px; align-items: center; }}
+    .lesson-toolbar {{
+      display: grid;
+      grid-template-columns: minmax(240px, 1fr) auto;
+      gap: 12px;
+      align-items: start;
+      margin-bottom: 14px;
+    }}
+    .lesson-actions {{
+      display: flex;
+      flex-wrap: wrap;
+      gap: 8px;
+      justify-content: flex-end;
+    }}
+    .lesson-table-wrap {{ overflow-x: auto; border: 1px solid var(--line); border-radius: 8px; background: #fff; }}
+    .lesson-table {{ min-width: 980px; }}
+    .lesson-table th, .lesson-table td {{ font-size: 13px; vertical-align: middle; }}
+    .lesson-title-cell {{ max-width: 340px; font-weight: 760; color: var(--navy); line-height: 1.25; }}
+    .status-pill {{
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      min-width: 72px;
+      padding: 4px 8px;
+      border-radius: 999px;
+      background: #eef2f7;
+      color: #475467;
+      font-size: 12px;
+      font-weight: 760;
+      text-transform: capitalize;
+    }}
+    .status-pill.approved, .status-pill.active {{ background: #e7f6ec; color: var(--ok); }}
+    .status-pill.blocked {{ background: #fff1f0; color: var(--bad); }}
+    .status-pill.missing {{ background: #f2f4f7; color: #667085; }}
+    .status-pill.pending {{ background: #fff6e8; color: var(--warn); }}
     .status-summary {{ display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px; }}
     .metric {{ border: 1px solid var(--line); border-radius: 8px; padding: 12px; background: #fff; }}
     .metric .label {{ color: var(--muted); font-size: 12px; text-transform: uppercase; letter-spacing: .04em; font-weight: 760; }}
@@ -659,7 +749,7 @@ def ui_shell(default_course: str) -> str:
     .hidden {{ display: none !important; }}
     code {{ font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; font-size: 12px; }}
     @media (max-width: 980px) {{
-      .topbar, .slugbar, .brief-grid, .field-grid, .gate-grid, .status-summary, .upload-controls, .log-tools, .approval-card {{ grid-template-columns: 1fr; }}
+      .topbar, .workspace-bar, .brief-grid, .field-grid, .flow-steps, .gate-grid, .status-summary, .upload-controls, .log-tools, .approval-card, .lesson-toolbar {{ grid-template-columns: 1fr; }}
       .approval-actions {{ justify-content: flex-start; }}
       .top-actions {{ justify-content: flex-start; }}
       main {{ padding: 18px 14px 36px; }}
@@ -675,7 +765,7 @@ def ui_shell(default_course: str) -> str:
         <div>BuildStak Course Agent<small>Prof Greg operator console</small></div>
       </div>
       <div class="top-actions">
-        <button class="primary" id="startTop">Start Course Map</button>
+        <button class="ghost" id="refreshTop">Refresh</button>
       </div>
     </div>
     <nav class="nav" aria-label="Console sections">
@@ -687,10 +777,18 @@ def ui_shell(default_course: str) -> str:
     </nav>
   </header>
   <main>
-    <div class="slugbar">
-      <input id="course" value="{course}" aria-label="Course slug">
-      <input id="targetLesson" type="number" min="1" value="1" aria-label="Selected lesson" title="Selected lesson">
-      <button class="primary" id="startProduction">Start Course Map</button>
+    <div class="workspace-bar">
+      <div class="workspace-field">
+        <label for="course">Active course workspace</label>
+        <input id="course" value="{course}" aria-label="Course slug">
+      </div>
+      <div class="workspace-field">
+        <label for="targetLesson">Review lesson</label>
+        <input id="targetLesson" type="number" min="1" value="1" aria-label="Selected lesson" title="Selected lesson">
+      </div>
+      <div class="workspace-actions">
+        <button id="refreshWorkspace">Refresh</button>
+      </div>
     </div>
 
     <section id="brief" class="card">
@@ -726,6 +824,21 @@ def ui_shell(default_course: str) -> str:
         <div>
           <label class="required" for="syllabus">Syllabus</label>
           <textarea id="syllabus" style="min-height:260px" placeholder="Lesson 1: ...&#10;Lesson 2: ...&#10;Learning outcomes, topics, and notes"></textarea>
+        </div>
+        <div style="grid-column: 1 / -1" class="primary-flow">
+          <div class="body">
+            <strong style="color:var(--navy)">Normal operating order</strong>
+            <div class="flow-steps">
+              <div class="flow-step"><strong>1. Course Map</strong><span>Greg reads the brief and sources, adapts the syllabus, and opens lesson production only after QA.</span></div>
+              <div class="flow-step"><strong>2. Course books</strong><span>Select one, several, or all lessons. Each book appears for review only after automatic QA passes.</span></div>
+              <div class="flow-step"><strong>3. Presentations</strong><span>Decks unlock after the English course book for that lesson is approved.</span></div>
+              <div class="flow-step"><strong>4. Translations</strong><span>PT-BR and ES versions follow the approved English artifacts.</span></div>
+            </div>
+            <div class="brief-actions">
+              <button class="primary" id="startProduction">Create intake and start Course Map</button>
+              <span class="muted">Use this once the course brief is filled and source materials are attached.</span>
+            </div>
+          </div>
         </div>
       </div>
     </section>
@@ -782,17 +895,36 @@ def ui_shell(default_course: str) -> str:
         </div>
         <div class="notice" id="message">Ready.</div>
         <div class="notice" style="margin-top:12px">
-          <strong>Lesson production</strong><br>
-          Choose one or more lessons below. Each output is released to the approval queue only after its automatic QA passes.
-          <div class="actions" style="margin-top:10px">
-            <label><input id="selectAllLessons" type="checkbox"> All lessons</label>
-            <div id="lessonSelection" class="muted">Generate the Course Map first to choose lessons.</div>
-            <button class="primary" id="produceBooks">Generate selected course books</button>
-            <button id="produceDecks">Generate approved presentations</button>
-            <button id="producePtBrBooks">Generate PT-BR course books</button>
-            <button id="producePtBrDecks">Generate PT-BR presentations</button>
-            <button id="produceEsBooks">Generate ES course books</button>
-            <button id="produceEsDecks">Generate ES presentations</button>
+          <div class="lesson-toolbar">
+            <div>
+              <strong>Lesson production</strong><br>
+              Choose one or more lessons. Greg releases an artifact for approval only after automatic QA passes.
+            </div>
+            <div class="lesson-actions">
+              <button class="primary" id="produceBooks">Generate course books</button>
+              <button id="produceDecks">Generate presentations</button>
+              <button id="producePtBrBooks">Generate PT-BR books</button>
+              <button id="producePtBrDecks">Generate PT-BR decks</button>
+              <button id="produceEsBooks">Generate ES books</button>
+              <button id="produceEsDecks">Generate ES decks</button>
+            </div>
+          </div>
+          <div class="lesson-table-wrap">
+            <table class="lesson-table">
+              <thead>
+                <tr>
+                  <th style="width:56px"><input id="selectAllLessons" type="checkbox" aria-label="Select all lessons"></th>
+                  <th>Lesson</th>
+                  <th>Course book</th>
+                  <th>Presentation</th>
+                  <th>PT-BR book</th>
+                  <th>PT-BR deck</th>
+                  <th>ES book</th>
+                  <th>ES deck</th>
+                </tr>
+              </thead>
+              <tbody id="lessonSelection"><tr><td colspan="8" class="muted">Generate the Course Map first to choose lessons.</td></tr></tbody>
+            </table>
           </div>
         </div>
         <div class="pipeline-strip" id="pipelineStrip"></div>
@@ -907,6 +1039,8 @@ def ui_shell(default_course: str) -> str:
     }}
     function normalizedStage(key) {{
       if (key === 'DRAFT') return 'DOCX_PDF';
+      if (key === 'LESSON_PRODUCTION') return 'SOURCE_LEDGER';
+      if (key === 'COURSE_MAP_QA_BLOCKED') return 'COURSE_MAP';
       if (key === 'PROCESS_REVIEW' || key === 'FULL_FLOW_CONFIRMATION_COMPLETE') return 'FINAL_REVIEW';
       return key || 'INTAKE';
     }}
@@ -1118,7 +1252,7 @@ def ui_shell(default_course: str) -> str:
         document.getElementById('gate').textContent = currentStatus.gate_status || 'Unknown';
         document.getElementById('next').textContent = currentStatus.next_recommended_action || 'Review status.';
         if (!userSelectedStage) selectedStageKey = normalizedStage(currentStatus.stage || selectedStageKey);
-        const jobs = await api('/api/jobs');
+        const jobs = await api('/api/jobs?course=' + encodeURIComponent(course.value));
         currentJobs = jobs.jobs || [];
         renderJobs();
         const uploads = await api('/api/uploads?course=' + encodeURIComponent(course.value));
@@ -1179,9 +1313,23 @@ def ui_shell(default_course: str) -> str:
       const holder = document.getElementById('lessonSelection');
       const lessons = currentStatus?.lessons || [];
       holder.innerHTML = lessons.length
-        ? lessons.map(item => `<label style="margin-right:10px"><input type="checkbox" data-lesson-select="${{esc(item.lesson)}}"> Lesson ${{esc(item.lesson)}}: ${{esc(item.title || '')}}</label>`).join('')
-        : 'Generate the Course Map first to choose lessons.';
+        ? lessons.map(item => `<tr>
+            <td><input type="checkbox" data-lesson-select="${{esc(item.lesson)}}" aria-label="Select Lesson ${{esc(item.lesson)}}"></td>
+            <td class="lesson-title-cell">Lesson ${{esc(item.lesson)}}<br><span class="muted">${{esc(item.title || '')}}</span></td>
+            <td>${{statusPill(item.study_guide)}}</td>
+            <td>${{statusPill(item.deck)}}</td>
+            <td>${{statusPill(item.pt_br_study_guide)}}</td>
+            <td>${{statusPill(item.pt_br_deck)}}</td>
+            <td>${{statusPill(item.es_study_guide)}}</td>
+            <td>${{statusPill(item.es_deck)}}</td>
+          </tr>`).join('')
+        : '<tr><td colspan="8" class="muted">Generate the Course Map first to choose lessons.</td></tr>';
       document.getElementById('selectAllLessons').checked = false;
+    }}
+    function statusPill(value) {{
+      const clean = String(value || 'missing').replace(/_/g, ' ');
+      const css = String(value || 'missing').replace(/[^a-z0-9_-]+/gi, '-').toLowerCase();
+      return `<span class="status-pill ${{esc(css)}}">${{esc(clean)}}</span>`;
     }}
     async function produceSelected(stage) {{
       const lessons = selectedLessons();
@@ -1229,7 +1377,9 @@ def ui_shell(default_course: str) -> str:
       }} catch (error) {{ msg.textContent = error.message; }}
     }}
     document.querySelectorAll('[data-level]').forEach(btn => btn.onclick = () => setLevel(btn.dataset.level));
-    document.getElementById('startTop').onclick = startProductionFlow;
+    document.getElementById('refreshTop').onclick = refresh;
+    document.getElementById('refreshWorkspace').onclick = refresh;
+    course.onchange = refresh;
     document.getElementById('startProduction').onclick = startProductionFlow;
     document.getElementById('uploadScope').onchange = toggleLessonInput;
     document.getElementById('upload').onclick = uploadFiles;
@@ -1298,7 +1448,12 @@ class GregUiHandler(BaseHTTPRequestHandler):
                 return
             if parsed.path == "/api/jobs":
                 job_root = getattr(self.server, "job_root")
-                jobs = list_jobs(job_root)[-30:]
+                query = parse_qs(parsed.query)
+                course = query.get("course", [""])[0]
+                jobs = list_jobs(job_root)
+                if course:
+                    jobs = [job for job in jobs if str(job.get("course_slug") or "") == slugify(course)]
+                jobs = operator_visible_jobs(jobs)
                 self.send_json(HTTPStatus.OK, {"jobs": jobs})
                 return
             if parsed.path == "/api/uploads":

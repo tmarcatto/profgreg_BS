@@ -31,10 +31,12 @@ class GregUiServerTests(unittest.TestCase):
         self.assertIn("Lessons", html)
         self.assertIn("Do not cite text - images allowed", html)
         self.assertIn("Can cite + images allowed", html)
-        self.assertIn("Start Course Map", html)
+        self.assertIn("Create intake and start Course Map", html)
         self.assertIn("/api/start-course", html)
         self.assertIn("/api/produce", html)
-        self.assertIn("Generate selected course books", html)
+        self.assertIn("Generate course books", html)
+        self.assertIn("lesson-table", html)
+        self.assertIn("/api/jobs?course=", html)
         self.assertIn("Request edits", html)
         self.assertIn("Download", html)
         self.assertIn("blocked by QA", html)
@@ -146,6 +148,33 @@ class GregUiServerTests(unittest.TestCase):
         self.assertEqual(ui.expected_lesson_count("Intermediate"), 15)
         self.assertEqual(ui.expected_lesson_count("Advanced"), 15)
         self.assertEqual(ui.expected_lesson_count("Advanced", 18), 18)
+
+    def test_operator_visible_jobs_hides_superseded_failures(self) -> None:
+        jobs = [
+            {
+                "job_id": "job_old_failed",
+                "course_slug": "demo",
+                "request_type": "course_start",
+                "state": "failed",
+                "updated_at": "2026-08-16T10:00:00Z",
+            },
+            {
+                "job_id": "job_new_success",
+                "course_slug": "demo",
+                "request_type": "course_start",
+                "state": "completed",
+                "updated_at": "2026-08-16T11:00:00Z",
+            },
+            {
+                "job_id": "job_current_failed",
+                "course_slug": "demo",
+                "request_type": "study_guide",
+                "state": "failed",
+                "updated_at": "2026-08-16T12:00:00Z",
+            },
+        ]
+        visible = ui.operator_visible_jobs(jobs)
+        self.assertEqual([job["job_id"] for job in visible], ["job_new_success", "job_current_failed"])
 
     def test_rejects_unsupported_upload_extension(self) -> None:
         with self.assertRaises(ValueError):
