@@ -293,6 +293,7 @@ def main() -> int:
     parser.add_argument("course_slug", help="Run/course slug under runs/.")
     parser.add_argument("--write", action="store_true", help="Write canonical_artifacts.json and .md.")
     parser.add_argument("--json", action="store_true", help="Print JSON instead of Markdown.")
+    parser.add_argument("--allow-missing", action="store_true", help="Return success even when future-stage artifacts are missing.")
     args = parser.parse_args()
 
     data = infer_manifest(args.course_slug)
@@ -307,7 +308,7 @@ def main() -> int:
         for item in data["artifacts"]
         if item["status"] == "missing" and item["key"] not in OPTIONAL_MISSING_KEYS
     ]
-    return 1 if missing else 0
+    return 0 if args.allow_missing else (1 if missing else 0)
 
 
 if __name__ == "__main__":

@@ -62,7 +62,7 @@ def block(run: Path, stage: str, detail: str) -> None:
 
 def update_canonical_manifest(course_slug: str) -> None:
     subprocess.run(
-        [sys.executable, str(ROOT / "tools" / "greg_canonical_artifacts.py"), course_slug, "--write"],
+        [sys.executable, str(ROOT / "tools" / "greg_canonical_artifacts.py"), course_slug, "--write", "--allow-missing"],
         cwd=ROOT,
         check=True,
         capture_output=True,
