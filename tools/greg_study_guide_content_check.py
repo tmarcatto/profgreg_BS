@@ -85,12 +85,19 @@ def heading_name(line: str) -> str | None:
     return re.sub(r"[*_`]", "", match.group(1)).strip().lower()
 
 
-def is_callout_label(line: str) -> str | None:
+def callout_match(line: str) -> re.Match[str] | None:
     stripped = line.strip()
-    match = re.match(r"^>\s*\*\*([^*]{2,80}?)\*\*", stripped)
-    if match:
-        return match.group(1).strip().rstrip(":").upper()
-    return None
+    return re.match(
+        r"^>\s*(?:\*\*)?([A-Z][A-Z -]{1,40}?)(?:\*\*)?\s*:\s*(.*)$|^>\s*\*\*([A-Z][A-Z -]{1,40}?)\*\*\s*$",
+        stripped,
+    )
+
+
+def is_callout_label(line: str) -> str | None:
+    match = callout_match(line)
+    if not match:
+        return None
+    return (match.group(1) or match.group(3) or "").strip().upper()
 
 
 def callout_blocks(lines: list[str]) -> list[dict]:
@@ -106,8 +113,10 @@ def callout_blocks(lines: list[str]) -> list[dict]:
             index += 1
             continue
         start = index + 1
+        match = callout_match(lines[index])
+        inline_body = (match.group(2) if match and match.group(2) else "").strip()
         index += 1
-        body_lines = []
+        body_lines = [inline_body] if inline_body else []
         while index < len(lines):
             if heading_name(lines[index]) or is_callout_label(lines[index]):
                 break
@@ -162,6 +171,12 @@ def run_checks(draft_path: Path, level: str | None = None) -> dict:
 
     dash_punctuation = []
     teaching_text = text.split("# References", 1)[0]
+    fenced_blocks = re.findall(r"(?ms)^```.*?^```\s*$", teaching_text)
+    if fenced_blocks:
+        findings.append(Finding("fail", "no_fenced_visual_source", f"Found {len(fenced_blocks)} fenced source block(s). Visual source text must not appear in the student chapter."))
+    else:
+        findings.append(Finding("pass", "no_fenced_visual_source", "No fenced visual source blocks found."))
+
     for index, line in enumerate(teaching_text.splitlines(), start=1):
         if re.match(r"^#\s+Section\s+\d{2}\s+-\s+", line):
             continue
@@ -206,10 +221,10 @@ def run_checks(draft_path: Path, level: str | None = None) -> dict:
         findings.append(Finding("pass", "course_focused_introduction", "Introduction does not explain the target user as metadata."))
 
     blocks = callout_blocks(lines)
-    if blocks:
-        findings.append(Finding("pass", "callouts_present", f"Found {len(blocks)} callout blocks."))
+    if 2 <= len(blocks) <= 4:
+        findings.append(Finding("pass", "callout_density", f"Found {len(blocks)} purposeful callout blocks."))
     else:
-        findings.append(Finding("warn", "callouts_present", "No callout blocks found."))
+        findings.append(Finding("fail", "callout_density", f"Found {len(blocks)} callout blocks; the approved range is 2 to 4 per lesson."))
 
     invalid_callouts = [f"{block['label']} line {block['line']}" for block in blocks if block["label"] not in ALLOWED_CALLOUT_LABELS]
     if invalid_callouts:

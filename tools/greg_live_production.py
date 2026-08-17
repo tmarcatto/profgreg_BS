@@ -434,7 +434,7 @@ Pedagogical requirements:
 - Use concrete residential examples, mini-scenarios, and field reasoning. Avoid generic business prose.
 - Explain concepts in paragraphs before bullets. Bullets are allowed, but they must not replace teaching.
 - Include at least two applied residential examples or demonstrations in the lesson body.
-- Use callouts sparingly: 2-4 total is usually enough. Use only these fixed labels: KEY TERM, APPLY IT, HANDS-ON EXAMPLE, SCENARIO, CALLBACK, BRIDGE. Never invent a callout label.
+- Use exactly 2-4 callouts. Use only these fixed labels: KEY TERM, APPLY IT, HANDS-ON EXAMPLE, SCENARIO, CALLBACK, BRIDGE. Never invent a callout label. Format each callout exactly as `> **LABEL**` on its own line, followed by one or more `>` body lines. Never write `LABEL: body` as ordinary prose.
 - Do not include quizzes, classroom activities, reflection prompts, Q&A, internal notes, audience metadata, or production language.
 - Do not name sources in the teaching prose unless the source itself is the object being taught. Keep student-facing references in the References section.
 - References may list the formal sources materially consulted for the lesson; they do not all need decorative in-text mentions. Use an inline citation only when it strengthens a high-stakes factual learning moment.
@@ -446,6 +446,7 @@ Pedagogical requirements:
 - Do not use em dashes, en dashes, or spaced hyphens as punctuation in prose. Rewrite with commas, colons, semicolons, or separate sentences. Normal compound terms such as pre-construction remain allowed. The required `Section NN - Name` heading separator is the only spaced-hyphen exception.
 - Do not use Markdown H3 or deeper headings. Use normal paragraphs with a bold lead-in when a subsection needs emphasis.
 - Choose each figure mechanism from its learning job. Use a process flow for sequence, a relationship map for roles, a comparison matrix only for true comparison, and a trusted or generated image when visual inspection is the learning job. Do not default every figure to a table.
+- Do not draw figures with ASCII, Markdown tables, code fences, arrows, or visual source blocks in the chapter. The separate visual planner and deterministic renderer own every final figure.
 
 Use this exact structural order:
 # Introduction
@@ -520,6 +521,8 @@ Revision contract:
 - Keep the approved structural order and student-facing tone.
 - Preserve every numbered section heading in the exact form `# Section NN - Name`. The spaced hyphen is a required template separator, not prose punctuation.
 - Do not add a Lesson Roadmap, H3 headings, invented callout labels, em dashes, en dashes, or spaced hyphens in prose.
+- Keep exactly 2-4 callouts and normalize every callout to the canonical form `> **LABEL**` followed by `>` body lines. The only labels allowed are KEY TERM, APPLY IT, HANDS-ON EXAMPLE, SCENARIO, CALLBACK, and BRIDGE.
+- Remove every fenced ASCII diagram, Markdown table used as a figure, and visual source block. Final figures are created separately by the visual renderer.
 - Do not add activities, audience boilerplate, access dates, decorative citations, or unsupported numerical claims.
 - The final References section is controlled separately and will be replaced with the validated references below.
 - Before returning the chapter, verify that the revised wording itself resolves every required change. Returning the existing wording unchanged is not acceptable.

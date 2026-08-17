@@ -23,7 +23,7 @@ class StudyGuideContentCheckTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             path = Path(tmp) / "draft.md"
             path.write_text(
-                "# Intro\n\n# Section 01 - One\n\nBody text.\n\n> **KEY TERM**\n>\n> Contract: a project rule.\n\nMore text.\n\n# Section 02 - Two\n\nBody text.\n\n# Section 03 - Three\n\nBody text.\n\n# Section 04 - Four\n\nBody text.\n\n# References\n\n- American Institute of Architects. AIA Contract Documents.\n",
+                "# Intro\n\n# Section 01 - One\n\nBody text.\n\n> **KEY TERM**\n>\n> Contract: a project rule.\n\nMore text.\n\n> **SCENARIO**\n>\n> A residential example.\n\n# Section 02 - Two\n\nBody text.\n\n# Section 03 - Three\n\nBody text.\n\n# Section 04 - Four\n\nBody text.\n\n# References\n\n- American Institute of Architects. AIA Contract Documents.\n",
                 encoding="utf-8",
             )
             result = checker.run_checks(path)
@@ -50,6 +50,17 @@ class StudyGuideContentCheckTests(unittest.TestCase):
             result = checker.run_checks(path)
             failed = {item["check"] for item in result["findings"] if item["status"] == "fail"}
             self.assertTrue({"no_deep_markdown_headings", "no_dash_punctuation", "fixed_callout_vocabulary"}.issubset(failed))
+
+    def test_plain_unapproved_callout_and_fenced_visual_fail(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "draft.md"
+            path.write_text(
+                "# Introduction\n\nCourse orientation.\n\n# Section 01 - One\n\n> PRACTICAL NOTE: Invented box.\n\n```\n[A] -> [B]\n```\n\n# References\n\n- A formal book.\n",
+                encoding="utf-8",
+            )
+            result = checker.run_checks(path)
+            failed = {item["check"] for item in result["findings"] if item["status"] == "fail"}
+            self.assertTrue({"fixed_callout_vocabulary", "no_fenced_visual_source"}.issubset(failed))
 
     def test_intro_target_user_boilerplate_fails(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:

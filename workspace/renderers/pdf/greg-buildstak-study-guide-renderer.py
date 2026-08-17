@@ -512,6 +512,13 @@ def parse_markdown(markdown: str) -> list[dict[str, Any]]:
             blocks.append({"type": "page_break"})
             index += 1
             continue
+        if line.startswith("```"):
+            index += 1
+            while index < len(lines) and not lines[index].strip().startswith("```"):
+                index += 1
+            if index < len(lines):
+                index += 1
+            continue
         if line.startswith("# "):
             blocks.append({"type": "h1", "text": line[2:].strip()})
             index += 1
@@ -540,13 +547,14 @@ def parse_markdown(markdown: str) -> list[dict[str, Any]]:
                 index += 1
             first_line = quote_lines[0] if quote_lines else ""
             known_label = re.match(
-                r"^\*\*(KEY TERM|APPLY IT|HANDS-ON EXAMPLE|SCENARIO|CALLBACK|BRIDGE):?\s*(.*?)\*\*\s*(.*)$",
+                r"^(?:\*\*)?(KEY TERM|APPLY IT|HANDS-ON EXAMPLE|SCENARIO|CALLBACK|BRIDGE)(?:\*\*)?\s*:\s*(.*)$|^\*\*(KEY TERM|APPLY IT|HANDS-ON EXAMPLE|SCENARIO|CALLBACK|BRIDGE)\*\*$",
                 first_line,
                 flags=re.IGNORECASE,
             )
             if known_label:
-                label = known_label.group(1).strip().upper()
-                body = " ".join([known_label.group(2).strip(), known_label.group(3).strip(), *quote_lines[1:]]).strip()
+                label = (known_label.group(1) or known_label.group(3)).strip().upper()
+                body = " ".join([known_label.group(2).strip() if known_label.group(2) else "", *quote_lines[1:]]).strip()
+                body = re.sub(r"\*\*", "", body).strip()
             else:
                 blocks.append({"type": "paragraph", "text": " ".join(re.sub(r"^\*\*|\*\*$", "", item) for item in quote_lines)})
                 continue

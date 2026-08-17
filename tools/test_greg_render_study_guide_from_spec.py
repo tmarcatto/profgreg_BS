@@ -76,6 +76,18 @@ class RenderStudyGuideFromSpecTests(unittest.TestCase):
         blocks = pdf_renderer.parse_markdown("> **A Clever New Box:** This must remain ordinary prose.")
         self.assertEqual(blocks[0]["type"], "paragraph")
 
+    def test_plain_canonical_callout_syntax_is_rendered_as_box(self) -> None:
+        if pdf_renderer is None:
+            self.skipTest("ReportLab is not installed in this Python environment.")
+        blocks = pdf_renderer.parse_markdown("> KEY TERM: Scope is the agreed work.")
+        self.assertEqual(blocks[0], {"type": "callout", "label": "KEY TERM", "body": "Scope is the agreed work."})
+
+    def test_fenced_ascii_visual_is_not_rendered_as_prose(self) -> None:
+        if pdf_renderer is None:
+            self.skipTest("ReportLab is not installed in this Python environment.")
+        blocks = pdf_renderer.parse_markdown("Body before.\n\n```\n[A] -> [B]\n```\n\nBody after.")
+        self.assertEqual([block["text"] for block in blocks if block["type"] == "paragraph"], ["Body before.", "Body after."])
+
     def test_long_cover_title_fits_three_lines_without_dropping_words(self) -> None:
         if pdf_renderer is None:
             self.skipTest("ReportLab is not installed in this Python environment.")
