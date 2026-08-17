@@ -109,6 +109,7 @@ Check:
 - static TOC can be rendered cleanly;
 - callouts are marked consistently and not overused;
 - callouts do not appear in structural sections such as TOC, summary, glossary, or references;
+- summary and key takeaways contain 4-6 concise bullet points and no paragraph prose;
 - glossary, references, tables, and figures can be rendered as DOCX/PDF components;
 - style is more academic and premium than the legacy prompts without becoming intimidating;
 - BuildStak palette and logo use are compatible with the artifact.

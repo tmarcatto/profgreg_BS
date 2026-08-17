@@ -463,12 +463,13 @@ Use this exact structural order:
 (deep explanatory content with residential application)
 (Add Section 05 or Section 06 only if needed for MECE depth and the Course Map supports it.)
 # Summary and Key Takeaways
+(write 4-6 concise, non-repetitive bullet points; use one complete sentence per bullet and no paragraph prose)
 # Glossary
 (3-5 terms that do not repeat terms from other lessons; this lesson's assigned terms are: {', '.join(lesson.get('glossary_terms') or [])})
 # References
 {references}
 
-Requirements: no questions directly under section headings, access dates, placeholder references, invented citations, or callouts in objectives/summary/glossary/references. Do not simply echo the syllabus.
+Requirements: no questions directly under section headings, access dates, placeholder references, invented citations, or callouts in objectives/summary/glossary/references. The Summary and Key Takeaways section must contain only 4-6 concise bullet points, never prose paragraphs. Do not simply echo the syllabus.
 
 Course Map lesson goal: {lesson.get('learning_goal')}
 Course Map planned sections: {lesson.get('sections')}
@@ -1286,7 +1287,7 @@ def localize_book(course_slug: str, lesson_number: int, locale: str) -> list[str
         raise RuntimeError("The approved course book has no revisioned source draft for localization.")
     language, folder = localization_name(locale)
     references = (run / "sources" / "student_references.md").read_text(encoding="utf-8")
-    prompt = f"""Translate the following student-facing construction course book into {language}. Return Markdown only. Preserve the structural order: Introduction, Learning Objectives, numbered Sections, Summary and Key Takeaways, Glossary, and References. Do not add a Lesson Roadmap. Translate all body text and section titles. Keep U.S. construction terminology, units, codes, and market context. Preserve the six approved callout labels semantically in the target language and never invent a new callout type. Do not add or remove facts, activities, citations, or references. Do not use em dashes, en dashes, or spaced hyphens as punctuation.\n\n{source_draft.read_text(encoding='utf-8', errors='replace')[:48000]}"""
+    prompt = f"""Translate the following student-facing construction course book into {language}. Return Markdown only. Preserve the structural order: Introduction, Learning Objectives, numbered Sections, Summary and Key Takeaways, Glossary, and References. Do not add a Lesson Roadmap. Translate all body text and section titles. Preserve every Summary and Key Takeaways item as a concise bullet point; never convert that section into paragraphs. Keep U.S. construction terminology, units, codes, and market context. Preserve the six approved callout labels semantically in the target language and never invent a new callout type. Do not add or remove facts, activities, citations, or references. Do not use em dashes, en dashes, or spaced hyphens as punctuation.\n\n{source_draft.read_text(encoding='utf-8', errors='replace')[:48000]}"""
     try:
         translated = request_text(seed.slug, "localization", prompt, max_tokens=14000)
     except ModelRequestError as error:

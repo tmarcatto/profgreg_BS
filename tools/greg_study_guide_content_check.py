@@ -154,10 +154,30 @@ def section_heading_count(text: str) -> int:
     return len(re.findall(r"(?im)^#\s+Section\s+\d{2}\s+-\s+.+$", text))
 
 
+def section_body(text: str, heading: str) -> str | None:
+    match = re.search(
+        rf"(?ims)^#\s+{re.escape(heading)}\s*$\n(.*?)(?=^#\s+|\Z)",
+        text,
+    )
+    return match.group(1).strip() if match else None
+
+
 def run_checks(draft_path: Path, level: str | None = None) -> dict:
     findings: list[Finding] = []
     text = read_text(draft_path)
     lines = text.splitlines()
+
+    summary = section_body(text, "Summary and Key Takeaways")
+    if summary is None:
+        findings.append(Finding("fail", "summary_bullet_structure", "Summary and Key Takeaways section is missing."))
+    else:
+        summary_lines = [line.strip() for line in summary.splitlines() if line.strip()]
+        bullet_lines = [line for line in summary_lines if re.match(r"^[-*+]\s+\S", line)]
+        prose_lines = [line for line in summary_lines if not re.match(r"^[-*+]\s+\S", line)]
+        if 4 <= len(bullet_lines) <= 6 and not prose_lines:
+            findings.append(Finding("pass", "summary_bullet_structure", f"Summary contains {len(bullet_lines)} concise bullet points and no paragraph prose."))
+        else:
+            findings.append(Finding("fail", "summary_bullet_structure", f"Summary must contain only 4 to 6 bullet points; found {len(bullet_lines)} bullets and {len(prose_lines)} prose line(s)."))
 
     if re.search(r"(?im)^#\s+Lesson Roadmap\s*$", text):
         findings.append(Finding("fail", "no_lesson_roadmap", "Lesson Roadmap is not part of the approved student guide."))

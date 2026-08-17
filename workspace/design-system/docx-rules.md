@@ -65,6 +65,7 @@ Do not add internal production metadata to the student-facing front matter. Audi
 - Cover should occupy one page.
 - Lesson roadmap/static TOC should start on its own page.
 - Summary/key takeaways, glossary, and references should be clean structural sections.
+- Summary and key takeaways must render as 4-6 concise bullet points, never as paragraph prose.
 - Main lesson sections should flow continuously unless a page break improves navigation.
 
 ## Visual Embedding

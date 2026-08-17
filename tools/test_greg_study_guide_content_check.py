@@ -23,7 +23,7 @@ class StudyGuideContentCheckTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             path = Path(tmp) / "draft.md"
             path.write_text(
-                "# Intro\n\n# Section 01 - One\n\nBody text.\n\n> **KEY TERM**\n>\n> Contract: a project rule.\n\nMore text.\n\n> **SCENARIO**\n>\n> A residential example.\n\n# Section 02 - Two\n\nBody text.\n\n# Section 03 - Three\n\nBody text.\n\n# Section 04 - Four\n\nBody text.\n\n# References\n\n- American Institute of Architects. AIA Contract Documents.\n",
+                "# Intro\n\n# Section 01 - One\n\nBody text.\n\n> **KEY TERM**\n>\n> Contract: a project rule.\n\nMore text.\n\n> **SCENARIO**\n>\n> A residential example.\n\n# Section 02 - Two\n\nBody text.\n\n# Section 03 - Three\n\nBody text.\n\n# Section 04 - Four\n\nBody text.\n\n# Summary and Key Takeaways\n\n- First takeaway.\n- Second takeaway.\n- Third takeaway.\n- Fourth takeaway.\n\n# References\n\n- American Institute of Architects. AIA Contract Documents.\n",
                 encoding="utf-8",
             )
             result = checker.run_checks(path)
@@ -35,6 +35,28 @@ class StudyGuideContentCheckTests(unittest.TestCase):
             path.write_text("# References\n\n> **KEY TERM**\n>\n> Bad placement.\n", encoding="utf-8")
             result = checker.run_checks(path)
             self.assertFalse(result["passed"])
+
+    def test_summary_paragraphs_fail(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "draft.md"
+            path.write_text(
+                "# Summary and Key Takeaways\n\nThis is a paragraph summary.\n\n# References\n\n- A formal source.\n",
+                encoding="utf-8",
+            )
+            result = checker.run_checks(path)
+            finding = next(item for item in result["findings"] if item["check"] == "summary_bullet_structure")
+            self.assertEqual(finding["status"], "fail")
+
+    def test_summary_bullets_pass_structure(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "draft.md"
+            path.write_text(
+                "# Summary and Key Takeaways\n\n- One.\n- Two.\n- Three.\n- Four.\n\n# References\n\n- A formal source.\n",
+                encoding="utf-8",
+            )
+            result = checker.run_checks(path)
+            finding = next(item for item in result["findings"] if item["check"] == "summary_bullet_structure")
+            self.assertEqual(finding["status"], "pass")
 
     def test_activity_language_fails(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:

@@ -54,6 +54,8 @@ Each study guide should include:
 5. Glossary.
 6. Student-friendly references.
 
+The Summary and Key Takeaways section must contain 4-6 concise, non-repetitive bullet points. Use one complete sentence per bullet and no paragraph prose.
+
 The study guide is student-facing. Do not include internal production metadata such as audience notes, prerequisite notes, unit policy, source policy commentary, or AI workflow explanations unless the user explicitly asks for an instructor/internal edition.
 
 ## Section Rules

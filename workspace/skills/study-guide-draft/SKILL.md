@@ -79,6 +79,8 @@ Each study guide draft should include:
 6. Glossary.
 7. Student-friendly references.
 
+Write Summary and Key Takeaways as 4-6 concise, non-repetitive bullet points. Each bullet must be one complete sentence. Never use paragraph prose in this section.
+
 Do not add a Lesson Roadmap. Do not use H3 or deeper Markdown headings. Avoid em dashes, en dashes, and spaced hyphens as prose punctuation.
 
 ## Section Drafting Rules
