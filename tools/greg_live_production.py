@@ -443,7 +443,7 @@ Pedagogical requirements:
 - Callouts are allowed only inside the teaching body and only when they add a distinct practical insight; never place them in objectives, summary, glossary, or references.
 - Never include "Try this," "Your turn," exercises, practice tasks, reflection questions, discussion prompts, or assignments. Demonstrate the reasoning yourself in the teaching prose.
 - Avoid parenthetical source shorthand and decorative in-text citations. If a governing document is itself being taught, identify it in plain language and ensure the exact publication appears in References.
-- Do not use em dashes, en dashes, or spaced hyphens as punctuation. Rewrite with commas, colons, semicolons, or separate sentences. Normal compound terms such as pre-construction remain allowed.
+- Do not use em dashes, en dashes, or spaced hyphens as punctuation in prose. Rewrite with commas, colons, semicolons, or separate sentences. Normal compound terms such as pre-construction remain allowed. The required `Section NN - Name` heading separator is the only spaced-hyphen exception.
 - Do not use Markdown H3 or deeper headings. Use normal paragraphs with a bold lead-in when a subsection needs emphasis.
 - Choose each figure mechanism from its learning job. Use a process flow for sequence, a relationship map for roles, a comparison matrix only for true comparison, and a trusted or generated image when visual inspection is the learning job. Do not default every figure to a table.
 
@@ -518,6 +518,8 @@ Revision contract:
 - Preserve all compliant content, structure, examples, depth, residential focus, and wording that reviewers did not challenge.
 - Do not rewrite the chapter from scratch, introduce new claims, add new sections, or reintroduce earlier defects.
 - Keep the approved structural order and student-facing tone.
+- Preserve every numbered section heading in the exact form `# Section NN - Name`. The spaced hyphen is a required template separator, not prose punctuation.
+- Do not add a Lesson Roadmap, H3 headings, invented callout labels, em dashes, en dashes, or spaced hyphens in prose.
 - Do not add activities, audience boilerplate, access dates, decorative citations, or unsupported numerical claims.
 - The final References section is controlled separately and will be replaced with the validated references below.
 - Before returning the chapter, verify that the revised wording itself resolves every required change. Returning the existing wording unchanged is not acceptable.
@@ -637,7 +639,7 @@ def reviewer_prompt(kind: str, seed, lesson: dict[str, Any], draft: str, ledger:
     criteria = {
         "pedagogy_review": "Check only learning progression, depth for level, MECE sections, residential examples, explanations before bullets, no activities, and no audience boilerplate. Citation style and reference formatting belong to the citation reviewer; do not fail this review merely because ordinary claims lack inline citations.",
         "citation_review": "Check factual support against the ledger, current applicability, clean student references, no invented claims, and no internal/local source language. Do not demand inline citations for every source or every ordinary claim. References may include materially consulted sources even when they are not named decoratively in the teaching prose. Never request or add accessed/retrieved dates. Books must be cited as books without abstract, catalog, preview, or search-result links; webpage references may include only the direct content URL actually used.",
-        "design_review": "Check only the draft's approved structural and presentation contract: Introduction followed by Learning Objectives with no Lesson Roadmap; continuous lesson body; separate summary, glossary, and references; only the six approved callout labels; no callouts in structural sections; no H3 or deeper headings; no dash punctuation; no one-line section openers. Useful callouts inside the teaching body are allowed. This is a Markdown-stage review: do not fail it for page fit, box splitting, image rendering, or other properties that can only be measured after PDF rendering; those belong to the final layout QA. Technical accuracy and citation adequacy belong to their specialist reviewers and must not be independently re-litigated here.",
+        "design_review": "Check only the draft's approved structural and presentation contract: Introduction followed by Learning Objectives with no Lesson Roadmap; continuous lesson body; separate summary, glossary, and references; only the six approved callout labels; no callouts in structural sections; no H3 or deeper headings; no dash punctuation in prose; no one-line section openers. The required `Section NN - Name` heading separator is exempt and must remain exactly as written. Useful callouts inside the teaching body are allowed. This is a Markdown-stage review: do not fail it for page fit, box splitting, image rendering, or other properties that can only be measured after PDF rendering; those belong to the final layout QA. Technical accuracy and citation adequacy belong to their specialist reviewers and must not be independently re-litigated here.",
     }[kind]
     return f"""Return JSON only as an independent Prof Greg reviewer.
 Review Lesson {lesson['lesson_number']}: {lesson['title']} for {seed.title}.
@@ -1058,6 +1060,7 @@ def produce_study_guide(course_slug: str, lesson_number: int) -> list[str]:
             draft = reusable_drafts[-1].read_text(encoding="utf-8", errors="replace")
             write_text(working_path, draft)
     prior_revision_was_noop = False
+    deterministic_checker = load_module("greg_study_guide_content_check_loop", "tools/greg_study_guide_content_check.py")
     for attempt in range(1, 6):
         if not draft:
             try:
@@ -1068,6 +1071,14 @@ def produce_study_guide(course_slug: str, lesson_number: int) -> list[str]:
             draft = force_student_references(draft, references)
             write_text(working_path, draft)
         reviewer_passed, changes = run_content_reviewers(seed, lesson, draft, active_ledger, run, lesson_tag)
+        deterministic_qa = deterministic_checker.run_checks(working_path, seed.level)
+        if not deterministic_qa["passed"]:
+            reviewer_passed = False
+            changes.extend(
+                f"Deterministic content QA: {item['note']}"
+                for item in deterministic_qa["findings"]
+                if item["status"] == "fail"
+            )
         if reviewer_passed:
             break
         revision_feedback = "Automatic reviewer changes required:\n- " + "\n- ".join(changes)
