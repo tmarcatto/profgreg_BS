@@ -58,6 +58,10 @@ def contains(text: str, pattern: str) -> bool:
     return bool(re.search(pattern, text, re.IGNORECASE))
 
 
+def has_unrendered_markdown(text: str) -> bool:
+    return "**" in text
+
+
 def meaningful_lines(text: str) -> list[str]:
     lines = [line.strip() for line in text.splitlines() if line.strip()]
     return [
@@ -184,6 +188,11 @@ def run_checks(pdf_path: Path, qa_path: Path | None = None) -> dict:
             findings.append(Finding("fail", check, f"Found forbidden student-facing pattern `{pattern}`."))
         else:
             findings.append(Finding("pass", check, "Forbidden pattern not found."))
+
+    if has_unrendered_markdown(all_text):
+        findings.append(Finding("fail", "unrendered_markdown", "Found unrendered Markdown emphasis markers in the student PDF."))
+    else:
+        findings.append(Finding("pass", "unrendered_markdown", "No unrendered Markdown emphasis markers found."))
 
     section_heading_questions = []
     for page_number, text in enumerate(pages, start=1):

@@ -55,6 +55,10 @@ class PdfLayoutCheckUnitTests(unittest.TestCase):
         sequence = {"section_01": 4, "summary": 10}
         self.assertEqual(list(pdf_qa.content_page_range(sequence, 12)), [4, 5, 6, 7, 8, 9])
 
+    def test_markdown_marker_detection_is_literal(self) -> None:
+        self.assertTrue(pdf_qa.has_unrendered_markdown("Field Note: headline.** Body"))
+        self.assertFalse(pdf_qa.has_unrendered_markdown("Field Note headline. Body"))
+
 
 if __name__ == "__main__":
     unittest.main()

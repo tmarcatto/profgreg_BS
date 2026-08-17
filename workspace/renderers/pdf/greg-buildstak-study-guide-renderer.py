@@ -429,8 +429,16 @@ def parse_markdown(markdown: str) -> list[dict[str, Any]]:
                     quote_lines.append(stripped)
                 index += 1
             first_line = quote_lines[0] if quote_lines else ""
+            known_label = re.match(
+                r"^\*\*(KEY TERM|FIELD NOTE|DID YOU KNOW\?|WATCH OUT|APPLY IT|KEY PRINCIPLE|HANDS-ON EXAMPLE|SCENARIO|CALLBACK|BRIDGE):\s*(.*?)\*\*\s*(.*)$",
+                first_line,
+                flags=re.IGNORECASE,
+            )
             labeled = re.match(r"^\*\*(.+?):\*\*\s*(.*)$", first_line)
-            if labeled:
+            if known_label:
+                label = known_label.group(1).strip().upper()
+                body = " ".join([known_label.group(2).strip(), known_label.group(3).strip(), *quote_lines[1:]]).strip()
+            elif labeled:
                 label = labeled.group(1).strip()
                 body = " ".join([labeled.group(2).strip(), *quote_lines[1:]]).strip()
             else:
