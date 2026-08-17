@@ -29,10 +29,13 @@ class GregLiveProductionTests(unittest.TestCase):
             self.assertEqual(4, production.next_study_guide_revision(run, "lesson_01"))
 
     def test_revision_prompt_edits_existing_draft_instead_of_starting_over(self) -> None:
-        prompt = production.study_guide_revision_prompt("# Existing\nKeep this.", "Fix one phrase.", "# References\n- Source")
+        prompt = production.study_guide_revision_prompt(
+            "# Existing\nKeep this.", "Fix one phrase.", "# References\n- Source", attempt=2
+        )
         self.assertIn("Preserve all compliant content", prompt)
         self.assertIn("# Existing\nKeep this.", prompt)
         self.assertIn("Fix one phrase.", prompt)
+        self.assertIn("Revision attempt: 2", prompt)
 
     def test_lesson_source_refresh_requires_full_technical_authority(self) -> None:
         weak = {

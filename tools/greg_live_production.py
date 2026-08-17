@@ -502,8 +502,10 @@ def force_student_references(draft: str, references: str) -> str:
     return f"{body}\n\n# References\n\n{references.removeprefix('# References').strip()}\n"
 
 
-def study_guide_revision_prompt(draft: str, feedback: str, references: str) -> str:
+def study_guide_revision_prompt(draft: str, feedback: str, references: str, *, attempt: int) -> str:
     return f"""Revise the existing Prof Greg student course-book chapter below. Return the complete revised Markdown only.
+
+Revision attempt: {attempt}. This identifier is operational context only; never include it in the chapter.
 
 Revision contract:
 - Apply every required change precisely.
@@ -512,6 +514,7 @@ Revision contract:
 - Keep the approved structural order and student-facing tone.
 - Do not add activities, audience boilerplate, access dates, decorative citations, or unsupported numerical claims.
 - The final References section is controlled separately and will be replaced with the validated references below.
+- Before returning the chapter, verify that the revised wording itself resolves every required change. Returning the existing wording unchanged is not acceptable.
 
 Required changes:
 {feedback}
@@ -911,6 +914,7 @@ def produce_study_guide(course_slug: str, lesson_number: int) -> list[str]:
         if reusable_drafts and reusable_drafts[-1].stat().st_mtime > latest_pdf_mtime and reviewers_pass:
             draft = reusable_drafts[-1].read_text(encoding="utf-8", errors="replace")
             write_text(working_path, draft)
+    prior_revision_was_noop = False
     for attempt in range(1, 6):
         if not draft:
             try:
@@ -924,14 +928,26 @@ def produce_study_guide(course_slug: str, lesson_number: int) -> list[str]:
         if reviewer_passed:
             break
         revision_feedback = "Automatic reviewer changes required:\n- " + "\n- ".join(changes)
+        if prior_revision_was_noop:
+            revision_feedback += (
+                "\n- The previous revision returned the chapter unchanged. Rewrite the exact challenged sentences "
+                "and verify each required change against the final wording."
+            )
         write_text(run / "review" / f"{lesson_tag}_automatic_revision_{attempt:02d}.md", revision_feedback)
         if attempt < 5:
             try:
-                draft = request_text(seed.slug, "technical_content", study_guide_revision_prompt(draft, revision_feedback, references), max_tokens=14000)
+                prior_draft = draft
+                draft = request_text(
+                    seed.slug,
+                    "technical_content",
+                    study_guide_revision_prompt(draft, revision_feedback, references, attempt=attempt),
+                    max_tokens=14000,
+                )
             except ModelRequestError as error:
                 block(run, "lesson_draft", f"Configured technical-content model could not revise Lesson {lesson_number}.\n\nReason: {error}")
                 raise RuntimeError(str(error)) from error
             draft = force_student_references(draft, references)
+            prior_revision_was_noop = draft.strip() == force_student_references(prior_draft, references).strip()
             write_text(working_path, draft)
     else:
         raise RuntimeError("Independent study-guide reviewers still require changes after five automatic revision passes.")
