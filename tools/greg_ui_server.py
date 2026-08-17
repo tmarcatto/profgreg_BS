@@ -1124,12 +1124,16 @@ def ui_shell(default_course: str) -> str:
     function renderCourseMapPanel() {{
       const map = artifactByNames(['course_map_md']);
       const panel = document.getElementById('courseMapPanel');
+      const startButton = document.getElementById('startProduction');
       const activeCourseMap = currentJobs.some(job => job.request_type === 'course_start' && ['queued', 'running'].includes(job.state));
+      const courseMapReady = Boolean(map && currentStatus?.course_map_ready === true);
+      startButton.disabled = activeCourseMap || courseMapReady;
+      startButton.textContent = activeCourseMap ? 'Creating Course Map...' : (courseMapReady ? 'Course Map complete' : 'Create intake and start Course Map');
       if (activeCourseMap) {{
         panel.innerHTML = '<strong>Course Map is being researched and reviewed.</strong> The file will appear only after every automatic check passes.';
         return;
       }}
-      if (!map || currentStatus?.course_map_ready !== true) {{
+      if (!courseMapReady) {{
         const blocked = currentStatus?.stage === 'SOURCE_QA_BLOCKED' || currentStatus?.stage === 'COURSE_MAP_QA_BLOCKED';
         panel.innerHTML = blocked ? '<strong>Course Map is not released.</strong> Greg must complete an automatic correction and pass QA first.' : 'Course Map has not been generated for this course yet.';
         return;

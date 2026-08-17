@@ -34,6 +34,8 @@ class GregUiServerTests(unittest.TestCase):
         self.assertIn("Do not cite text - images allowed", html)
         self.assertIn("Can cite + images allowed", html)
         self.assertIn("Create intake and start Course Map", html)
+        self.assertIn("Course Map complete", html)
+        self.assertIn("startButton.disabled = activeCourseMap || courseMapReady", html)
         self.assertIn("Download Course Map", html)
         self.assertIn("waiting for images", html)
         self.assertIn("Download image request", html)
