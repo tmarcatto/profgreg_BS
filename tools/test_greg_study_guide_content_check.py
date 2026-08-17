@@ -43,6 +43,21 @@ class StudyGuideContentCheckTests(unittest.TestCase):
             result = checker.run_checks(path)
             self.assertFalse(result["passed"])
 
+    def test_professional_use_of_exercise_is_not_a_learner_activity(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "draft.md"
+            path.write_text(
+                "# Introduction\n\nCourse orientation.\n\n# Section 01 - One\n\n"
+                "Design professionals exercise only the authority assigned by contract.\n\n"
+                "> **KEY TERM**\n> Contract authority is assigned.\n\n"
+                "> **SCENARIO**\n> A designer reviews a substitution.\n\n"
+                "# Section 02 - Two\n\nBody.\n\n# Section 03 - Three\n\nBody.\n\n"
+                "# Section 04 - Four\n\nBody.\n\n# References\n\n- A formal book.\n",
+                encoding="utf-8",
+            )
+            result = checker.run_checks(path)
+            self.assertFalse(any(item["check"] == "no_activities" for item in result["findings"] if item["status"] == "fail"))
+
     def test_unapproved_callout_heading_and_dash_punctuation_fail(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             path = Path(tmp) / "draft.md"

@@ -36,7 +36,8 @@ ALLOWED_CALLOUT_LABELS = {
 ACTIVITY_PATTERNS = [
     r"\b(class|student|group|individual|practice|hands-on|interactive)\s+activit(?:y|ies)\b",
     r"\bactivit(?:y|ies)\s+(for|where)\s+(students|learners|the class)\b",
-    r"\bexercise\b",
+    r"\b(?:complete|perform|do|try|begin|finish|work through|student|learner|classroom|practice)\s+(?:this|the|an|a)?\s*exercise\b",
+    r"\bexercise\s*:",
     r"\bquiz\b",
     r"\bquestionnaire\b",
     r"\bdiscussion prompt\b",
