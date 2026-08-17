@@ -36,7 +36,7 @@ SERVER_JOB_ROOT = Path("/srv/profgreg/jobs")
 JOB_STATES = {"queued", "running", "needs_approval", "completed", "failed", "cancelled"}
 JOB_REQUEST_TYPES = {"course_status", "course_start", "stage_next", "lesson_lifecycle", "production_stage", "backup", "full_flow_v1_test"}
 JOB_TRANSITIONS = {
-    "queued": {"running", "cancelled"},
+    "queued": {"running", "failed", "cancelled"},
     "running": {"needs_approval", "completed", "failed", "cancelled"},
     "needs_approval": {"running", "completed", "cancelled"},
     "completed": set(),
@@ -393,10 +393,22 @@ def process_one_worker_job(job_root: Path, *, backup_root: Path = SERVER_BACKUP_
         return {"processed": True, "job_id": job_id, "state": completed["state"], "artifacts": executed.get("artifacts", [])}
     except Exception as error:
         message = summarize_worker_error(error)
-        current = next((item for item in list_jobs(root) if item.get("job_id") == job_id), job)
-        if current.get("state") in {"queued", "running"}:
-            transition_job(root, job_id, "failed", note=message)
-        return {"processed": True, "job_id": job_id, "state": "failed", "error": message}
+        failure_recorded = False
+        try:
+            current = next((item for item in list_jobs(root) if item.get("job_id") == job_id), job)
+            if current.get("state") in {"queued", "running"}:
+                transition_job(root, job_id, "failed", note=message)
+                failure_recorded = True
+        except Exception as state_error:
+            state_note = summarize_worker_error(state_error)
+            message = compact_error_note(f"{message}; worker could not persist failed state: {state_note}")
+        return {
+            "processed": True,
+            "job_id": job_id,
+            "state": "failed",
+            "error": message,
+            "failure_recorded": failure_recorded,
+        }
 
 
 def run_worker_loop(

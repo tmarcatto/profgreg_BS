@@ -118,6 +118,15 @@ class GregServerStatusTests(unittest.TestCase):
             with self.assertRaises(ValueError):
                 checker.transition_job(root, job["job_id"], "completed")
 
+    def test_queued_job_can_fail_before_worker_claim(self) -> None:
+        (ROOT / "tmp" / "jobs").mkdir(parents=True, exist_ok=True)
+        with tempfile.TemporaryDirectory(dir=ROOT / "tmp" / "jobs") as tmp:
+            root = Path(tmp)
+            job = checker.create_job(job_root=root, request_type="backup")
+            failed = checker.transition_job(root, job["job_id"], "failed", note="claim failed")
+            self.assertEqual(failed["state"], "failed")
+            self.assertEqual(failed["last_error"], "claim failed")
+
     def test_job_root_must_be_safe(self) -> None:
         with self.assertRaises(ValueError):
             checker.safe_job_root(Path("/tmp/not-profgreg"))
@@ -159,6 +168,19 @@ class GregServerStatusTests(unittest.TestCase):
             updated = checker.list_jobs(root)[0]
             self.assertEqual(updated["state"], "failed")
             self.assertLessEqual(len(updated["last_error"]), 500)
+
+    def test_worker_claim_write_failure_does_not_crash_loop(self) -> None:
+        (ROOT / "tmp" / "jobs").mkdir(parents=True, exist_ok=True)
+        with tempfile.TemporaryDirectory(dir=ROOT / "tmp" / "jobs") as tmp:
+            root = Path(tmp)
+            job = checker.create_job(job_root=root, request_type="backup")
+            with patch.object(checker, "transition_job", side_effect=PermissionError("read-only job")):
+                result = checker.process_one_worker_job(root, backup_root=ROOT / "tmp" / "worker-backups", dry_run=True)
+            self.assertTrue(result["processed"])
+            self.assertEqual(result["job_id"], job["job_id"])
+            self.assertEqual(result["state"], "failed")
+            self.assertFalse(result["failure_recorded"])
+            self.assertIn("could not persist failed state", result["error"])
 
     def test_worker_lesson_lifecycle_dry_run_completes(self) -> None:
         (ROOT / "tmp" / "jobs").mkdir(parents=True, exist_ok=True)
