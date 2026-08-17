@@ -223,6 +223,38 @@ def normalize_upload_meta(meta: dict) -> dict:
     return meta
 
 
+def parse_visual_source_manifest(value: str) -> dict[str, dict[str, str]]:
+    """Parse one `filename | attribution | URL` line per uploaded image."""
+    result: dict[str, dict[str, str]] = {}
+    for line in (value or "").splitlines():
+        if not line.strip():
+            continue
+        parts = [part.strip() for part in line.split("|", 2)]
+        filename = safe_filename(parts[0])
+        if not filename:
+            continue
+        result[filename.casefold()] = {
+            "source_label": parts[1] if len(parts) > 1 else "Operator supplied technical image",
+            "source_url": parts[2] if len(parts) > 2 else "",
+        }
+    return result
+
+
+def map_visual_batch(files: list[dict[str, object]], request_ids: list[str]) -> list[tuple[dict[str, object], str]]:
+    """Map a complete lesson batch by visual ID in filenames, then displayed order."""
+    if len(files) != len(request_ids):
+        raise ValueError(f"This lesson requires {len(request_ids)} image(s), but {len(files)} file(s) were selected.")
+    remaining = list(request_ids)
+    mapped: list[tuple[dict[str, object], str]] = []
+    for field in files:
+        filename = str(field.get("filename") or "")
+        explicit = next((request_id for request_id in remaining if request_id.casefold() in filename.casefold()), None)
+        request_id = explicit or remaining[0]
+        remaining.remove(request_id)
+        mapped.append((field, request_id))
+    return mapped
+
+
 def read_upload_manifest(upload_root: Path, course_slug: str) -> list[dict]:
     manifest = upload_manifest_path(upload_root, course_slug)
     if not manifest.exists():
@@ -921,7 +953,6 @@ def ui_shell(default_course: str) -> str:
       </div>
       <div class="body">
         <div class="notice hidden" id="message">Ready.</div>
-        <div id="visualCurationPanel"></div>
         <div>
           <div class="lesson-toolbar">
             <div class="lesson-actions">
@@ -965,7 +996,7 @@ def ui_shell(default_course: str) -> str:
       <div class="body">
         <div class="operator-tool">
           <div><label for="operatorTarget">File or image request</label><select id="operatorTarget"></select></div>
-          <div><label for="operatorAction">Action</label><select id="operatorAction"><option value="approve">Approve</option><option value="request_edits">Request edits</option><option value="attach_images">Attach requested image</option></select></div>
+          <div><label for="operatorAction">Action</label><select id="operatorAction"><option value="approve">Approve</option><option value="request_edits">Request edits</option><option value="attach_images">Attach requested images</option></select></div>
           <div class="operator-tool-details" id="operatorToolDetails"></div>
           <div class="operator-tool-actions"><button class="primary" id="applyOperatorAction">Apply action</button></div>
         </div>
@@ -1107,19 +1138,7 @@ def ui_shell(default_course: str) -> str:
       const approved = (currentStatus?.lessons || []).reduce((count, lesson) => count + approvalGroups.filter(group => lesson[group.approvalField] === 'approved').length, 0);
       document.getElementById('approvalCount').textContent = `${{approved}} approvals`;
       renderCourseMapPanel();
-      renderVisualCuration();
       renderOperatorTool();
-    }}
-    function renderVisualCuration() {{
-      const holder = document.getElementById('visualCurationPanel');
-      const waiting = (currentStatus?.lessons || []).filter(item => item.visual_status === 'waiting_images');
-      if (!waiting.length) {{ holder.innerHTML = ''; return; }}
-      holder.innerHTML = waiting.map(item => {{
-        const requestLink = item.image_request_path
-          ? `<a class="download-link" href="/artifact?path=${{encodeURIComponent(item.image_request_path)}}&filename=${{encodeURIComponent(`Lesson ${{item.lesson}} - Image Requests.md`)}}" target="_blank" rel="noopener">Download image request</a>`
-          : '';
-        return `<div class="notice"><strong>Lesson ${{esc(item.lesson)}} is waiting for images.</strong> ${{requestLink}}<br>Select the image request in Operator Action below. The PDF remains withheld until every requested visual passes visual and layout QA.</div>`;
-      }}).join('');
     }}
     function renderCourseMapPanel() {{
       const map = artifactByNames(['course_map_md']);
@@ -1154,10 +1173,11 @@ def ui_shell(default_course: str) -> str:
           operatorTargetMap[id] = {{kind:'artifact', lesson:Number(lesson.lesson), group, path, status, title:lesson.title}};
           options.push(`<option value="${{esc(id)}}">Lesson ${{esc(lesson.lesson)}} · ${{esc(group.title)}} · ${{esc(status === 'approved' ? 'approved' : 'ready for review')}}</option>`);
         }}
-        for (const request of lesson.image_requests || []) {{
-          const id = `image:${{lesson.lesson}}:${{request.visual_id}}`;
-          operatorTargetMap[id] = {{kind:'image', lesson:Number(lesson.lesson), request}};
-          options.push(`<option value="${{esc(id)}}">Lesson ${{esc(lesson.lesson)}} · Image ${{esc(request.visual_id)}} · waiting</option>`);
+        const requests = lesson.image_requests || [];
+        if (requests.length) {{
+          const id = `image-batch:${{lesson.lesson}}`;
+          operatorTargetMap[id] = {{kind:'image', lesson:Number(lesson.lesson), requests}};
+          options.push(`<option value="${{esc(id)}}">Lesson ${{esc(lesson.lesson)}} · ${{requests.length}} requested image${{requests.length === 1 ? '' : 's'}}</option>`);
         }}
       }}
       const select = document.getElementById('operatorTarget');
@@ -1174,8 +1194,8 @@ def ui_shell(default_course: str) -> str:
       if (resetAction) action.value = target.kind === 'image' ? 'attach_images' : (target.status === 'approved' ? 'request_edits' : 'approve');
       [...action.options].forEach(option => option.disabled = target.kind === 'image' ? option.value !== 'attach_images' : option.value === 'attach_images');
       if (target.kind === 'image') {{
-        const request = target.request;
-        details.innerHTML = `<div class="notice"><strong>${{esc(request.visual_id)}}</strong> · ${{esc(request.learning_claim || request.purpose || '')}}</div><label>Image file</label><input id="operatorImageFile" type="file" accept=".png,.jpg,.jpeg,.webp"><label>Source or attribution</label><input id="operatorImageLabel" placeholder="Organization, publication, photographer, or generated by operator"><label>Source URL (when applicable)</label><input id="operatorImageUrl" placeholder="https://...">`;
+        const requestList = target.requests.map(request => `<li><strong>${{esc(request.visual_id)}}</strong> · ${{esc(request.learning_claim || request.purpose || '')}}</li>`).join('');
+        details.innerHTML = `<div class="notice"><strong>Lesson ${{String(target.lesson).padStart(2, '0')}} technical image batch</strong><ul>${{requestList}}</ul></div><label>Image files</label><input id="operatorImageFiles" type="file" multiple accept=".png,.jpg,.jpeg,.webp"><label>Sources and URLs</label><textarea id="operatorImageSources" placeholder="filename.ext | source or attribution | https://source-url\nOne line per file, in the same order as the requests above."></textarea>`;
       }} else {{
         const group = target.group;
         const filename = downloadFilename(group, target.path);
@@ -1186,7 +1206,7 @@ def ui_shell(default_course: str) -> str:
       const target = operatorTargetMap[document.getElementById('operatorTarget').value];
       if (!target) return;
       const action = document.getElementById('operatorAction').value;
-      if (action === 'attach_images') {{ await uploadVisualResponse(target.lesson, target.request.visual_id, 'operator'); return; }}
+      if (action === 'attach_images') {{ await uploadVisualBatch(target.lesson, target.requests); return; }}
       const note = document.getElementById('operatorNote')?.value || '';
       if (action === 'request_edits' && !note.trim()) {{ msg.textContent = 'Write the requested edits before sending the file back.'; return; }}
       if (action === 'approve') {{ await approveArtifact(target.group.artifactType, null, target.path, target.lesson, note); return; }}
@@ -1343,7 +1363,7 @@ def ui_shell(default_course: str) -> str:
         ? lessons.map(item => `<tr>
             <td><input type="checkbox" data-lesson-select="${{esc(item.lesson)}}" aria-label="Select Lesson ${{esc(item.lesson)}}"></td>
             <td class="lesson-title-cell">Lesson ${{esc(item.lesson)}}<br><span class="muted">${{esc(item.title || '')}}</span></td>
-            <td>${{statusPill(item.visual_status === 'waiting_images' ? 'waiting images' : item.visual_status || 'pending')}}</td>
+            <td>${{visualCell(item)}}</td>
             <td>${{documentCell(item, 'study_guide', 'study_guide_path', 'Course Book')}}</td>
             <td>${{documentCell(item, 'deck', 'deck_path', 'Presentation')}}</td>
             <td>${{documentCell(item, 'pt_br_study_guide', 'pt_br_study_guide_path', 'PT-BR Book')}}</td>
@@ -1353,6 +1373,12 @@ def ui_shell(default_course: str) -> str:
           </tr>`).join('')
         : '<tr><td colspan="9" class="muted">Generate the Course Map first to choose lessons.</td></tr>';
       document.getElementById('selectAllLessons').checked = false;
+    }}
+    function visualCell(item) {{
+      const pill = statusPill(item.visual_status === 'waiting_images' ? 'waiting images' : item.visual_status || 'pending');
+      if (item.visual_status !== 'waiting_images' || !item.image_request_path) return `<span class="doc-cell">${{pill}}</span>`;
+      const filename = `Lesson ${{String(item.lesson).padStart(2, '0')}} - Image Requests.md`;
+      return `<span class="doc-cell">${{pill}} <a class="doc-link" href="/artifact?path=${{encodeURIComponent(item.image_request_path)}}&filename=${{encodeURIComponent(filename)}}" target="_blank" rel="noopener">request</a></span>`;
     }}
     function documentCell(item, statusField, pathField, label) {{
       const status = item[statusField] || 'missing';
@@ -1415,25 +1441,23 @@ def ui_shell(default_course: str) -> str:
         await refresh();
       }} catch (error) {{ msg.textContent = error.message; }}
     }}
-    async function uploadVisualResponse(lesson, requestId, source) {{
+    async function uploadVisualBatch(lesson, requests) {{
       try {{
-        const operatorMode = source === 'operator';
-        const input = operatorMode ? document.getElementById('operatorImageFile') : document.getElementById('visual-file-' + requestId);
-        if (!input?.files?.length) throw new Error('Choose an image for this request.');
+        const input = document.getElementById('operatorImageFiles');
+        if (!input?.files?.length) throw new Error('Choose all requested images for this lesson.');
         const form = new FormData();
         form.append('course', course.value);
         form.append('scope', 'lesson');
         form.append('lesson', lesson);
         form.append('reference_policy', 'image_only');
         form.append('purpose', 'visual_response');
-        form.append('visual_request_id', requestId);
-        form.append('source_label', (operatorMode ? document.getElementById('operatorImageLabel') : document.getElementById('visual-label-' + requestId))?.value || 'Operator supplied image');
-        form.append('source_url', (operatorMode ? document.getElementById('operatorImageUrl') : document.getElementById('visual-url-' + requestId))?.value || '');
-        form.append('files', input.files[0]);
+        form.append('visual_request_ids', JSON.stringify(requests.map(request => request.visual_id)));
+        form.append('source_manifest', document.getElementById('operatorImageSources')?.value || '');
+        for (const file of input.files) form.append('files', file);
         const res = await fetch('/api/upload', {{method:'POST', body:form}});
         const data = await res.json();
         if (!res.ok) throw new Error(data.error || 'Image upload failed');
-        msg.textContent = 'Image received. Resume course book production when all requested images are present.';
+        msg.textContent = data.message || 'Technical image batch received.';
         await refresh();
       }} catch (error) {{ msg.textContent = error.message; }}
     }}
@@ -1552,14 +1576,23 @@ class GregUiHandler(BaseHTTPRequestHandler):
                 reference_policy = str(fields.get("reference_policy") or "context_only")
                 purpose = str(fields.get("purpose") or "source_material")
                 visual_request_id = str(fields.get("visual_request_id") or "")
+                visual_request_ids = json.loads(fields.get("visual_request_ids") or "[]")
+                if not isinstance(visual_request_ids, list):
+                    raise ValueError("visual_request_ids must be a list.")
+                source_manifest = parse_visual_source_manifest(str(fields.get("source_manifest") or ""))
                 source_label = str(fields.get("source_label") or "")
                 source_url = str(fields.get("source_url") or "")
                 saved = []
-                for field in file_fields:
+                if purpose == "visual_response" and visual_request_ids:
+                    fields_to_save = map_visual_batch(file_fields, [str(item) for item in visual_request_ids])
+                else:
+                    fields_to_save = [(field, visual_request_id) for field in file_fields]
+                for field, mapped_request_id in fields_to_save:
                     filename = str(field.get("filename") or "")
                     data = bytes(field.get("data") or b"")
                     if not filename:
                         continue
+                    source_meta = source_manifest.get(safe_filename(filename).casefold(), {})
                     saved.append(
                         save_uploaded_file(
                             upload_root=getattr(self.server, "upload_root"),
@@ -1570,12 +1603,32 @@ class GregUiHandler(BaseHTTPRequestHandler):
                             lesson=lesson,
                             reference_policy=reference_policy,
                             purpose=purpose,
-                            visual_request_id=visual_request_id,
-                            source_label=source_label,
-                            source_url=source_url,
+                            visual_request_id=mapped_request_id,
+                            source_label=str(source_meta.get("source_label") or source_label or "Operator supplied technical image"),
+                            source_url=str(source_meta.get("source_url") or source_url),
                         )
                     )
-                self.send_json(HTTPStatus.OK, {"message": f"Uploaded {len(saved)} file(s).", "uploads": saved})
+                job = None
+                if purpose == "visual_response" and visual_request_ids:
+                    available = {
+                        item.get("visual_request_id")
+                        for item in list_uploads(getattr(self.server, "upload_root"), course)
+                        if item.get("purpose") == "visual_response"
+                    }
+                    if set(str(item) for item in visual_request_ids).issubset(available):
+                        queued = enqueue_job(
+                            job_root=getattr(self.server, "job_root"),
+                            request_type="production_stage",
+                            course_slug=course,
+                            lesson=lesson,
+                            summary=f"technical image batch received for Lesson {lesson}",
+                            payload={"stage": "study_guide", "lessons": [lesson]},
+                        )
+                        job = queued.job
+                message = f"Uploaded {len(saved)} file(s)."
+                if job:
+                    message += " Course book production resumed automatically."
+                self.send_json(HTTPStatus.OK, {"message": message, "uploads": saved, "job": job})
                 return
             body = read_request_body(self)
             job_root = getattr(self.server, "job_root")

@@ -71,6 +71,30 @@ class GregLiveProductionTests(unittest.TestCase):
         self.assertIn("PM responsibilities vs field leadership", titles)
         self.assertNotIn("Identify", titles)
 
+    def test_role_document_is_not_escalated_to_operator(self) -> None:
+        visual = {
+            "visual_type": "trusted-source-image",
+            "purpose": "show a real residential superintendent job description",
+            "learning_claim": "The PM role includes repeatable coordination duties",
+            "core_message_depends_on_real_example": True,
+            "technical_fidelity_required": True,
+        }
+        normalized = production.normalize_visual_strategy(visual)
+        self.assertEqual(normalized["visual_type"], "deterministic-diagram")
+        self.assertFalse(production.technical_visual_requires_operator(normalized))
+
+    def test_actual_floor_plan_can_require_operator_source(self) -> None:
+        visual = {
+            "visual_type": "trusted-source-image",
+            "purpose": "inspect an actual residential floor plan",
+            "learning_claim": "A floor plan communicates walls openings and dimensions",
+            "technical_object_type": "floor plan",
+            "core_message_depends_on_real_example": True,
+            "technical_fidelity_required": True,
+        }
+        self.assertTrue(production.technical_visual_requires_operator(visual))
+        self.assertEqual(production.normalize_visual_strategy(visual)["visual_type"], "trusted-source-image")
+
 
 if __name__ == "__main__":
     unittest.main()

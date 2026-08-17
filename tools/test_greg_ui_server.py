@@ -38,9 +38,10 @@ class GregUiServerTests(unittest.TestCase):
         self.assertIn("startButton.disabled = activeCourseMap || courseMapReady", html)
         self.assertIn("Download Course Map", html)
         self.assertIn("waiting for images", html)
-        self.assertIn("Download image request", html)
-        self.assertIn("uploadVisualResponse", html)
-        self.assertIn("Select the image request in Operator Action", html)
+        self.assertIn("Image Requests.md", html)
+        self.assertIn("uploadVisualBatch", html)
+        self.assertIn("operatorImageFiles", html)
+        self.assertIn("multiple accept", html)
         self.assertIn("/api/start-course", html)
         self.assertIn("/api/produce", html)
         self.assertIn("Generate course books", html)
@@ -53,7 +54,8 @@ class GregUiServerTests(unittest.TestCase):
         self.assertIn("Request edits", html)
         self.assertIn("Download", html)
         self.assertIn("operatorTarget", html)
-        self.assertIn("attach_images", html)
+        self.assertIn("Attach requested images", html)
+        self.assertNotIn("visualCurationPanel", html)
         self.assertNotIn("Download blocked file", html)
         self.assertIn("/artifact?path=", html)
         self.assertIn("approveArtifact", html)
@@ -153,6 +155,20 @@ class GregUiServerTests(unittest.TestCase):
             self.assertEqual(result["purpose"], "visual_response")
             self.assertEqual(result["visual_request_id"], "L02V01")
             self.assertEqual(result["scope"], "lesson_02")
+
+    def test_visual_batch_maps_ids_by_filename_then_order(self) -> None:
+        files = [{"filename": "L01V02-plan.png"}, {"filename": "field-photo.jpg"}]
+        mapped = ui.map_visual_batch(files, ["L01V01", "L01V02"])
+        self.assertEqual([item[1] for item in mapped], ["L01V02", "L01V01"])
+
+    def test_visual_batch_rejects_incomplete_batch(self) -> None:
+        with self.assertRaisesRegex(ValueError, "requires 2 image"):
+            ui.map_visual_batch([{"filename": "one.png"}], ["L01V01", "L01V02"])
+
+    def test_visual_source_manifest_supports_filename_source_and_url(self) -> None:
+        parsed = ui.parse_visual_source_manifest("plan.png | City permit set | https://example.com/plan\n")
+        self.assertEqual(parsed["plan.png"]["source_label"], "City permit set")
+        self.assertEqual(parsed["plan.png"]["source_url"], "https://example.com/plan")
 
     def test_update_and_delete_upload_manifest_entry(self) -> None:
         (ROOT / "tmp" / "uploads").mkdir(parents=True, exist_ok=True)

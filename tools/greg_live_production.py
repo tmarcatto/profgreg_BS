@@ -686,12 +686,12 @@ def visual_plan_prompt(seed, lesson: dict[str, Any], draft: str, uploads: list[d
     image_inventory = [
         {"upload_id": item.get("upload_id"), "filename": item.get("filename"), "scope": item.get("scope"), "visual_request_id": item.get("visual_request_id"), "stored_path": item.get("stored_path"), "source_url": item.get("source_url")}
         for item in uploads
-        if item.get("purpose") == "visual_response"
+        if item.get("purpose") == "visual_response" or item.get("images_allowed")
     ]
     return f"""Return JSON only. Create a production-ready visual plan for this student course book.
 Lesson {lesson['lesson_number']}: {lesson['title']} in {seed.title}.
 
-Use 2-4 distinct instructional visuals, roughly one visual per three content pages. Every visual must teach a unique claim. Prefer deterministic diagrams for structures/processes. Use a trusted real image when the core teaching object is a real plan, schedule, document, symbol, or technical example. Generated conceptual images are fallback only, must be residential-construction focused, and may not occupy over half a page. When people appear, respectfully show a mixed American-born and immigrant U.S. construction workforce. Never repeat a visual or its learning claim.
+Use 2-4 distinct instructional visuals, roughly one visual per three content pages. Every visual must teach a unique claim. Prefer deterministic diagrams for structures, roles, responsibilities, comparisons, and processes. A trusted real image may be required only when students must inspect a fidelity-sensitive technical object such as an actual plan, schedule, specification page, code table, contract form, technical symbol set, equipment detail, or inspection record. Job descriptions, role maps, stakeholder maps, workflows, generic jobsite scenes, and conceptual comparisons are never operator-image requests: use a deterministic diagram or generated conceptual image. Generated conceptual images must be residential-construction focused and may not occupy over half a page. When people appear, respectfully show a mixed American-born and immigrant U.S. construction workforce. Never repeat a visual or its learning claim.
 
 Available operator visual responses:
 {json.dumps(image_inventory, ensure_ascii=False)}
@@ -700,19 +700,62 @@ Lesson draft:
 {draft[:36000]}
 
 Return:
-{{"artifact_type":"study-guide","visual_curation_required":false,"visuals":[{{"visual_id":"L{int(lesson['lesson_number']):02d}V01","visual_type":"deterministic-diagram|generated-conceptual-image|trusted-source-image","placement":"after Section 01 - exact heading","purpose":"at least four words","learning_claim":"at least five words and unique","source_status":"not-required|verified|source-needed","source_id":"","source_url":"","attribution":"","prompt":"detailed English image prompt when generated","google_search_phrase":"English keywords when trusted source is needed","diagram_left_header":"specific heading","diagram_right_header":"specific heading","diagram_rows":[{{"left":"specific concept","right":"specific field meaning"}}],"context_focus":"U.S. residential construction","depicts_people":false,"workforce_representation":"","core_message_depends_on_real_example":false,"max_area_percent":45,"highlighted":false,"internal_text":false,"internal_text_position":"top"}}]}}"""
+{{"artifact_type":"study-guide","visual_curation_required":false,"visuals":[{{"visual_id":"L{int(lesson['lesson_number']):02d}V01","visual_type":"deterministic-diagram|generated-conceptual-image|trusted-source-image","placement":"after Section 01 - exact heading","purpose":"at least four words","learning_claim":"at least five words and unique","source_status":"not-required|verified|source-needed","source_id":"","source_url":"","attribution":"","prompt":"detailed English image prompt when generated","google_search_phrase":"English keywords only for a fidelity-sensitive technical object","diagram_left_header":"specific heading","diagram_right_header":"specific heading","diagram_rows":[{{"left":"specific concept","right":"specific field meaning"}}],"context_focus":"U.S. residential construction","depicts_people":false,"workforce_representation":"","core_message_depends_on_real_example":false,"technical_fidelity_required":false,"technical_object_type":"","max_area_percent":45,"highlighted":false,"internal_text":false,"internal_text_position":"top"}}]}}"""
+
+
+TECHNICAL_VISUAL_TERMS = re.compile(
+    r"\b(blueprint|floor plan|site plan|drawing|schedule|gantt|specification|spec page|"
+    r"code table|contract form|change order form|technical symbol|wiring diagram|"
+    r"equipment detail|inspection record|permit document|detail sheet|section drawing)\b",
+    re.IGNORECASE,
+)
+DIAGRAM_VISUAL_TERMS = re.compile(
+    r"\b(role|responsibilit|duties|workflow|process|lifecycle|stakeholder|comparison|"
+    r"decision|relationship|sequence|framework|job description|coordination)\b",
+    re.IGNORECASE,
+)
+
+
+def technical_visual_requires_operator(visual: dict[str, Any]) -> bool:
+    """Reserve operator escalation for visuals whose technical fidelity is instructional."""
+    description = " ".join(
+        str(visual.get(key) or "")
+        for key in ("purpose", "learning_claim", "technical_object_type", "google_search_phrase")
+    )
+    return bool(
+        visual.get("technical_fidelity_required") is True
+        and visual.get("core_message_depends_on_real_example") is True
+        and TECHNICAL_VISUAL_TERMS.search(description)
+    )
+
+
+def normalize_visual_strategy(visual: dict[str, Any]) -> dict[str, Any]:
+    normalized = dict(visual)
+    if normalized.get("visual_type") != "trusted-source-image":
+        return normalized
+    if technical_visual_requires_operator(normalized):
+        return normalized
+    description = " ".join(str(normalized.get(key) or "") for key in ("purpose", "learning_claim"))
+    normalized["visual_type"] = "deterministic-diagram" if DIAGRAM_VISUAL_TERMS.search(description) else "generated-conceptual-image"
+    normalized["source_status"] = "not-required"
+    normalized["technical_fidelity_required"] = False
+    return normalized
 
 
 def visual_request_document(seed, lesson: dict[str, Any], visuals: list[dict[str, Any]]) -> str:
     lines = [
         f"# Lesson {lesson['lesson_number']} Image Requests",
         "",
-        "The lesson is ready for visual curation. Upload one image for each request below in the operator console. Use images you are permitted to reuse and include the source URL or attribution.",
+        f"This batch contains every technical image still required for Lesson {lesson['lesson_number']}. Upload all requested images together in the operator console. Use images you are permitted to reuse and provide one source line per filename.",
+        "",
+        "Source format: `filename.ext | source or attribution | https://source-url`",
         "",
     ]
     for visual in visuals:
         lines.extend([
             f"## {visual.get('visual_id')}: {visual.get('learning_claim')}",
+            "",
+            f"Technical object: {visual.get('technical_object_type') or 'Technical source image'}",
             "",
             f"Purpose: {visual.get('purpose')}",
             "",
@@ -729,7 +772,7 @@ def create_visual_assets(seed, lesson: dict[str, Any], draft: str, run: Path, le
         plan = json.loads(prior_plan.read_text(encoding="utf-8"))
     else:
         plan = strip_json_fence(request_text(seed.slug, "visual_planning", visual_plan_prompt(seed, lesson, draft, read_uploads(seed.slug)), max_tokens=6500))
-    visuals = plan.get("visuals") or []
+    visuals = [normalize_visual_strategy(visual) for visual in (plan.get("visuals") or [])]
     section_headings = re.findall(r"(?im)^#\s+(Section\s+\d{2}\s+-\s+[^\n]+)$", draft)
     generated_seen = 0
     for index, visual in enumerate(visuals):
@@ -740,7 +783,12 @@ def create_visual_assets(seed, lesson: dict[str, Any], draft: str, run: Path, le
             if generated_seen > 1:
                 visual["visual_type"] = "deterministic-diagram"
                 visual["source_status"] = "not-required"
-    visual_responses = [item for item in read_uploads(seed.slug) if item.get("purpose") == "visual_response"]
+    uploads = read_uploads(seed.slug)
+    visual_responses = [item for item in uploads if item.get("purpose") == "visual_response"]
+    allowed_source_images = [
+        item for item in uploads
+        if item.get("images_allowed") and Path(str(item.get("stored_path") or "")).suffix.lower() in {".png", ".jpg", ".jpeg", ".webp"}
+    ]
     render_visuals: list[dict[str, Any]] = []
     requests: list[dict[str, Any]] = []
     for index, visual in enumerate(visuals):
@@ -772,12 +820,12 @@ def create_visual_assets(seed, lesson: dict[str, Any], draft: str, run: Path, le
                 visual["source_status"] = "not-required"
                 visual["path"] = rel(image_path)
                 render_visuals.append({"after_heading": str(visual.get("placement") or "").removeprefix("after ").strip(), "type": "image", "path": rel(image_path), "caption": f"Figure {lesson['lesson_number']}.{index + 1}. {visual.get('learning_claim')}", "max_height": 3.5})
-            except ModelRequestError:
-                visual["source_status"] = "source-needed"
-                visual["google_search_phrase"] = visual.get("google_search_phrase") or f"residential construction {lesson['title']} {visual.get('purpose', '')}"
-                requests.append(visual)
+            except ModelRequestError as error:
+                raise RuntimeError("Conceptual image generation failed and must be retried automatically; it cannot be delegated to the operator.") from error
         elif kind == "trusted-source-image":
             match = next((item for item in visual_responses if item.get("visual_request_id") == visual["visual_id"]), None)
+            if not match and visual.get("source_id"):
+                match = next((item for item in allowed_source_images if item.get("upload_id") == visual.get("source_id")), None)
             if match and Path(str(match.get("stored_path") or "")).is_file():
                 source_path = Path(str(match["stored_path"]))
                 image_path = run / "review" / "visual_assets" / f"{visual['visual_id']}{source_path.suffix.lower()}"
@@ -789,6 +837,8 @@ def create_visual_assets(seed, lesson: dict[str, Any], draft: str, run: Path, le
                 visual["attribution"] = match.get("source_label") or match.get("filename")
                 render_visuals.append({"after_heading": str(visual.get("placement") or "").removeprefix("after ").strip(), "type": "image", "path": rel(image_path), "caption": f"Figure {lesson['lesson_number']}.{index + 1}. {visual.get('learning_claim')} Source: {visual.get('attribution')}", "max_height": 3.7})
             else:
+                if not technical_visual_requires_operator(visual):
+                    raise RuntimeError("A non-technical visual reached operator escalation after visual normalization.")
                 visual["source_status"] = "source-needed"
                 requests.append(visual)
     plan["visuals"] = visuals
