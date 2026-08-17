@@ -134,11 +134,21 @@ def request_image(course_slug: str, prompt: str, output_path: Path, *, size: str
     return output_path
 
 
-def anthropic_text(base_url: str, api_key: str, model: str, prompt: str, max_tokens: int) -> str:
+def anthropic_text(
+    base_url: str,
+    api_key: str,
+    model: str,
+    prompt: str,
+    max_tokens: int,
+    *,
+    timeout: int = 600,
+) -> str:
     response = post_json(
         f"{base_url.rstrip('/')}/v1/messages",
         {"model": model, "max_tokens": max_tokens, "messages": [{"role": "user", "content": prompt}]},
         {"x-api-key": api_key, "anthropic-version": "2023-06-01"},
+        timeout=timeout,
+        attempts=2,
     )
     text = "".join(
         str(block.get("text") or "") for block in response.get("content") or [] if block.get("type") == "text"
@@ -148,7 +158,16 @@ def anthropic_text(base_url: str, api_key: str, model: str, prompt: str, max_tok
     return text
 
 
-def openai_text(base_url: str, api_key: str, model: str, prompt: str, max_tokens: int, web_search: bool) -> str:
+def openai_text(
+    base_url: str,
+    api_key: str,
+    model: str,
+    prompt: str,
+    max_tokens: int,
+    web_search: bool,
+    *,
+    timeout: int = 600,
+) -> str:
     payload: dict[str, Any] = {
         "model": model,
         "input": prompt,
@@ -160,6 +179,8 @@ def openai_text(base_url: str, api_key: str, model: str, prompt: str, max_tokens
         f"{base_url.rstrip('/')}/v1/responses",
         payload,
         {"Authorization": f"Bearer {api_key}"},
+        timeout=timeout,
+        attempts=2,
     )
     text = str(response.get("output_text") or "").strip()
     if not text:

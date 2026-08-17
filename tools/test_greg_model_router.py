@@ -19,6 +19,18 @@ class ModelRouterRetryTests(unittest.TestCase):
         self.assertEqual(2, urlopen.call_count)
         sleep.assert_called_once_with(1)
 
+    @patch("greg_model_router.post_json")
+    def test_anthropic_long_generation_uses_extended_timeout(self, post_json):
+        post_json.return_value = {"content": [{"type": "text", "text": "draft"}]}
+
+        result = greg_model_router.anthropic_text(
+            "https://example.test", "secret", "configured-model", "prompt", 14000
+        )
+
+        self.assertEqual("draft", result)
+        self.assertEqual(600, post_json.call_args.kwargs["timeout"])
+        self.assertEqual(2, post_json.call_args.kwargs["attempts"])
+
     @patch("greg_model_router.time.sleep")
     @patch("greg_model_router.urllib.request.urlopen")
     def test_remote_disconnect_is_normalized_after_last_attempt(self, urlopen, sleep):
