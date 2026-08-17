@@ -95,6 +95,15 @@ def wrap_lines(text: str, font: str, size: int, max_width: float) -> list[str]:
     return lines
 
 
+def fit_cover_title(text: str, max_width: float, max_lines: int = 3) -> tuple[list[str], int]:
+    """Fit the complete course title into the fixed cover title region."""
+    for font_size in (30, 28, 26, 24, 22, 20, 18):
+        lines = wrap_lines(text, "Helvetica-Bold", font_size, max_width)
+        if len(lines) <= max_lines:
+            return lines, font_size
+    raise ValueError("Course title is too long for the approved cover layout.")
+
+
 def draw_visual_title(canvas, title: str, width: float, height: float) -> int:
     """Draw a readable visual title without crossing the content frame."""
     max_width = width - 4
@@ -499,10 +508,11 @@ def make_doc(output: Path, metadata: dict[str, Any]):
         if icon.exists():
             canvas.drawImage(str(icon), W - 2.12 * inch, H - 2.1 * inch, width=0.48 * inch, height=0.48 * inch, mask="auto")
         canvas.setFillColor(NAVY)
-        canvas.setFont("Helvetica-Bold", 30)
+        title_lines, title_font = fit_cover_title(course, W - 3.5 * inch)
+        canvas.setFont("Helvetica-Bold", title_font)
         text = canvas.beginText(1.75 * inch, H - 3.1 * inch)
-        text.setLeading(34)
-        for line in metadata.get("course_title_lines") or wrap_lines(course, "Helvetica-Bold", 30, W - 3.5 * inch)[:3]:
+        text.setLeading(title_font + 4)
+        for line in title_lines:
             text.textLine(line)
         canvas.drawText(text)
         canvas.setStrokeColor(ORANGE)

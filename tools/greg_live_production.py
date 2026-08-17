@@ -878,7 +878,7 @@ def render_reviewed_study_guide(seed, lesson: dict[str, Any], draft_path: Path, 
         "revision": f"r{revision:02d}",
         "run_folder": f"runs/{seed.slug}",
         "source_markdown": rel(draft_path),
-        "metadata": {"course_title": seed.title, "course_title_lines": seed.title.split(":")[0].split()[:5], "lesson_number": str(lesson_number), "lesson_short_title": lesson['title'], "level_label": seed.level if str(seed.level).lower().endswith("level") else f"{seed.level} Level", "quote": '"Form follows function."', "quote_author": "Louis Sullivan", "icon": BRAND_ICON},
+        "metadata": {"course_title": seed.title, "lesson_number": str(lesson_number), "lesson_short_title": lesson['title'], "level_label": seed.level if str(seed.level).lower().endswith("level") else f"{seed.level} Level", "quote": '"Form follows function."', "quote_author": "Louis Sullivan", "icon": BRAND_ICON},
         "output": {"pdf": f"docx_pdf/{pdf_name}", "render_qa": f"docx_pdf/{lesson_tag}_render_qa_r{revision:02d}.md", "layout_qa": f"docx_pdf/{lesson_tag}_pdf_layout_qa_r{revision:02d}.md", "rendered_dir": f"docx_pdf/rendered_pages_{lesson_tag}_r{revision:02d}"},
         "visuals": render_visuals,
         "qa_notes": ["Revisioned student artifact; old outputs remain archived.", "Content and layout QA must pass before human review."],
@@ -1145,7 +1145,7 @@ def localize_book(course_slug: str, lesson_number: int, locale: str) -> list[str
         "course_slug": seed.slug, "course_title": seed.title, "lesson_number": str(lesson_number),
         "production_mode": "initial", "revision": f"r{revision:02d}", "run_folder": f"runs/{seed.slug}",
         "source_markdown": rel(draft_path),
-        "metadata": {"course_title": seed.title, "course_title_lines": seed.title.split(":")[0].split()[:5], "lesson_number": str(lesson_number), "lesson_short_title": f"{locale.upper()} - Lesson {lesson_number}", "lesson_subtitle": language, "level_label": f"{seed.level} Level", "quote": '"Form follows function."', "quote_author": "Louis Sullivan", "icon": BRAND_ICON},
+        "metadata": {"course_title": seed.title, "lesson_number": str(lesson_number), "lesson_short_title": f"{locale.upper()} - Lesson {lesson_number}", "lesson_subtitle": language, "level_label": f"{seed.level} Level", "quote": '"Form follows function."', "quote_author": "Louis Sullivan", "icon": BRAND_ICON},
         "output": {"pdf": f"localization/{folder}/{pdf_name}", "render_qa": f"localization/{folder}/{lesson_tag}_{locale}_render_qa_r{revision:02d}.md", "layout_qa": f"localization/{folder}/{lesson_tag}_{locale}_layout_qa_r{revision:02d}.md", "rendered_dir": f"localization/{folder}/rendered_pages_{lesson_tag}_r{revision:02d}"},
         "visuals": [], "qa_notes": ["Initial production is being prepared for approval.", "Localized artifact is derived from an approved English course book."]
     }

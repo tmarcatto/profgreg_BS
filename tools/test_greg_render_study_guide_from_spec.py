@@ -70,6 +70,15 @@ class RenderStudyGuideFromSpecTests(unittest.TestCase):
             "These responsibilities are one job, not six. The duties run simultaneously.",
         )
 
+    def test_long_cover_title_fits_three_lines_without_dropping_words(self) -> None:
+        if pdf_renderer is None:
+            self.skipTest("ReportLab is not installed in this Python environment.")
+        title = "The Complete Construction Project Manager From Pre-Construction to Closeout"
+        lines, font_size = pdf_renderer.fit_cover_title(title, 360)
+        self.assertLessEqual(len(lines), 3)
+        self.assertGreaterEqual(font_size, 18)
+        self.assertEqual(" ".join(lines), title)
+
 
 if __name__ == "__main__":
     unittest.main()
