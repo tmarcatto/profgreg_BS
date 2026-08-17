@@ -89,7 +89,7 @@ def study_guide_quality_blockers(run: Path, lesson: str, artifact_path: Path | N
     references = read_text(run / "sources" / "student_references.md")
     content_qa = read_text(run / "lesson_draft" / f"lesson_{lesson}_content_qa{suffix}.md")
     layout_qa = read_text(run / "docx_pdf" / f"lesson_{lesson}_pdf_layout_qa{suffix}.md")
-    source_qa = read_text(run / "sources" / "source_reference_qa.md")
+    source_qa = read_text(run / "sources" / f"lesson_{lesson}_source_reference_qa.md") or read_text(run / "sources" / "source_reference_qa.md")
     blockers: list[str] = []
     intro_area = draft.split("# Section 01", 1)[0]
     if re.search(r"\bthis study guide is written for\b|\bconstruction learners working in the united states\b", intro_area, flags=re.I):
@@ -135,6 +135,33 @@ def report_passed(path: Path, label: str) -> bool | None:
     if not match:
         return None
     return match.group(1).lower() == "yes"
+
+
+def approved_artifact_count(lessons: list[dict], fields: tuple[str, ...]) -> int:
+    return sum(1 for lesson in lessons for field in fields if lesson.get(field) == "approved")
+
+
+def operating_progress(course_map_ready: bool, lessons: list[dict]) -> dict:
+    """Return weighted progress based only on approved deliverables."""
+    lesson_count = len(lessons)
+    books = approved_artifact_count(lessons, ("study_guide",))
+    decks = approved_artifact_count(lessons, ("deck",))
+    translations = approved_artifact_count(
+        lessons,
+        ("pt_br_study_guide", "pt_br_deck", "es_study_guide", "es_deck"),
+    )
+    map_points = 25.0 if course_map_ready else 0.0
+    book_points = 25.0 * books / lesson_count if lesson_count else 0.0
+    deck_points = 25.0 * decks / lesson_count if lesson_count else 0.0
+    translation_total = lesson_count * 4
+    translation_points = 25.0 * translations / translation_total if translation_total else 0.0
+    return {
+        "percent": round(min(100.0, map_points + book_points + deck_points + translation_points), 3),
+        "course_map": {"approved": bool(course_map_ready), "points": map_points},
+        "course_books": {"approved": books, "total": lesson_count, "points": round(book_points, 3)},
+        "presentations": {"approved": decks, "total": lesson_count, "points": round(deck_points, 3)},
+        "translations": {"approved": translations, "total": translation_total, "points": round(translation_points, 3)},
+    }
 
 
 def infer_stage(artifacts: list[ArtifactStatus]) -> str:
@@ -216,7 +243,21 @@ def summarize(course_slug: str) -> dict:
         stage = "COURSE_MAP_QA_BLOCKED"
         gate_status = "Course Map is blocked by automatic QA. Greg must revise the Course Map before lesson production."
         next_action = "re-run Course Map production; automatic QA must pass before lesson selection."
-    elif course_map_passed is True and (run / "sources" / "source_ledger.json").exists():
+    course_source_qa_path = run / "sources" / "course_source_reference_qa.md"
+    if not course_source_qa_path.exists():
+        course_source_qa_path = run / "sources" / "source_reference_qa.md"
+    source_reference_passed = report_passed(course_source_qa_path, "Source/reference QA passed")
+    course_map_ready = bool(
+        course_map_passed is True
+        and (run / "course_map" / "course_map.md").exists()
+        and (run / "sources" / "source_ledger.json").exists()
+        and source_reference_passed is True
+    )
+    if course_map_passed is True and source_reference_passed is False:
+        stage = "SOURCE_QA_BLOCKED"
+        gate_status = "Course Map source review requires an automatic correction before release."
+        next_action = "re-run Course Map and source research; the operator file remains unavailable until QA passes."
+    elif course_map_ready:
         stage = "LESSON_PRODUCTION"
         gate_status = "Course Map and source ledger are ready. Select lesson(s) for course book production."
         next_action = "select one, several, or all lessons and generate course books."
@@ -245,6 +286,8 @@ def summarize(course_slug: str) -> dict:
         "canonical_manifest": rel(canonical_json) if canonical_json.exists() else None,
         "next_recommended_action": next_action,
         "lessons": lessons_summary,
+        "course_map_ready": course_map_ready,
+        "progress": operating_progress(course_map_ready, lessons_summary),
     }
 
 
@@ -260,7 +303,7 @@ def summarize_lessons(run: Path, manifest: dict) -> list[dict]:
             "es_study_guide": "missing",
             "es_deck": "missing",
             "pipeline_qa": "missing",
-            "visual_status": "pending",
+            "visual_status": "not_planned",
         }
         for lesson, title in lesson_titles(run).items()
     }
@@ -282,7 +325,7 @@ def summarize_lessons(run: Path, manifest: dict) -> list[dict]:
                 "es_study_guide": "missing",
                 "es_deck": "missing",
                 "pipeline_qa": "missing",
-                "visual_status": "pending",
+                "visual_status": "not_planned",
             },
         )
         item_path = str(item.get("path") or "")

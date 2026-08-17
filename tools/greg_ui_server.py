@@ -535,7 +535,7 @@ def ui_shell(default_course: str) -> str:
       border: 1px solid var(--line);
       border-radius: 6px;
     }}
-    input, textarea, select {{ padding: 10px 12px; color: var(--ink); background: #fff; }}
+    input, textarea, select {{ padding: 10px 12px; color: var(--ink); background: #fff; min-width: 0; max-width: 100%; }}
     textarea {{ width: 100%; resize: vertical; }}
     button {{
       padding: 10px 14px;
@@ -682,24 +682,14 @@ def ui_shell(default_course: str) -> str:
     th, td {{ text-align: left; border-bottom: 1px solid var(--line); padding: 12px 10px; vertical-align: top; font-size: 14px; }}
     tr:last-child td {{ border-bottom: 0; }}
     th {{ color: var(--muted); font-size: 12px; text-transform: uppercase; letter-spacing: .04em; background: #f7f9fc; }}
-    .approval-list {{ display: grid; gap: 12px; }}
-    .approval-card {{
-      border: 1px solid var(--line);
-      border-radius: 8px;
-      padding: 14px;
-      background: #fff;
+    .operator-tool {{
       display: grid;
-      grid-template-columns: minmax(220px, 1fr) minmax(260px, 1.2fr) auto;
+      grid-template-columns: minmax(260px, 1.25fr) minmax(220px, .75fr);
       gap: 14px;
-      align-items: start;
+      align-items: end;
     }}
-    .approval-card.ready {{ border-color: var(--orange); box-shadow: inset 3px 0 0 var(--orange); }}
-    .approval-card.approved {{ border-color: #b8dec8; background: #f4fbf6; }}
-    .approval-card.blocked {{ border-color: #f4b0aa; background: #fff7f6; box-shadow: inset 3px 0 0 var(--bad); }}
-    .approval-title {{ color: var(--navy); font-weight: 820; }}
-    .approval-meta {{ margin-top: 5px; color: var(--muted); font-size: 13px; line-height: 1.35; }}
-    .approval-actions {{ display: flex; gap: 8px; flex-wrap: wrap; justify-content: flex-end; }}
-    .approval-note {{ min-height: 74px; }}
+    .operator-tool-details {{ grid-column: 1 / -1; display: grid; gap: 10px; }}
+    .operator-tool-actions {{ display: flex; justify-content: flex-end; gap: 10px; }}
     .download-link {{
       display: inline-flex;
       align-items: center;
@@ -713,23 +703,18 @@ def ui_shell(default_course: str) -> str:
       text-decoration: none;
       font-weight: 760;
     }}
-    .checklist {{ display: grid; gap: 8px; margin-top: 10px; }}
-    .check {{ display: flex; gap: 8px; align-items: flex-start; color: #344054; font-size: 13px; }}
-    .check span:first-child {{ width: 18px; height: 18px; border-radius: 50%; background: #e8f0f8; display: grid; place-items: center; color: var(--navy); font-size: 11px; flex: 0 0 auto; }}
     .actions {{ display: flex; flex-wrap: wrap; gap: 10px; margin-top: 12px; align-items: center; }}
     .lesson-toolbar {{
-      display: grid;
-      grid-template-columns: minmax(240px, 1fr) auto;
-      gap: 12px;
-      align-items: start;
+      display: block;
       margin-bottom: 14px;
     }}
     .lesson-actions {{
-      display: flex;
-      flex-wrap: wrap;
+      display: grid;
+      grid-template-columns: repeat(6, minmax(140px, 1fr));
       gap: 8px;
-      justify-content: flex-end;
+      width: 100%;
     }}
+    .lesson-actions button {{ min-height: 46px; }}
     .lesson-table-wrap {{ overflow-x: auto; border: 1px solid var(--line); border-radius: 8px; background: #fff; }}
     .lesson-table {{ min-width: 980px; }}
     .lesson-table th, .lesson-table td {{ font-size: 13px; vertical-align: middle; }}
@@ -773,8 +758,18 @@ def ui_shell(default_course: str) -> str:
     .hidden {{ display: none !important; }}
     code {{ font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; font-size: 12px; }}
     @media (max-width: 980px) {{
-      .topbar, .workspace-bar, .brief-grid, .field-grid, .progress-steps, .status-summary, .upload-controls, .log-tools, .approval-card, .lesson-toolbar {{ grid-template-columns: 1fr; }}
-      .approval-actions {{ justify-content: flex-start; }}
+      .topbar, .workspace-bar, .brief-grid, .field-grid, .progress-steps, .status-summary, .upload-controls, .log-tools, .lesson-toolbar, .operator-tool, .lesson-actions {{ grid-template-columns: 1fr; }}
+      .field-grid {{ grid-template-columns: 1fr !important; }}
+      .operator-tool-details {{ grid-column: 1; }}
+      .segmented {{ grid-template-columns: 1fr; }}
+      .segmented button {{ border-right: 0; border-bottom: 1px solid var(--line); }}
+      .segmented button:last-child {{ border-bottom: 0; }}
+      .dropzone {{ padding: 18px 12px; overflow: hidden; }}
+      .dropzone input {{ width: 100%; }}
+      .body {{ padding: 14px; }}
+      .section-head {{ align-items: flex-start; }}
+      .workspace-actions, .operator-tool-actions {{ justify-content: stretch; }}
+      .workspace-actions button, .operator-tool-actions button, .course-map-actions button {{ width: 100%; }}
       .top-actions {{ justify-content: flex-start; }}
       main {{ padding: 18px 14px 36px; }}
       .nav {{ padding-left: 14px; padding-right: 14px; }}
@@ -925,19 +920,10 @@ def ui_shell(default_course: str) -> str:
         <div class="muted" id="approvalCount">0 approvals</div>
       </div>
       <div class="body">
-        <div class="status-summary">
-          <div class="metric"><div class="label">Current stage</div><div class="value" id="stage">Loading</div></div>
-          <div class="metric"><div class="label">Gate</div><div class="value" id="gate">Loading</div></div>
-          <div class="metric"><div class="label">Next action</div><div class="value" id="next">Loading</div></div>
-        </div>
         <div class="notice hidden" id="message">Ready.</div>
         <div id="visualCurationPanel"></div>
         <div>
           <div class="lesson-toolbar">
-            <div>
-              <strong>Lesson production</strong><br>
-              Choose one or more lessons. Greg releases an artifact for approval only after automatic QA passes.
-            </div>
             <div class="lesson-actions">
               <button class="primary" id="produceBooks">Generate course books</button>
               <button id="produceDecks">Generate presentations</button>
@@ -973,11 +959,16 @@ def ui_shell(default_course: str) -> str:
       <div class="section-head">
         <div class="title-row">
           <div class="step-num">5</div>
-          <div><h2>Approval Queue</h2><div class="hint">Only the relevant approval sections appear here. Use approve to continue, or request edits to send feedback back into the production flow.</div></div>
+          <div><h2>Operator Action</h2><div class="hint">Choose a file or image request, then approve it, request edits, or attach the requested image. Files remain managed in the lesson table.</div></div>
         </div>
       </div>
       <div class="body">
-        <div class="approval-list" id="approvalPanels"></div>
+        <div class="operator-tool">
+          <div><label for="operatorTarget">File or image request</label><select id="operatorTarget"></select></div>
+          <div><label for="operatorAction">Action</label><select id="operatorAction"><option value="approve">Approve</option><option value="request_edits">Request edits</option><option value="attach_images">Attach requested image</option></select></div>
+          <div class="operator-tool-details" id="operatorToolDetails"></div>
+          <div class="operator-tool-actions"><button class="primary" id="applyOperatorAction">Apply action</button></div>
+        </div>
       </div>
     </section>
 
@@ -988,6 +979,7 @@ def ui_shell(default_course: str) -> str:
     const expectedLessonsByLevel = {{ Basic: 10, Intermediate: 15, Advanced: 15 }};
     let currentStatus = null;
     let currentJobs = [];
+    let operatorTargetMap = {{}};
     const progressSteps = [
       ['course_map', 'Course Map', 'Map and source research'],
       ['book', 'Course books', 'English PDFs by lesson'],
@@ -1095,65 +1087,28 @@ def ui_shell(default_course: str) -> str:
       const suffix = group.key.includes('deck') || group.key === 'deck' ? 'Presentation' : 'Course Book';
       return `${{lessonPart}} - ${{titlePart}} - ${{suffix}}${{ext}}`;
     }}
-    function artifactForGroup(group, tag) {{
-      const lesson = selectedLessonRecord();
-      const lessonPathByGroup = {{
-        study_guide: lesson?.study_guide_path,
-        deck: lesson?.deck_path,
-        pt_br_study_guide: lesson?.pt_br_study_guide_path,
-        pt_br_deck: lesson?.pt_br_deck_path,
-        es_study_guide: lesson?.es_study_guide_path,
-        es_deck: lesson?.es_deck_path
-      }};
-      const lessonPath = lessonPathByGroup[group.key];
-      if (isDownloadablePath(lessonPath)) {{
-        return {{path: lessonPath, exists: true, name: `${{group.key}}_file`}};
-      }}
-      const blockedPathByGroup = {{
-        study_guide: lesson?.study_guide_blocked_path,
-        deck: lesson?.deck_blocked_path
-      }};
-      const blockedPath = blockedPathByGroup[group.key];
-      if (isDownloadablePath(blockedPath)) {{
-        return {{path: blockedPath, exists: true, name: `${{group.key}}_blocked_file`, blocked: true}};
-      }}
-      if (lesson) return null;
-      return artifactByNames(group.artifactNames(tag));
-    }}
-    function lessonBlockers(group) {{
-      const lesson = selectedLessonRecord();
-      const blockersByGroup = {{
-        study_guide: lesson?.study_guide_quality_blockers,
-        deck: lesson?.deck_quality_blockers
-      }};
-      return blockersByGroup[group.key] || [];
-    }}
     function renderPipeline() {{
-      const lessons = currentStatus?.lessons || [];
-      const hasCourseMap = artifactByNames(['course_map_md', 'course_map_json']);
-      const hasBook = lessons.some(item => item.study_guide && item.study_guide !== 'missing');
-      const hasDeck = lessons.some(item => item.deck && item.deck !== 'missing');
-      const hasTranslation = lessons.some(item =>
-        (item.pt_br_study_guide && item.pt_br_study_guide !== 'missing') ||
-        (item.pt_br_deck && item.pt_br_deck !== 'missing') ||
-        (item.es_study_guide && item.es_study_guide !== 'missing') ||
-        (item.es_deck && item.es_deck !== 'missing')
-      );
-      const done = [hasCourseMap, hasBook, hasDeck, hasTranslation];
-      const firstOpen = done.findIndex(value => !value);
-      const activeIndex = firstOpen === -1 ? 3 : firstOpen;
-      const percent = Math.round((done.filter(Boolean).length / progressSteps.length) * 100);
-      document.getElementById('progressPercent').textContent = `${{percent}}%`;
+      const progress = currentStatus?.progress || {{percent: 0}};
+      const phases = [progress.course_map, progress.course_books, progress.presentations, progress.translations];
+      const activeIndex = phases.findIndex((phase, index) => index === 0 ? !phase?.approved : (phase?.approved || 0) < (phase?.total || 0));
+      const percent = Number(progress.percent || 0);
+      const shownPercent = Number.isInteger(percent) ? percent.toFixed(0) : percent.toFixed(1);
+      document.getElementById('progressPercent').textContent = `${{shownPercent}}%`;
       document.getElementById('progressFill').style.width = `${{percent}}%`;
       document.getElementById('progressSteps').innerHTML = progressSteps.map((step, index) => {{
-        const state = done[index] ? 'done' : index === activeIndex ? 'active' : '';
-        return `<div class="progress-step ${{state}}"><strong>${{index + 1}}. ${{esc(step[1])}}</strong>${{esc(step[2])}}</div>`;
+        const phase = phases[index] || {{}};
+        const complete = index === 0 ? phase.approved : phase.total > 0 && phase.approved === phase.total;
+        const state = complete ? 'done' : index === (activeIndex < 0 ? 3 : activeIndex) ? 'active' : '';
+        const detail = index === 0
+          ? `${{phase.approved ? 'Approved' : 'Not approved'}} · ${{Number(phase.points || 0).toFixed(0)}}/25%`
+          : `${{phase.approved || 0}}/${{phase.total || 0}} approved · ${{Number(phase.points || 0).toFixed(1)}}/25%`;
+        return `<div class="progress-step ${{state}}"><strong>${{index + 1}}. ${{esc(step[1])}}</strong>${{esc(detail)}}</div>`;
       }}).join('');
-      const approved = approvalGroups.filter(group => lessonStatus(group.approvalField) === 'approved').length;
+      const approved = (currentStatus?.lessons || []).reduce((count, lesson) => count + approvalGroups.filter(group => lesson[group.approvalField] === 'approved').length, 0);
       document.getElementById('approvalCount').textContent = `${{approved}} approvals`;
       renderCourseMapPanel();
       renderVisualCuration();
-      renderApprovals();
+      renderOperatorTool();
     }}
     function renderVisualCuration() {{
       const holder = document.getElementById('visualCurationPanel');
@@ -1163,62 +1118,75 @@ def ui_shell(default_course: str) -> str:
         const requestLink = item.image_request_path
           ? `<a class="download-link" href="/artifact?path=${{encodeURIComponent(item.image_request_path)}}&filename=${{encodeURIComponent(`Lesson ${{item.lesson}} - Image Requests.md`)}}" target="_blank" rel="noopener">Download image request</a>`
           : '';
-        const requests = (item.image_requests || []).map(request => `<div class="approval-card ready">
-          <div><div class="approval-title">${{esc(request.visual_id)}}</div><div class="approval-meta">${{esc(request.learning_claim || request.purpose || '')}}</div></div>
-          <div><label>Image file</label><input id="visual-file-${{esc(request.visual_id)}}" type="file" accept=".png,.jpg,.jpeg,.webp"><label>Source or attribution</label><input id="visual-label-${{esc(request.visual_id)}}" placeholder="Organization, publication, photographer, or generated by operator"><label>Source URL (when applicable)</label><input id="visual-url-${{esc(request.visual_id)}}" placeholder="https://..."></div>
-          <div class="approval-actions"><button class="primary" onclick="uploadVisualResponse('${{esc(item.lesson)}}','${{esc(request.visual_id)}}')">Send image</button></div>
-        </div>`).join('');
-        return `<div class="notice"><strong>Lesson ${{esc(item.lesson)}} is waiting for images.</strong> ${{requestLink}}<br>The PDF remains withheld until all requested visuals are supplied and visual QA passes.</div>${{requests}}`;
+        return `<div class="notice"><strong>Lesson ${{esc(item.lesson)}} is waiting for images.</strong> ${{requestLink}}<br>Select the image request in Operator Action below. The PDF remains withheld until every requested visual passes visual and layout QA.</div>`;
       }}).join('');
     }}
     function renderCourseMapPanel() {{
       const map = artifactByNames(['course_map_md']);
-      const qa = artifactByNames(['course_map_qa']);
       const panel = document.getElementById('courseMapPanel');
-      if (!map) {{
-        panel.innerHTML = 'Course Map has not been generated for this course yet.';
+      const activeCourseMap = currentJobs.some(job => job.request_type === 'course_start' && ['queued', 'running'].includes(job.state));
+      if (activeCourseMap) {{
+        panel.innerHTML = '<strong>Course Map is being researched and reviewed.</strong> The file will appear only after every automatic check passes.';
+        return;
+      }}
+      if (!map || currentStatus?.course_map_ready !== true) {{
+        const blocked = currentStatus?.stage === 'SOURCE_QA_BLOCKED' || currentStatus?.stage === 'COURSE_MAP_QA_BLOCKED';
+        panel.innerHTML = blocked ? '<strong>Course Map is not released.</strong> Greg must complete an automatic correction and pass QA first.' : 'Course Map has not been generated for this course yet.';
         return;
       }}
       const mapName = `${{cleanFilenamePart(course.value)}} - Course Map.md`;
-      const qaLink = qa ? ` · <a class="doc-link" href="/artifact?path=${{encodeURIComponent(qa.path)}}&filename=${{encodeURIComponent(cleanFilenamePart(course.value) + ' - Course Map QA.md')}}" target="_blank" rel="noopener">QA report</a>` : '';
-      panel.innerHTML = `<strong>Course Map ready.</strong> <a class="download-link" href="/artifact?path=${{encodeURIComponent(map.path)}}&filename=${{encodeURIComponent(mapName)}}" target="_blank" rel="noopener">Download Course Map</a>${{qaLink}}`;
+      panel.innerHTML = `<strong>Course Map approved by automatic QA.</strong> <a class="download-link" href="/artifact?path=${{encodeURIComponent(map.path)}}&filename=${{encodeURIComponent(mapName)}}" target="_blank" rel="noopener">Download Course Map</a>`;
     }}
-    function renderApprovals() {{
-      const tag = selectedLessonTag();
-      const selectedLesson = selectedLessonRecord();
-      if (selectedLesson?.visual_status === 'waiting_images') {{
-        document.getElementById('approvalPanels').innerHTML = '<div class="notice"><strong>Approval is paused while this lesson waits for images.</strong> Supply every requested visual above. Greg will resume production, rerun visual and layout QA, and only then release the new artifact for review.</div>';
-        return;
+    function renderOperatorTool() {{
+      operatorTargetMap = {{}};
+      const options = [];
+      for (const lesson of currentStatus?.lessons || []) {{
+        for (const group of approvalGroups) {{
+          const pathField = `${{group.key}}_path`;
+          const path = lesson[pathField];
+          const status = lesson[group.approvalField];
+          if (!isDownloadablePath(path) || status === 'blocked') continue;
+          const id = `artifact:${{lesson.lesson}}:${{group.key}}`;
+          operatorTargetMap[id] = {{kind:'artifact', lesson:Number(lesson.lesson), group, path, status, title:lesson.title}};
+          options.push(`<option value="${{esc(id)}}">Lesson ${{esc(lesson.lesson)}} · ${{esc(group.title)}} · ${{esc(status === 'approved' ? 'approved' : 'ready for review')}}</option>`);
+        }}
+        for (const request of lesson.image_requests || []) {{
+          const id = `image:${{lesson.lesson}}:${{request.visual_id}}`;
+          operatorTargetMap[id] = {{kind:'image', lesson:Number(lesson.lesson), request}};
+          options.push(`<option value="${{esc(id)}}">Lesson ${{esc(lesson.lesson)}} · Image ${{esc(request.visual_id)}} · waiting</option>`);
+        }}
       }}
-      const rows = approvalGroups.map(group => {{
-        const artifact = artifactForGroup(group, tag);
-        const status = lessonStatus(group.approvalField);
-        const blockers = lessonBlockers(group);
-        if (!artifact && status !== 'approved' && status !== 'blocked') return '';
-        const approved = status === 'approved';
-        const blocked = status === 'blocked';
-        const css = approved ? 'approved' : blocked ? 'blocked' : 'ready';
-        const noteId = `note-${{group.key}}`;
-        const artifactPath = artifact?.path || '';
-        const filename = artifactPath ? downloadFilename(group, artifactPath) : '';
-        const downloadLabel = blocked ? 'Download blocked file' : 'Download file';
-        return `<div class="approval-card ${{css}}">
-          <div>
-            <div class="approval-title">${{esc(group.title)}}</div>
-            <div class="approval-meta">${{esc(group.description)}}<br>Status: <strong>${{approved ? 'approved' : blocked ? 'blocked by QA' : 'waiting for review'}}</strong></div>
-          </div>
-          <div>
-            <textarea class="approval-note" id="${{noteId}}" placeholder="Write edit requests or approval notes here."></textarea>
-            <div class="approval-meta">${{blocked ? esc(blockers.join(' ')) : artifactPath ? esc(artifactPath) : 'Approval already recorded.'}}</div>
-          </div>
-          <div class="approval-actions">
-            ${{artifactPath ? `<a class="download-link" href="/artifact?path=${{encodeURIComponent(artifactPath)}}&filename=${{encodeURIComponent(filename)}}" target="_blank" rel="noopener">${{downloadLabel}}</a>` : ''}}
-            <button class="danger" onclick="requestEdits('${{group.artifactType}}', '${{noteId}}')">Request edits</button>
-            <button class="primary" onclick="approveArtifact('${{group.artifactType}}', '${{noteId}}', '${{esc(artifactPath)}}')" ${{approved || blocked || !artifactPath ? 'disabled' : ''}}>Approve</button>
-          </div>
-        </div>`;
-      }}).filter(Boolean).join('');
-      document.getElementById('approvalPanels').innerHTML = rows || '<div class="notice">No artifact is waiting for approval yet. After production creates a course book, presentation, or translation, the right approval section will appear here.</div>';
+      const select = document.getElementById('operatorTarget');
+      select.innerHTML = options.length ? options.join('') : '<option value="">No file or image request needs operator action</option>';
+      select.disabled = !options.length;
+      renderOperatorToolDetails();
+    }}
+    function renderOperatorToolDetails(resetAction = true) {{
+      const target = operatorTargetMap[document.getElementById('operatorTarget').value];
+      const action = document.getElementById('operatorAction');
+      const details = document.getElementById('operatorToolDetails');
+      if (!target) {{ action.disabled = true; details.innerHTML = '<div class="notice">Generated files will appear in the lesson table and become available here only after automatic QA passes.</div>'; return; }}
+      action.disabled = false;
+      if (resetAction) action.value = target.kind === 'image' ? 'attach_images' : (target.status === 'approved' ? 'request_edits' : 'approve');
+      [...action.options].forEach(option => option.disabled = target.kind === 'image' ? option.value !== 'attach_images' : option.value === 'attach_images');
+      if (target.kind === 'image') {{
+        const request = target.request;
+        details.innerHTML = `<div class="notice"><strong>${{esc(request.visual_id)}}</strong> · ${{esc(request.learning_claim || request.purpose || '')}}</div><label>Image file</label><input id="operatorImageFile" type="file" accept=".png,.jpg,.jpeg,.webp"><label>Source or attribution</label><input id="operatorImageLabel" placeholder="Organization, publication, photographer, or generated by operator"><label>Source URL (when applicable)</label><input id="operatorImageUrl" placeholder="https://...">`;
+      }} else {{
+        const group = target.group;
+        const filename = downloadFilename(group, target.path);
+        details.innerHTML = `<div><a class="download-link" href="/artifact?path=${{encodeURIComponent(target.path)}}&filename=${{encodeURIComponent(filename)}}" target="_blank" rel="noopener">Download selected file</a></div><textarea id="operatorNote" placeholder="Required for edit requests; optional for approvals."></textarea>`;
+      }}
+    }}
+    async function applyOperatorAction() {{
+      const target = operatorTargetMap[document.getElementById('operatorTarget').value];
+      if (!target) return;
+      const action = document.getElementById('operatorAction').value;
+      if (action === 'attach_images') {{ await uploadVisualResponse(target.lesson, target.request.visual_id, 'operator'); return; }}
+      const note = document.getElementById('operatorNote')?.value || '';
+      if (action === 'request_edits' && !note.trim()) {{ msg.textContent = 'Write the requested edits before sending the file back.'; return; }}
+      if (action === 'approve') {{ await approveArtifact(target.group.artifactType, null, target.path, target.lesson, note); return; }}
+      await requestEdits(target.group.artifactType, null, target.lesson, note);
     }}
     function scopeKind(value) {{
       return String(value || '').startsWith('lesson_') ? 'lesson' : 'course';
@@ -1282,9 +1250,6 @@ def ui_shell(default_course: str) -> str:
     async function refresh() {{
       try {{
         currentStatus = await api('/api/status?course=' + encodeURIComponent(course.value));
-        document.getElementById('stage').textContent = currentStatus.stage || 'Unknown';
-        document.getElementById('gate').textContent = currentStatus.gate_status || 'Unknown';
-        document.getElementById('next').textContent = currentStatus.next_recommended_action || 'Review status.';
         const jobs = await api('/api/jobs?course=' + encodeURIComponent(course.value));
         currentJobs = jobs.jobs || [];
         renderJobs();
@@ -1315,8 +1280,18 @@ def ui_shell(default_course: str) -> str:
         return;
       }}
       const state = active ? latest.state : 'needs attention';
-      const detail = latest.last_error || latest.input_summary || latest.request_type || '';
+      const detail = operatorJobMessage(latest);
       holder.innerHTML = `<span class="state ${{esc(latest.state)}}">${{esc(state)}}</span> · ${{esc(detail)}}`;
+    }}
+    function operatorJobMessage(job) {{
+      const raw = String(job?.last_error || job?.input_summary || job?.request_type || '');
+      if (/source\/reference.*QA failed/i.test(raw)) return 'Automatic source review needs another pass before the file can be released.';
+      if (/layout automatic QA failed/i.test(raw)) return 'Automatic layout review needs another pass before the file can be released.';
+      if (/Traceback|File "\/opt\/profgreg/i.test(raw)) {{
+        const matches = [...raw.matchAll(/(?:RuntimeError|ValueError|ModelRequestError):\s*([^\\n]+)/g)];
+        return matches.length ? matches[matches.length - 1][1] : 'Production needs attention. Technical details were recorded internally.';
+      }}
+      return raw.replace(/^.*?(RuntimeError|ValueError|ModelRequestError):\s*/s, '').slice(-500);
     }}
     async function saveUpload(id) {{
       await post('/api/upload-update', {{ course: course.value, upload_id: id, scope: document.getElementById('scope-' + id).value, lesson: Number(document.getElementById('lesson-' + id).value || 1), reference_policy: document.getElementById('policy-' + id).value }});
@@ -1399,24 +1374,24 @@ def ui_shell(default_course: str) -> str:
       }}
       await post('/api/produce', {{course: course.value, stage, lessons}});
     }}
-    async function approveArtifact(artifactType, noteId, artifactPath) {{
+    async function approveArtifact(artifactType, noteId, artifactPath, lessonOverride, noteOverride) {{
       await post('/api/approve', {{
         course: course.value,
-        lesson: Number(document.getElementById('targetLesson').value || 1),
+        lesson: Number(lessonOverride || document.getElementById('targetLesson').value || 1),
         artifact_type: artifactType,
         artifact_path: artifactPath,
-        note: document.getElementById(noteId)?.value || ''
+        note: noteOverride ?? document.getElementById(noteId)?.value ?? ''
       }});
     }}
-    async function requestEdits(artifactType, noteId) {{
-      const note = document.getElementById(noteId)?.value || '';
+    async function requestEdits(artifactType, noteId, lessonOverride, noteOverride) {{
+      const note = noteOverride ?? document.getElementById(noteId)?.value ?? '';
       if (!note.trim()) {{
         msg.textContent = 'Write the requested edits before sending the artifact back.';
         return;
       }}
       await post('/api/request-changes', {{
         course: course.value,
-        lesson: Number(document.getElementById('targetLesson').value || 1),
+        lesson: Number(lessonOverride || document.getElementById('targetLesson').value || 1),
         artifact_type: artifactType,
         note
       }});
@@ -1436,9 +1411,10 @@ def ui_shell(default_course: str) -> str:
         await refresh();
       }} catch (error) {{ msg.textContent = error.message; }}
     }}
-    async function uploadVisualResponse(lesson, requestId) {{
+    async function uploadVisualResponse(lesson, requestId, source) {{
       try {{
-        const input = document.getElementById('visual-file-' + requestId);
+        const operatorMode = source === 'operator';
+        const input = operatorMode ? document.getElementById('operatorImageFile') : document.getElementById('visual-file-' + requestId);
         if (!input?.files?.length) throw new Error('Choose an image for this request.');
         const form = new FormData();
         form.append('course', course.value);
@@ -1447,8 +1423,8 @@ def ui_shell(default_course: str) -> str:
         form.append('reference_policy', 'image_only');
         form.append('purpose', 'visual_response');
         form.append('visual_request_id', requestId);
-        form.append('source_label', document.getElementById('visual-label-' + requestId)?.value || 'Operator supplied image');
-        form.append('source_url', document.getElementById('visual-url-' + requestId)?.value || '');
+        form.append('source_label', (operatorMode ? document.getElementById('operatorImageLabel') : document.getElementById('visual-label-' + requestId))?.value || 'Operator supplied image');
+        form.append('source_url', (operatorMode ? document.getElementById('operatorImageUrl') : document.getElementById('visual-url-' + requestId))?.value || '');
         form.append('files', input.files[0]);
         const res = await fetch('/api/upload', {{method:'POST', body:form}});
         const data = await res.json();
@@ -1464,7 +1440,10 @@ def ui_shell(default_course: str) -> str:
     document.getElementById('startProduction').onclick = startProductionFlow;
     document.getElementById('uploadScope').onchange = toggleLessonInput;
     document.getElementById('upload').onclick = uploadFiles;
-    document.getElementById('targetLesson').onchange = () => {{ renderApprovals(); renderLessonSelection(); }};
+    document.getElementById('targetLesson').onchange = () => {{ renderOperatorTool(); renderLessonSelection(); }};
+    document.getElementById('operatorTarget').onchange = renderOperatorToolDetails;
+    document.getElementById('operatorAction').onchange = () => renderOperatorToolDetails(false);
+    document.getElementById('applyOperatorAction').onclick = applyOperatorAction;
     document.getElementById('produceBooks').onclick = () => produceSelected('study_guide');
     document.getElementById('produceDecks').onclick = () => produceSelected('deck');
     document.getElementById('producePtBrBooks').onclick = () => produceSelected('pt_br_book');

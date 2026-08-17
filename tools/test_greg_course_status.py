@@ -19,6 +19,35 @@ spec.loader.exec_module(status)
 
 
 class CourseStatusTests(unittest.TestCase):
+    def test_operating_progress_uses_approved_artifacts_only(self) -> None:
+        lessons = [
+            {
+                "study_guide": "approved" if index == 0 else "active",
+                "deck": "approved" if index == 0 else "missing",
+                "pt_br_study_guide": "approved" if index == 0 else "missing",
+                "pt_br_deck": "missing",
+                "es_study_guide": "missing",
+                "es_deck": "missing",
+            }
+            for index in range(15)
+        ]
+        result = status.operating_progress(True, lessons)
+        self.assertAlmostEqual(result["percent"], 28.75, places=2)
+        self.assertAlmostEqual(result["course_books"]["points"], 1.667, places=3)
+        self.assertAlmostEqual(result["presentations"]["points"], 1.667, places=3)
+        self.assertAlmostEqual(result["translations"]["points"], 0.417, places=3)
+
+    def test_operating_progress_full_course_is_100(self) -> None:
+        lesson = {
+            "study_guide": "approved",
+            "deck": "approved",
+            "pt_br_study_guide": "approved",
+            "pt_br_deck": "approved",
+            "es_study_guide": "approved",
+            "es_deck": "approved",
+        }
+        self.assertEqual(status.operating_progress(True, [lesson] * 15)["percent"], 100.0)
+
     def test_summarize_lessons_reads_multi_lesson_manifest(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)

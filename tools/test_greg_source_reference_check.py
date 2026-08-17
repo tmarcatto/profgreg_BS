@@ -61,6 +61,22 @@ class SourceReferenceCheckTests(unittest.TestCase):
             self.assertFalse(result["passed"])
             self.assertTrue(any(item["check"] == "formal_publications_not_linked_as_webpages" for item in result["findings"] if item["status"] == "fail"))
 
+    def test_formal_publication_can_link_to_full_pdf(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            tmp_path = Path(tmp)
+            ledger = tmp_path / "ledger.json"
+            refs = tmp_path / "refs.md"
+            ledger.write_text(
+                '{"sources":[{"source_id":"S01","title":"Recommended Practices for Safety and Health Programs in Construction","author_or_organization":"OSHA","source_type":"recommended-practice","authority_tier":"primary","url":"https://www.osha.gov/sites/default/files/publications/OSHA3886.pdf","publication_date":"2016","currency_validation":{"required":true,"status":"validated-current"},"claims_supported":[{"claim":"Safety programs require coordination."}]}],"validation":{"all_sources_verified":true,"unsupported_claims":[]}}',
+                encoding="utf-8",
+            )
+            refs.write_text(
+                "- OSHA. (2016). Recommended Practices for Safety and Health Programs in Construction. https://www.osha.gov/sites/default/files/publications/OSHA3886.pdf\n",
+                encoding="utf-8",
+            )
+            result = checker.run_checks(ledger, refs, date(2026, 8, 17))
+            self.assertTrue(result["passed"])
+
     def test_missing_files_fail(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             result = checker.run_checks(Path(tmp) / "missing.json", Path(tmp) / "missing.md", date(2026, 8, 10))

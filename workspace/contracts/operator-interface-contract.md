@@ -112,6 +112,19 @@ runs/[course-slug]/approval/lesson_[NN]_study_guide_approval.md
 
 If the user says only "ok", "continue", or "next step", Greg should not treat that as deck approval. Approval must clearly refer to the study guide or permission to generate the deck.
 
+## Operator Console Rules
+
+- Course Map progress is 25% and counts only after Course Map, source-ledger, source-reference, and adaptation QA have all passed.
+- Approved English course books share 25% equally across the Course Map lesson count.
+- Approved English presentations share 25% equally across the Course Map lesson count.
+- Approved PT-BR and ES course books and presentations share the final 25% equally across all four localized artifact types for every lesson.
+- Generated, blocked, or merely present artifacts never count as progress; only approved artifacts do.
+- A Course Map or lesson artifact must not be downloadable while its production job is active or any required automatic QA is failing.
+- The lesson table is the canonical artifact surface. It owns status and download access for every lesson file.
+- The operator uses one action tool: select an artifact or image request, then approve, request edits, or attach the requested image.
+- A visual status with no active plan is `not planned`, not `pending`. `waiting for images` is reserved for an explicit image request.
+- Operator-facing activity messages must be concise. Tracebacks, server paths, and internal exception details remain in internal job records.
+
 ## Approval Record
 
 The approval record should include:

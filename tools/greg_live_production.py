@@ -354,7 +354,9 @@ def produce_source_ledger(course_slug: str) -> list[str]:
     write_text(run / "sources" / "source_gaps.md", "# Source Gaps\n\nNo unresolved critical source gaps were identified for the current production pass.\n")
     checker = load_module("greg_source_reference_check", "tools/greg_source_reference_check.py")
     qa = checker.run_checks(ledger_path, refs_path)
-    write_text(run / "sources" / "source_reference_qa.md", checker.render_markdown(qa))
+    source_qa_text = checker.render_markdown(qa)
+    write_text(run / "sources" / "source_reference_qa.md", source_qa_text)
+    write_text(run / "sources" / "course_source_reference_qa.md", source_qa_text)
     if not qa["passed"]:
         raise RuntimeError("Source/reference automatic QA failed.")
     update_canonical_manifest(seed.slug)
@@ -890,7 +892,7 @@ def produce_study_guide(course_slug: str, lesson_number: int) -> list[str]:
         active_ledger = {**ledger, "sources": refresh.get("sources") or []}
         source_checker = load_module("greg_source_reference_check", "tools/greg_source_reference_check.py")
         source_qa = source_checker.run_checks(run / "sources" / "source_ledger.json", run / "sources" / "student_references.md")
-        write_text(run / "sources" / "source_reference_qa.md", source_checker.render_markdown(source_qa))
+        write_text(run / "sources" / f"{lesson_tag}_source_reference_qa.md", source_checker.render_markdown(source_qa))
         if not source_qa["passed"]:
             raise RuntimeError("Lesson-level source/reference QA failed.")
     except ModelRequestError as error:
