@@ -349,7 +349,7 @@ def produce_source_ledger(course_slug: str) -> list[str]:
     ledger_path = run / "sources" / "source_ledger.json"
     refs_path = run / "sources" / "student_references.md"
     write_json(ledger_path, ledger)
-    write_text(refs_path, "# References\n\n" + "\n".join(f"- {student_reference_text(item.get('formal_reference', ''))}" for item in sources if item.get('formal_reference')))
+    write_text(refs_path, "# References\n\n" + "\n".join(f"- {student_reference_for_source(item)}" for item in sources if item.get('formal_reference')))
     write_text(run / "sources" / "research_log.md", "# Research Log\n\n" + "\n".join(f"- {item}" for item in data.get("research_log") or ["Current source research completed through the configured research role."]))
     write_text(run / "sources" / "source_gaps.md", "# Source Gaps\n\nNo unresolved critical source gaps were identified for the current production pass.\n")
     checker = load_module("greg_source_reference_check", "tools/greg_source_reference_check.py")
@@ -378,8 +378,13 @@ def student_reference_for_source(source: dict[str, Any]) -> str:
     text = student_reference_text(str(source.get("formal_reference") or ""))
     source_type = str(source.get("source_type") or "").lower()
     url = str(source.get("url") or "").strip()
-    formal_types = {"book", "standard", "code", "recommended-practice", "professional-standard"}
-    if source_type in formal_types:
+    document_url = bool(re.search(r"\.(pdf|docx?|pptx?)(?:[?#]|$)", url, flags=re.I))
+    formal_types = {
+        "book", "published-book", "standard", "code", "recommended-practice",
+        "professional-standard", "professional-guide", "government-publication",
+        "industry-publication", "manual", "report",
+    }
+    if source_type in formal_types or document_url:
         text = re.sub(r"\s+https?://\S+", "", text).rstrip(" .") + "."
     elif url and url not in text:
         text = text.rstrip(" .") + f". {url}"
@@ -429,20 +434,21 @@ Pedagogical requirements:
 - Use concrete residential examples, mini-scenarios, and field reasoning. Avoid generic business prose.
 - Explain concepts in paragraphs before bullets. Bullets are allowed, but they must not replace teaching.
 - Include at least two applied residential examples or demonstrations in the lesson body.
-- Use callouts sparingly: 2-4 total is usually enough. Each must add practical value.
+- Use callouts sparingly: 2-4 total is usually enough. Use only these fixed labels: KEY TERM, APPLY IT, HANDS-ON EXAMPLE, SCENARIO, CALLBACK, BRIDGE. Never invent a callout label.
 - Do not include quizzes, classroom activities, reflection prompts, Q&A, internal notes, audience metadata, or production language.
 - Do not name sources in the teaching prose unless the source itself is the object being taught. Keep student-facing references in the References section.
 - References may list the formal sources materially consulted for the lesson; they do not all need decorative in-text mentions. Use an inline citation only when it strengthens a high-stakes factual learning moment.
 - Do not create date arithmetic, CPM calculations, productivity equations, or numeric worked examples unless every value can be verified from the stated assumptions. If revision feedback challenges a calculation, replace it with a simpler fully correct demonstration rather than guessing again.
 - Open directly with the course and lesson problem. Do not use welcome language, audience descriptions, or a preview of the entire course.
-- Callouts are allowed only inside the teaching body and only when they add a distinct practical insight; never place them in roadmap, objectives, summary, glossary, or references.
+- Callouts are allowed only inside the teaching body and only when they add a distinct practical insight; never place them in objectives, summary, glossary, or references.
 - Never include "Try this," "Your turn," exercises, practice tasks, reflection questions, discussion prompts, or assignments. Demonstrate the reasoning yourself in the teaching prose.
 - Avoid parenthetical source shorthand and decorative in-text citations. If a governing document is itself being taught, identify it in plain language and ensure the exact publication appears in References.
+- Do not use em dashes, en dashes, or spaced hyphens as punctuation. Rewrite with commas, colons, semicolons, or separate sentences. Normal compound terms such as pre-construction remain allowed.
+- Do not use Markdown H3 or deeper headings. Use normal paragraphs with a bold lead-in when a subsection needs emphasis.
+- Choose each figure mechanism from its learning job. Use a process flow for sequence, a relationship map for roles, a comparison matrix only for true comparison, and a trusted or generated image when visual inspection is the learning job. Do not default every figure to a table.
 
 Use this exact structural order:
-# Lesson Roadmap
-(four concise bullets that preview the actual learning path)
-## Introduction
+# Introduction
 (course-facing orientation; no target-audience boilerplate)
 ## Learning Objectives
 (four bullets)
@@ -461,7 +467,7 @@ Use this exact structural order:
 # References
 {references}
 
-Requirements: no questions directly under section headings, access dates, placeholder references, invented citations, or callouts in roadmap/summary/glossary/references. Do not simply echo the syllabus.
+Requirements: no questions directly under section headings, access dates, placeholder references, invented citations, or callouts in objectives/summary/glossary/references. Do not simply echo the syllabus.
 
 Course Map lesson goal: {lesson.get('learning_goal')}
 Course Map planned sections: {lesson.get('sections')}
@@ -631,7 +637,7 @@ def reviewer_prompt(kind: str, seed, lesson: dict[str, Any], draft: str, ledger:
     criteria = {
         "pedagogy_review": "Check only learning progression, depth for level, MECE sections, residential examples, explanations before bullets, no activities, and no audience boilerplate. Citation style and reference formatting belong to the citation reviewer; do not fail this review merely because ordinary claims lack inline citations.",
         "citation_review": "Check factual support against the ledger, current applicability, clean student references, no invented claims, and no internal/local source language. Do not demand inline citations for every source or every ordinary claim. References may include materially consulted sources even when they are not named decoratively in the teaching prose. Never request or add accessed/retrieved dates. Books must be cited as books without abstract, catalog, preview, or search-result links; webpage references may include only the direct content URL actually used.",
-        "design_review": "Check only the draft's approved structural and presentation contract: roadmap; a concise introduction/objectives block intended for one page; continuous lesson body; separate summary, glossary, and references; no callouts in structural sections; no one-line section openers. Useful callouts inside the teaching body are allowed. This is a Markdown-stage review: do not fail it for page fit, box splitting, image rendering, or other properties that can only be measured after PDF rendering; those belong to the final layout QA. Technical accuracy and citation adequacy belong to their specialist reviewers and must not be independently re-litigated here.",
+        "design_review": "Check only the draft's approved structural and presentation contract: Introduction followed by Learning Objectives with no Lesson Roadmap; continuous lesson body; separate summary, glossary, and references; only the six approved callout labels; no callouts in structural sections; no H3 or deeper headings; no dash punctuation; no one-line section openers. Useful callouts inside the teaching body are allowed. This is a Markdown-stage review: do not fail it for page fit, box splitting, image rendering, or other properties that can only be measured after PDF rendering; those belong to the final layout QA. Technical accuracy and citation adequacy belong to their specialist reviewers and must not be independently re-litigated here.",
     }[kind]
     return f"""Return JSON only as an independent Prof Greg reviewer.
 Review Lesson {lesson['lesson_number']}: {lesson['title']} for {seed.title}.
@@ -646,6 +652,54 @@ Source ledger:
 
 Return exactly:
 {{"passed":true,"verdict":"PASS or REVISE","findings":["..."],"required_changes":["..."]}}"""
+
+
+def cover_quote_prompt(seed, lesson: dict[str, Any], prior_quotes: list[dict[str, Any]]) -> str:
+    return f"""Return JSON only. Select one brief, verified quotation for the cover of this construction lesson.
+
+Course: {seed.title}
+Lesson {lesson['lesson_number']}: {lesson['title']}
+Learning goal: {lesson.get('learning_goal')}
+Sections: {lesson.get('sections')}
+
+The quotation must be attributed to a well-known real person, connect meaningfully to this lesson's central idea, and contain no more than 18 words. Verify the exact wording and attribution through a reputable source. Do not use an unattributed proverb, an invented paraphrase, or a quote already used in this course.
+
+Quotes already used:
+{json.dumps(prior_quotes, ensure_ascii=False)}
+
+Return exactly:
+{{"quote":"Exact quotation without surrounding quotation marks.","author":"Person name","relevance":"One sentence connecting it to the lesson.","verification_url":"Direct reputable page used to verify wording and attribution."}}"""
+
+
+def select_cover_quote(seed, lesson: dict[str, Any], run: Path, lesson_tag: str) -> dict[str, str]:
+    quote_path = run / "review" / f"{lesson_tag}_cover_quote.json"
+    if quote_path.exists():
+        saved = json.loads(quote_path.read_text(encoding="utf-8"))
+        if saved.get("quote") and saved.get("author") and saved.get("verification_url"):
+            return saved
+    prior_quotes = []
+    for path in sorted((run / "review").glob("lesson_*_cover_quote.json")):
+        if path == quote_path:
+            continue
+        try:
+            prior_quotes.append(json.loads(path.read_text(encoding="utf-8")))
+        except json.JSONDecodeError:
+            continue
+    selected = strip_json_fence(
+        request_text(seed.slug, "source_research", cover_quote_prompt(seed, lesson, prior_quotes), max_tokens=1200, web_search=True)
+    )
+    quote = str(selected.get("quote") or "").strip().strip('"“”')
+    author = str(selected.get("author") or "").strip()
+    url = str(selected.get("verification_url") or "").strip()
+    relevance = str(selected.get("relevance") or "").strip()
+    if not quote or len(quote.split()) > 18 or not author or not re.match(r"https?://", url) or len(relevance.split()) < 5:
+        raise RuntimeError("Cover quote research did not return a short, verified, lesson-specific quotation.")
+    used_pairs = {(str(item.get("quote") or "").lower(), str(item.get("author") or "").lower()) for item in prior_quotes}
+    if (quote.lower(), author.lower()) in used_pairs:
+        raise RuntimeError("Cover quote research repeated a quotation already used in this course.")
+    result = {"quote": quote, "author": author, "relevance": relevance, "verification_url": url}
+    write_json(quote_path, result)
+    return result
 
 
 def render_review(title: str, data: dict[str, Any]) -> str:
@@ -699,8 +753,15 @@ Available operator visual responses:
 Lesson draft:
 {draft[:36000]}
 
+For every deterministic diagram, explicitly choose the mechanism that best matches the learning job:
+- process-flow for sequence, lifecycle, workflow, or handoff;
+- relationship-map for roles, stakeholders, coordination, or influence;
+- comparison-matrix only when learners must compare the same attributes across alternatives;
+- card-sequence for a small ordered or grouped set that does not require arrows.
+Do not choose the same mechanism repeatedly without a distinct pedagogical reason. A table is not a neutral default.
+
 Return:
-{{"artifact_type":"study-guide","visual_curation_required":false,"visuals":[{{"visual_id":"L{int(lesson['lesson_number']):02d}V01","visual_type":"deterministic-diagram|generated-conceptual-image|trusted-source-image","placement":"after Section 01 - exact heading","purpose":"at least four words","learning_claim":"at least five words and unique","source_status":"not-required|verified|source-needed","source_id":"","source_url":"","attribution":"","prompt":"detailed English image prompt when generated","google_search_phrase":"English keywords only for a fidelity-sensitive technical object","diagram_left_header":"specific heading","diagram_right_header":"specific heading","diagram_rows":[{{"left":"specific concept","right":"specific field meaning"}}],"context_focus":"U.S. residential construction","depicts_people":false,"workforce_representation":"","core_message_depends_on_real_example":false,"technical_fidelity_required":false,"technical_object_type":"","max_area_percent":45,"highlighted":false,"internal_text":false,"internal_text_position":"top"}}]}}"""
+{{"artifact_type":"study-guide","visual_curation_required":false,"visuals":[{{"visual_id":"L{int(lesson['lesson_number']):02d}V01","visual_type":"deterministic-diagram|generated-conceptual-image|trusted-source-image","placement":"after Section 01 - exact heading","purpose":"at least four words","learning_claim":"at least five words and unique","source_status":"not-required|verified|source-needed","source_id":"","source_url":"","attribution":"","prompt":"detailed English image prompt when generated","google_search_phrase":"English keywords only for a fidelity-sensitive technical object","diagram_type":"process-flow|relationship-map|comparison-matrix|card-sequence","diagram_rationale":"why this mechanism teaches this claim better than the alternatives","diagram_title":"short student-facing title","diagram_nodes":[{{"title":"short label","detail":"short explanation"}}],"diagram_rows":[{{"left":"specific concept","right":"specific field meaning"}}],"context_focus":"U.S. residential construction","depicts_people":false,"workforce_representation":"","core_message_depends_on_real_example":false,"technical_fidelity_required":false,"technical_object_type":"","max_area_percent":45,"highlighted":false,"internal_text":false,"internal_text_position":"top"}}]}}"""
 
 
 TECHNICAL_VISUAL_TERMS = re.compile(
@@ -714,6 +775,20 @@ DIAGRAM_VISUAL_TERMS = re.compile(
     r"decision|relationship|sequence|framework|job description|coordination)\b",
     re.IGNORECASE,
 )
+
+
+def infer_diagram_type(visual: dict[str, Any]) -> str:
+    requested = str(visual.get("diagram_type") or "").strip().lower()
+    if requested in {"process-flow", "relationship-map", "comparison-matrix", "card-sequence"}:
+        return requested
+    description = " ".join(str(visual.get(key) or "") for key in ("purpose", "learning_claim")).lower()
+    if re.search(r"\b(sequence|lifecycle|workflow|process|handoff|phase)\b", description):
+        return "process-flow"
+    if re.search(r"\b(role|stakeholder|relationship|coordinate|influence|communication)\b", description):
+        return "relationship-map"
+    if re.search(r"\b(compare|comparison|versus|difference|alternative|option)\b", description):
+        return "comparison-matrix"
+    return "card-sequence"
 
 
 def technical_visual_requires_operator(visual: dict[str, Any]) -> bool:
@@ -800,19 +875,36 @@ def create_visual_assets(seed, lesson: dict[str, Any], draft: str, run: Path, le
         kind = str(visual.get("visual_type") or "")
         if kind == "deterministic-diagram":
             visual["source_status"] = "not-required"
+            diagram_type = infer_diagram_type(visual)
+            visual["diagram_type"] = diagram_type
+            visual.setdefault("diagram_rationale", f"The {diagram_type} mechanism matches the visual learning claim and avoids decorative repetition.")
             section_rows = visual.get("diagram_rows") or [
                 {"left": re.sub(r"^\d+[\).:-]\s*", "", str(section)).strip(), "right": "A distinct residential job decision taught in this lesson"}
                 for section in (lesson.get("sections") or [])[:5]
             ]
-            render_visuals.append({
+            nodes = visual.get("diagram_nodes") or [
+                {"title": row.get("left", ""), "detail": row.get("right", "")}
+                for row in section_rows
+            ]
+            rendered_type = {
+                "process-flow": "process_flow",
+                "relationship-map": "relationship_map",
+                "comparison-matrix": "source_to_wbs_matrix",
+                "card-sequence": "card_row",
+            }[diagram_type]
+            rendered = {
                 "after_heading": str(visual.get("placement") or "").removeprefix("after ").strip(),
-                "type": "source_to_wbs_matrix",
-                "title": visual.get("learning_claim") or visual.get("purpose"),
+                "type": rendered_type,
+                "title": visual.get("diagram_title") or visual.get("learning_claim") or visual.get("purpose"),
                 "caption": f"Figure {lesson['lesson_number']}.{index + 1}. {visual.get('learning_claim')}",
-                "left_header": visual.get("diagram_left_header") or "Lesson concept",
-                "right_header": visual.get("diagram_right_header") or "Residential field meaning",
-                "rows": section_rows,
-            })
+            }
+            if rendered_type == "source_to_wbs_matrix":
+                rendered.update({"left_header": visual.get("diagram_left_header") or "Concept", "right_header": visual.get("diagram_right_header") or "Field meaning", "rows": section_rows})
+            elif rendered_type == "card_row":
+                rendered["cards"] = [{"title": node.get("title", ""), "lines": [node.get("detail", "")]} for node in nodes[:5]]
+            else:
+                rendered["nodes"] = nodes[:6]
+            render_visuals.append(rendered)
         elif kind == "generated-conceptual-image":
             image_path = run / "review" / "visual_assets" / f"{visual['visual_id']}.png"
             try:
@@ -870,6 +962,7 @@ def render_reviewed_study_guide(seed, lesson: dict[str, Any], draft_path: Path, 
     if (run / "docx_pdf" / pdf_name).exists():
         raise RuntimeError("The canonical study-guide revision already exists; refusing to overwrite it.")
     baseline = approved_study_guide_baseline(run, lesson_tag)
+    cover_quote = select_cover_quote(seed, lesson, run, lesson_tag)
     spec = {
         "course_slug": seed.slug,
         "course_title": seed.title,
@@ -878,7 +971,7 @@ def render_reviewed_study_guide(seed, lesson: dict[str, Any], draft_path: Path, 
         "revision": f"r{revision:02d}",
         "run_folder": f"runs/{seed.slug}",
         "source_markdown": rel(draft_path),
-        "metadata": {"course_title": seed.title, "lesson_number": str(lesson_number), "lesson_short_title": lesson['title'], "level_label": seed.level if str(seed.level).lower().endswith("level") else f"{seed.level} Level", "quote": '"Form follows function."', "quote_author": "Louis Sullivan", "icon": BRAND_ICON},
+        "metadata": {"course_title": seed.title, "lesson_number": str(lesson_number), "lesson_short_title": lesson['title'], "level_label": seed.level if str(seed.level).lower().endswith("level") else f"{seed.level} Level", "quote": f'"{cover_quote["quote"]}"', "quote_author": cover_quote["author"], "quote_verification_url": cover_quote["verification_url"], "icon": BRAND_ICON},
         "output": {"pdf": f"docx_pdf/{pdf_name}", "render_qa": f"docx_pdf/{lesson_tag}_render_qa_r{revision:02d}.md", "layout_qa": f"docx_pdf/{lesson_tag}_pdf_layout_qa_r{revision:02d}.md", "rendered_dir": f"docx_pdf/rendered_pages_{lesson_tag}_r{revision:02d}"},
         "visuals": render_visuals,
         "qa_notes": ["Revisioned student artifact; old outputs remain archived.", "Content and layout QA must pass before human review."],
@@ -1128,7 +1221,7 @@ def localize_book(course_slug: str, lesson_number: int, locale: str) -> list[str
         raise RuntimeError("The approved course book has no revisioned source draft for localization.")
     language, folder = localization_name(locale)
     references = (run / "sources" / "student_references.md").read_text(encoding="utf-8")
-    prompt = f"""Translate the following student-facing construction course book into {language}. Return Markdown only. Preserve every structural heading exactly in English, including Lesson Roadmap, Introduction, Learning Objectives, Section 01 through Section 04, Summary and Key Takeaways, Glossary, and References. Translate all body text and section titles. Keep U.S. construction terminology, units, codes, and market context. Do not add or remove facts, activities, citations, or references.\n\n{source_draft.read_text(encoding='utf-8', errors='replace')[:48000]}"""
+    prompt = f"""Translate the following student-facing construction course book into {language}. Return Markdown only. Preserve the structural order: Introduction, Learning Objectives, numbered Sections, Summary and Key Takeaways, Glossary, and References. Do not add a Lesson Roadmap. Translate all body text and section titles. Keep U.S. construction terminology, units, codes, and market context. Preserve the six approved callout labels semantically in the target language and never invent a new callout type. Do not add or remove facts, activities, citations, or references. Do not use em dashes, en dashes, or spaced hyphens as punctuation.\n\n{source_draft.read_text(encoding='utf-8', errors='replace')[:48000]}"""
     try:
         translated = request_text(seed.slug, "localization", prompt, max_tokens=14000)
     except ModelRequestError as error:
@@ -1141,11 +1234,12 @@ def localize_book(course_slug: str, lesson_number: int, locale: str) -> list[str
     if "# References" not in translated or len(translated.split()) < 250:
         raise RuntimeError("Localized course book failed automatic completeness QA.")
     pdf_name = f"{lesson_tag}_study_guide_{locale}_r{revision:02d}.pdf"
+    cover_quote = select_cover_quote(seed, lesson_by_number(json.loads((run / "course_map" / "course_map.json").read_text(encoding="utf-8")), lesson_number), run, lesson_tag)
     spec = {
         "course_slug": seed.slug, "course_title": seed.title, "lesson_number": str(lesson_number),
         "production_mode": "initial", "revision": f"r{revision:02d}", "run_folder": f"runs/{seed.slug}",
         "source_markdown": rel(draft_path),
-        "metadata": {"course_title": seed.title, "lesson_number": str(lesson_number), "lesson_short_title": f"{locale.upper()} - Lesson {lesson_number}", "lesson_subtitle": language, "level_label": f"{seed.level} Level", "quote": '"Form follows function."', "quote_author": "Louis Sullivan", "icon": BRAND_ICON},
+        "metadata": {"course_title": seed.title, "lesson_number": str(lesson_number), "lesson_short_title": f"{locale.upper()} Lesson {lesson_number}", "lesson_subtitle": language, "level_label": f"{seed.level} Level", "quote": f'"{cover_quote["quote"]}"', "quote_author": cover_quote["author"], "quote_verification_url": cover_quote["verification_url"], "icon": BRAND_ICON},
         "output": {"pdf": f"localization/{folder}/{pdf_name}", "render_qa": f"localization/{folder}/{lesson_tag}_{locale}_render_qa_r{revision:02d}.md", "layout_qa": f"localization/{folder}/{lesson_tag}_{locale}_layout_qa_r{revision:02d}.md", "rendered_dir": f"localization/{folder}/rendered_pages_{lesson_tag}_r{revision:02d}"},
         "visuals": [], "qa_notes": ["Initial production is being prepared for approval.", "Localized artifact is derived from an approved English course book."]
     }

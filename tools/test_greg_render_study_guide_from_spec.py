@@ -58,17 +58,23 @@ class RenderStudyGuideFromSpecTests(unittest.TestCase):
         self.assertTrue(pdf_renderer.visual_matches_heading("Section 01", "Section 01 - The First Decision"))
         self.assertFalse(pdf_renderer.visual_matches_heading("Section 01", "Section 02 - The Next Decision"))
 
-    def test_inline_headline_callout_keeps_short_label_and_full_body(self) -> None:
+    def test_approved_inline_callout_keeps_short_label_and_full_body(self) -> None:
         if pdf_renderer is None:
             self.skipTest("ReportLab is not installed in this Python environment.")
         blocks = pdf_renderer.parse_markdown(
-            "> **Field Note: These responsibilities are one job, not six.** The duties run simultaneously."
+            "> **Scenario: These responsibilities are one job, not six.** The duties run simultaneously."
         )
-        self.assertEqual(blocks[0]["label"], "FIELD NOTE")
+        self.assertEqual(blocks[0]["label"], "SCENARIO")
         self.assertEqual(
             blocks[0]["body"],
             "These responsibilities are one job, not six. The duties run simultaneously.",
         )
+
+    def test_unapproved_callout_label_is_not_rendered_as_box(self) -> None:
+        if pdf_renderer is None:
+            self.skipTest("ReportLab is not installed in this Python environment.")
+        blocks = pdf_renderer.parse_markdown("> **A Clever New Box:** This must remain ordinary prose.")
+        self.assertEqual(blocks[0]["type"], "paragraph")
 
     def test_long_cover_title_fits_three_lines_without_dropping_words(self) -> None:
         if pdf_renderer is None:

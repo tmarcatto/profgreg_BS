@@ -48,6 +48,8 @@ class VisualPlanCheckTests(unittest.TestCase):
                                 "purpose": "Compares the responsibilities of project management and contract management.",
                                 "learning_claim": "Project management coordinates work while contract management controls rights obligations and records.",
                                 "source_status": "not-required",
+                                "diagram_type": "comparison-matrix",
+                                "diagram_rationale": "A comparison matrix directly contrasts the two responsibility systems.",
                                 "context_focus": "U.S. residential construction",
                                 "internal_text": True,
                                 "internal_text_position": "inside",
@@ -69,8 +71,8 @@ class VisualPlanCheckTests(unittest.TestCase):
                     {
                         "artifact_type": "study-guide",
                         "visuals": [
-                            {"visual_id": "A", "visual_type": "deterministic-diagram", "placement": "section 1", "purpose": "Shows estimate maturity across phases.", "learning_claim": claim, "source_status": "not-required", "context_focus": "U.S. residential construction"},
-                            {"visual_id": "B", "visual_type": "deterministic-diagram", "placement": "section 2", "purpose": "Repeats estimate maturity across phases.", "learning_claim": claim, "source_status": "not-required", "context_focus": "U.S. residential construction"},
+                            {"visual_id": "A", "visual_type": "deterministic-diagram", "placement": "section 1", "purpose": "Shows estimate maturity across phases.", "learning_claim": claim, "source_status": "not-required", "context_focus": "U.S. residential construction", "diagram_type": "process-flow", "diagram_rationale": "A process flow shows how estimate information matures across phases."},
+                            {"visual_id": "B", "visual_type": "deterministic-diagram", "placement": "section 2", "purpose": "Repeats estimate maturity across phases.", "learning_claim": claim, "source_status": "not-required", "context_focus": "U.S. residential construction", "diagram_type": "process-flow", "diagram_rationale": "A process flow shows the repeated sequence across project phases."},
                         ],
                     }
                 ),
@@ -79,6 +81,14 @@ class VisualPlanCheckTests(unittest.TestCase):
             result = checker.run_checks(path)
             self.assertFalse(result["passed"])
             self.assertTrue(any(item["check"] == "visual_mece" and item["status"] == "fail" for item in result["findings"]))
+
+    def test_comparison_matrix_fails_for_lifecycle_sequence(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "visual_plan.json"
+            path.write_text(json.dumps({"artifact_type":"study-guide","visuals":[{"visual_id":"V1","visual_type":"deterministic-diagram","placement":"Section 01","purpose":"Shows the lifecycle sequence from preconstruction to closeout.","learning_claim":"Residential project phases follow a connected handoff sequence.","source_status":"not-required","context_focus":"U.S. residential construction","diagram_type":"comparison-matrix","diagram_rationale":"This mechanism was selected to display the project phases clearly."}]}), encoding="utf-8")
+            result = checker.run_checks(path)
+            self.assertFalse(result["passed"])
+            self.assertTrue(any(item["check"] == "diagram_mechanism_fit" and item["status"] == "fail" for item in result["findings"]))
 
     def test_generated_deck_caption_fails(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:

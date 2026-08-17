@@ -61,7 +61,7 @@ class SourceReferenceCheckTests(unittest.TestCase):
             self.assertFalse(result["passed"])
             self.assertTrue(any(item["check"] == "formal_publications_not_linked_as_webpages" for item in result["findings"] if item["status"] == "fail"))
 
-    def test_formal_publication_can_link_to_full_pdf(self) -> None:
+    def test_formal_publication_cannot_link_to_full_pdf(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             tmp_path = Path(tmp)
             ledger = tmp_path / "ledger.json"
@@ -75,7 +75,8 @@ class SourceReferenceCheckTests(unittest.TestCase):
                 encoding="utf-8",
             )
             result = checker.run_checks(ledger, refs, date(2026, 8, 17))
-            self.assertTrue(result["passed"])
+            self.assertFalse(result["passed"])
+            self.assertTrue(any(item["check"] == "formal_publications_not_linked_as_webpages" for item in result["findings"] if item["status"] == "fail"))
 
     def test_missing_files_fail(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:

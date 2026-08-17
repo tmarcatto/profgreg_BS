@@ -43,6 +43,14 @@ class StudyGuideContentCheckTests(unittest.TestCase):
             result = checker.run_checks(path)
             self.assertFalse(result["passed"])
 
+    def test_unapproved_callout_heading_and_dash_punctuation_fail(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "draft.md"
+            path.write_text("# Introduction\n\nCourse orientation.\n\n# Section 01 - One\n\n### Subheading\n\nText — more text.\n\n> **FIELD NOTE**\n>\n> Not approved.\n\n# References\n\n- A formal book.\n", encoding="utf-8")
+            result = checker.run_checks(path)
+            failed = {item["check"] for item in result["findings"] if item["status"] == "fail"}
+            self.assertTrue({"no_deep_markdown_headings", "no_dash_punctuation", "fixed_callout_vocabulary"}.issubset(failed))
+
     def test_intro_target_user_boilerplate_fails(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             path = Path(tmp) / "draft.md"

@@ -24,7 +24,7 @@ DECK_LAYOUTS = {
     "checklist_rows",
     "takeaway",
 }
-PDF_VISUAL_TYPES = {"card_row", "cpm_network", "source_to_wbs_matrix", "timeline"}
+PDF_VISUAL_TYPES = {"card_row", "cpm_network", "source_to_wbs_matrix", "timeline", "process_flow", "relationship_map", "image"}
 PATH_KEYS = {"run_folder", "source_markdown", "approved_baseline_artifact", "pptx", "pdf", "qa", "render_qa", "layout_qa", "rendered_dir"}
 
 
@@ -260,6 +260,8 @@ def pdf_checks(spec: dict[str, Any]) -> list[Finding]:
                     missing_visual_fields.append((index, field))
         if visual.get("type") == "cpm_network" and not visual.get("paths"):
             missing_visual_fields.append((index, "paths"))
+        if visual.get("type") in {"process_flow", "relationship_map"} and not visual.get("nodes"):
+            missing_visual_fields.append((index, "nodes"))
     if missing_visual_fields:
         findings.append(Finding("fail", "pdf_visual_fields", f"Visual field issues: {missing_visual_fields}."))
     else:

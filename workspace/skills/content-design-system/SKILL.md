@@ -80,6 +80,7 @@ Before approving a designed artifact:
 - No BuildStak visual identity drift.
 - No excessive callout density.
 - Tables are used only for real structured information.
+- Each diagram declares why a process flow, relationship map, comparison matrix, or card sequence is the best mechanism for its learning job.
 - Figures have source status and pedagogical captions.
 - DOCX/PDF remains readable and academic.
 - PPTX remains sparse, visual, and presentation-native.

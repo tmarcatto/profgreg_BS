@@ -25,17 +25,13 @@ The approved visual reference is the Blueprint Reading student guide cover/layou
 Every student-facing study guide must follow this sequence unless the user explicitly approves a different template:
 
 1. Cover page using the approved BuildStak study-guide cover system.
-2. Lesson Roadmap page.
-3. Introduction, lesson fit/context, and Learning Objectives on the next page.
-4. Lesson body starts on a new page after the Learning Objectives page.
-5. Summary and Key Takeaways on its own page.
-6. Glossary on its own page.
-7. References on its own page.
+2. Introduction and Learning Objectives on the next page.
+3. Lesson body starts on a new page after the Learning Objectives page.
+4. Summary and Key Takeaways on its own page.
+5. Glossary on its own page.
+6. References on its own page.
 
-## Roadmap
-
-- Render the Lesson Roadmap as a clean list by default.
-- Do not use a table unless the user explicitly approves it for that lesson.
+Do not insert a Lesson Roadmap. The student guide begins with Introduction immediately after the cover.
 
 ## Body Layout
 

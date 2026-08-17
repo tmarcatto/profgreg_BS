@@ -80,8 +80,8 @@ def word_count(text: str) -> int:
 def is_heading_line(line: str) -> bool:
     return bool(
         re.match(r"Section\s+\d{2}\s+-", line, flags=re.I)
-        or line in {"Summary and Key Takeaways", "Glossary", "References", "Lesson Roadmap", "Introduction", "Learning Objectives"}
-        or re.fullmatch(r"(KEY TERM|FIELD NOTE|DID YOU KNOW\?|WATCH OUT|APPLY IT|KEY PRINCIPLE|HANDS-ON EXAMPLE|SCENARIO|CALLBACK|BRIDGE)", line, flags=re.I)
+        or line in {"Summary and Key Takeaways", "Glossary", "References", "Introduction", "Learning Objectives"}
+        or re.fullmatch(r"(KEY TERM|APPLY IT|HANDS-ON EXAMPLE|SCENARIO|CALLBACK|BRIDGE)", line, flags=re.I)
     )
 
 
@@ -126,15 +126,14 @@ def run_checks(pdf_path: Path, qa_path: Path | None = None) -> dict:
             findings.append(Finding("pass", "cover_template", "Cover includes expected BuildStak study-guide elements."))
 
     roadmap_page = find_page(pages, r"Lesson Roadmap", heading_only=True)
-    intro_page = find_page(pages, r"Introduction", min_page=3, heading_only=True)
-    objectives_page = find_page(pages, r"Learning Objectives", min_page=3, heading_only=True)
-    section_01_page = find_page(pages, r"Section\s+01\s+-.*", min_page=4, heading_only=True)
-    summary_page = find_page(pages, r"Summary and Key Takeaways", min_page=4, heading_only=True)
-    glossary_page = find_page(pages, r"Glossary", min_page=4, heading_only=True)
-    references_page = find_page(pages, r"References", min_page=4, heading_only=True)
+    intro_page = find_page(pages, r"Introduction", min_page=2, heading_only=True)
+    objectives_page = find_page(pages, r"Learning Objectives", min_page=2, heading_only=True)
+    section_01_page = find_page(pages, r"Section\s+01\s+-.*", min_page=3, heading_only=True)
+    summary_page = find_page(pages, r"Summary and Key Takeaways", min_page=3, heading_only=True)
+    glossary_page = find_page(pages, r"Glossary", min_page=3, heading_only=True)
+    references_page = find_page(pages, r"References", min_page=3, heading_only=True)
 
     sequence = {
-        "roadmap": roadmap_page,
         "introduction": intro_page,
         "learning_objectives": objectives_page,
         "section_01": section_01_page,
@@ -148,10 +147,15 @@ def run_checks(pdf_path: Path, qa_path: Path | None = None) -> dict:
     else:
         findings.append(Finding("pass", "required_sections", "All required structural sections were found."))
 
-    if roadmap_page == 2:
-        findings.append(Finding("pass", "roadmap_page", "Lesson Roadmap is on page 2."))
-    elif roadmap_page:
-        findings.append(Finding("warn", "roadmap_page", f"Lesson Roadmap found on page {roadmap_page}; approved template expects page 2."))
+    if roadmap_page:
+        findings.append(Finding("fail", "no_lesson_roadmap", f"Lesson Roadmap appears on page {roadmap_page}, but it is no longer part of the approved template."))
+    else:
+        findings.append(Finding("pass", "no_lesson_roadmap", "No Lesson Roadmap page found."))
+
+    if intro_page == 2:
+        findings.append(Finding("pass", "introduction_page", "Introduction starts directly after the cover on page 2."))
+    elif intro_page:
+        findings.append(Finding("fail", "introduction_page", f"Introduction starts on page {intro_page}; approved template expects page 2."))
 
     if intro_page and objectives_page and intro_page == objectives_page:
         findings.append(Finding("pass", "intro_objectives_same_page", "Introduction and Learning Objectives are on the same page."))
@@ -163,8 +167,8 @@ def run_checks(pdf_path: Path, qa_path: Path | None = None) -> dict:
     elif objectives_page and section_01_page:
         findings.append(Finding("fail", "body_starts_after_objectives", "Lesson body starts before or on the Learning Objectives page."))
 
-    ordered_pages = [page for page in [roadmap_page, intro_page, section_01_page, summary_page, glossary_page, references_page] if page is not None]
-    if ordered_pages == sorted(ordered_pages) and len(ordered_pages) >= 6:
+    ordered_pages = [page for page in [intro_page, section_01_page, summary_page, glossary_page, references_page] if page is not None]
+    if ordered_pages == sorted(ordered_pages) and len(ordered_pages) >= 5:
         findings.append(Finding("pass", "page_sequence", "Core sections appear in approved order."))
     else:
         findings.append(Finding("fail", "page_sequence", f"Core section order is unexpected: {sequence}."))
@@ -207,7 +211,7 @@ def run_checks(pdf_path: Path, qa_path: Path | None = None) -> dict:
 
     if summary_page and references_page:
         structural_tail = "\n".join(pages[summary_page - 1 : references_page])
-        callout_labels = re.findall(r"\b(KEY TERM|FIELD NOTE|DID YOU KNOW\?|WATCH OUT|APPLY IT|KEY PRINCIPLE)\b", structural_tail, flags=re.IGNORECASE)
+        callout_labels = re.findall(r"\b(KEY TERM|APPLY IT|HANDS-ON EXAMPLE|SCENARIO|CALLBACK|BRIDGE)\b", structural_tail, flags=re.IGNORECASE)
         if callout_labels:
             findings.append(Finding("fail", "callouts_in_structural_sections", f"Callout labels found in structural tail sections: {sorted(set(callout_labels))}."))
         else:
@@ -239,7 +243,7 @@ def run_checks(pdf_path: Path, qa_path: Path | None = None) -> dict:
             if re.match(r"Section\s+\d{2}\s+-", lines[0], flags=re.I) and len(lines) <= 2:
                 heading_openings.append((page_number, lines[:2]))
         for index, line in enumerate(lines):
-            if re.fullmatch(r"(KEY TERM|FIELD NOTE|DID YOU KNOW\?|WATCH OUT|APPLY IT|KEY PRINCIPLE|HANDS-ON EXAMPLE|SCENARIO|CALLBACK|BRIDGE)", line, flags=re.I):
+            if re.fullmatch(r"(KEY TERM|APPLY IT|HANDS-ON EXAMPLE|SCENARIO|CALLBACK|BRIDGE)", line, flags=re.I):
                 remaining = " ".join(lines[index + 1 : index + 3])
                 if len(remaining.split()) < 6:
                     split_callout_labels.append((page_number, line))
@@ -338,7 +342,7 @@ def run_checks(pdf_path: Path, qa_path: Path | None = None) -> dict:
     if qa_path and qa_path.exists():
         qa_requirements = [
             ("qa_cover", "Cover"),
-            ("qa_roadmap", "roadmap"),
+            ("qa_introduction", "Introduction"),
             ("qa_references_no_access_dates", "access dates"),
             ("qa_orphans", "orphan"),
             ("qa_status", "Passed"),

@@ -156,7 +156,7 @@ class Callout:
         self.body = body
 
     def flowable(self):
-        orange_labels = {"WATCH OUT", "DID YOU KNOW?", "KEY PRINCIPLE"}
+        orange_labels = {"APPLY IT", "HANDS-ON EXAMPLE", "SCENARIO"}
         border = ORANGE if self.label.upper() in orange_labels else NAVY
         fill = PALE_ORANGE if self.label.upper() in orange_labels else LIGHT
         table = Table(
@@ -214,6 +214,103 @@ class CardRowDiagram(Flowable):
             c.setFillColor(colors.white)
             c.setFont("Helvetica-Bold", 9.2)
             c.drawCentredString(w / 2, 26, self.pill)
+
+
+class ProcessFlowDiagram(Flowable):
+    def __init__(self, title: str, nodes: list[dict[str, Any]]):
+        super().__init__()
+        self.title = title
+        self.nodes = nodes[:6]
+        self.height = 210
+
+    def wrap(self, availWidth, availHeight):
+        self.width = availWidth
+        return availWidth, self.height
+
+    def draw(self):
+        c = self.canv
+        w = self.width
+        draw_visual_title(c, self.title, w, self.height)
+        count = max(len(self.nodes), 1)
+        gap = 20
+        box_w = min(108, (w - gap * (count - 1)) / count)
+        total_w = box_w * count + gap * (count - 1)
+        x0 = (w - total_w) / 2
+        y = 58
+        for index, node in enumerate(self.nodes):
+            x = x0 + index * (box_w + gap)
+            c.setFillColor(LIGHT)
+            c.setStrokeColor(NAVY)
+            c.roundRect(x, y, box_w, 82, 5, stroke=1, fill=1)
+            c.setFillColor(ORANGE)
+            c.setFont("Helvetica-Bold", 9)
+            c.drawString(x + 9, y + 61, str(index + 1))
+            c.setFillColor(NAVY)
+            c.setFont("Helvetica-Bold", 8.5)
+            for line_index, line in enumerate(wrap_lines(str(node.get("title", "")), "Helvetica-Bold", 8.5, box_w - 20)[:2]):
+                c.drawString(x + 9, y + 45 - line_index * 10, line)
+            c.setFillColor(INK)
+            c.setFont("Helvetica", 7.2)
+            for line_index, line in enumerate(wrap_lines(str(node.get("detail", "")), "Helvetica", 7.2, box_w - 20)[:2]):
+                c.drawString(x + 9, y + 20 - line_index * 9, line)
+            if index < count - 1:
+                start = x + box_w + 3
+                end = x + box_w + gap - 3
+                mid_y = y + 41
+                c.setStrokeColor(ORANGE)
+                c.setFillColor(ORANGE)
+                c.setLineWidth(1.8)
+                c.line(start, mid_y, end, mid_y)
+                path = c.beginPath()
+                path.moveTo(end, mid_y)
+                path.lineTo(end - 5, mid_y + 3)
+                path.lineTo(end - 5, mid_y - 3)
+                path.close()
+                c.drawPath(path, stroke=0, fill=1)
+
+
+class RelationshipMapDiagram(Flowable):
+    def __init__(self, title: str, nodes: list[dict[str, Any]]):
+        super().__init__()
+        self.title = title
+        self.nodes = nodes[:6]
+        self.height = 230
+
+    def wrap(self, availWidth, availHeight):
+        self.width = availWidth
+        return availWidth, self.height
+
+    def draw(self):
+        import math
+        c = self.canv
+        w = self.width
+        draw_visual_title(c, self.title, w, self.height)
+        center_x, center_y = w / 2, 95
+        center = self.nodes[0] if self.nodes else {"title": "Coordination", "detail": ""}
+        satellites = self.nodes[1:] or [{"title": "Project team", "detail": ""}]
+        positions = []
+        radius_x, radius_y = min(210, w * 0.34), 58
+        for index, node in enumerate(satellites):
+            angle = 2 * math.pi * index / len(satellites)
+            positions.append((center_x + radius_x * math.cos(angle), center_y + radius_y * math.sin(angle), node))
+        c.setStrokeColor(LINE)
+        c.setLineWidth(1.2)
+        for x, y, _ in positions:
+            c.line(center_x, center_y, x, y)
+        c.setFillColor(NAVY)
+        c.roundRect(center_x - 62, center_y - 24, 124, 48, 18, stroke=0, fill=1)
+        c.setFillColor(colors.white)
+        c.setFont("Helvetica-Bold", 9)
+        for line_index, line in enumerate(wrap_lines(str(center.get("title", "")), "Helvetica-Bold", 9, 105)[:2]):
+            c.drawCentredString(center_x, center_y + 7 - line_index * 11, line)
+        for x, y, node in positions:
+            c.setFillColor(LIGHT)
+            c.setStrokeColor(ORANGE)
+            c.roundRect(x - 52, y - 20, 104, 40, 5, stroke=1, fill=1)
+            c.setFillColor(NAVY)
+            c.setFont("Helvetica-Bold", 7.8)
+            for line_index, line in enumerate(wrap_lines(str(node.get("title", "")), "Helvetica-Bold", 7.8, 90)[:2]):
+                c.drawCentredString(x, y + 5 - line_index * 9, line)
 
 
 class TimelineDiagram(Flowable):
@@ -423,6 +520,10 @@ def parse_markdown(markdown: str) -> list[dict[str, Any]]:
             blocks.append({"type": "h2", "text": line[3:].strip()})
             index += 1
             continue
+        if line.startswith("### "):
+            blocks.append({"type": "paragraph", "text": f"**{line[4:].strip()}**"})
+            index += 1
+            continue
         if line.startswith("- "):
             items: list[str] = []
             while index < len(lines) and lines[index].strip().startswith("- "):
@@ -439,20 +540,16 @@ def parse_markdown(markdown: str) -> list[dict[str, Any]]:
                 index += 1
             first_line = quote_lines[0] if quote_lines else ""
             known_label = re.match(
-                r"^\*\*(KEY TERM|FIELD NOTE|DID YOU KNOW\?|WATCH OUT|APPLY IT|KEY PRINCIPLE|HANDS-ON EXAMPLE|SCENARIO|CALLBACK|BRIDGE):\s*(.*?)\*\*\s*(.*)$",
+                r"^\*\*(KEY TERM|APPLY IT|HANDS-ON EXAMPLE|SCENARIO|CALLBACK|BRIDGE):?\s*(.*?)\*\*\s*(.*)$",
                 first_line,
                 flags=re.IGNORECASE,
             )
-            labeled = re.match(r"^\*\*(.+?):\*\*\s*(.*)$", first_line)
             if known_label:
                 label = known_label.group(1).strip().upper()
                 body = " ".join([known_label.group(2).strip(), known_label.group(3).strip(), *quote_lines[1:]]).strip()
-            elif labeled:
-                label = labeled.group(1).strip()
-                body = " ".join([labeled.group(2).strip(), *quote_lines[1:]]).strip()
             else:
-                label = re.sub(r"^\*\*|\*\*$", "", first_line) or "NOTE"
-                body = " ".join(quote_lines[1:]).strip()
+                blocks.append({"type": "paragraph", "text": " ".join(re.sub(r"^\*\*|\*\*$", "", item) for item in quote_lines)})
+                continue
             blocks.append({"type": "callout", "label": label, "body": body})
             continue
         paragraph: list[str] = [line]
@@ -538,7 +635,7 @@ def make_doc(output: Path, metadata: dict[str, Any]):
             canvas.setFont("Helvetica-Bold", 13)
             canvas.drawString(1.75 * inch, 2.02 * inch, metadata["quote"])
             canvas.setFont("Helvetica", 10)
-            canvas.drawString(1.75 * inch, 1.78 * inch, f"- {metadata.get('quote_author', '')}")
+            canvas.drawString(1.75 * inch, 1.78 * inch, metadata.get('quote_author', ''))
         canvas.setFillColor(colors.HexColor("#4b5563"))
         canvas.setFont("Helvetica", 9)
         canvas.drawString(1.75 * inch, 1.48 * inch, "BuildStak Learning Series")
@@ -569,6 +666,10 @@ def visual_flowables(visual: dict[str, Any]) -> list[Any]:
         flowable = TimelineDiagram(visual["title"])
     elif diagram_type == "source_to_wbs_matrix":
         flowable = SourceToWBSMatrix(visual["title"], visual["left_header"], visual["right_header"], visual["rows"])
+    elif diagram_type == "process_flow":
+        flowable = ProcessFlowDiagram(visual["title"], visual["nodes"])
+    elif diagram_type == "relationship_map":
+        flowable = RelationshipMapDiagram(visual["title"], visual["nodes"])
     elif diagram_type == "cpm_network":
         flowable = CPMNetworkDiagram(visual["title"], visual["paths"])
     else:

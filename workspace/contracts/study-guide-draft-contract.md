@@ -48,20 +48,20 @@ Section word counts are not fixed. Each section should be as deep as needed and 
 Each study guide should include:
 
 1. Cover.
-2. Static table of contents.
-3. Introduction.
-4. Lesson map or course-position visual.
-5. Learning objectives.
-6. MECE lesson sections.
-7. Summary and key takeaways.
-8. Glossary.
-9. Student-friendly references.
+2. Introduction and learning objectives.
+3. MECE lesson sections.
+4. Summary and key takeaways.
+5. Glossary.
+6. Student-friendly references.
 
 The study guide is student-facing. Do not include internal production metadata such as audience notes, prerequisite notes, unit policy, source policy commentary, or AI workflow explanations unless the user explicitly asks for an instructor/internal edition.
 
 ## Section Rules
 
 - Use 3-6 sections unless the lesson function clearly requires otherwise.
+- Do not add a Lesson Roadmap page.
+- Do not use H3 or deeper Markdown headings.
+- Avoid em dashes, en dashes, and spaced hyphens as sentence punctuation.
 - Sections must be mutually exclusive and collectively exhaustive.
 - Each section needs a setting question or learning tension.
 - Each section should include practical residential construction relevance by default.

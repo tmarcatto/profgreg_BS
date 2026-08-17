@@ -77,7 +77,6 @@ Current vocabulary:
 
 - `APPLY IT`
 - `KEY TERM`
-- `PULL-QUOTE`
 - `HANDS-ON EXAMPLE`
 - `SCENARIO`
 - `CALLBACK`
@@ -104,7 +103,6 @@ Recommended use:
 - `SCENARIO`: sparingly, for a meaningful applied situation.
 - `CALLBACK`: real prior-lesson continuity from the Course Map.
 - `BRIDGE`: one transition to the next lesson or future concept.
-- `PULL-QUOTE`: sparingly, only for memorable principles.
 
 ## Figures
 

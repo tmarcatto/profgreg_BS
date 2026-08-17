@@ -29,7 +29,7 @@ The source ledger records what sources were used, why they were trusted, which c
 - Student-facing references should be useful and readable, not decorative.
 - Student-facing references must be clean bibliographic entries only. Do not include internal rationale such as "useful for", "used to support", source ranking, reliability notes, or production comments.
 - Student-facing references must never say "Retrieved from Prof Greg course source library," expose internal source folders, or show local course file paths.
-- Student-facing references must be real in their presented form. If a book, standard, recommended practice, or formal publication was used, cite it as a publication with formal bibliographic metadata and do not attach a webpage link unless the linked page itself contains the content used by the lesson.
+- Student-facing references must be real in their presented form. If a book, standard, recommended practice, report, manual, PDF, or other paginated publication was used, cite it with formal bibliographic metadata and do not display a URL. If a webpage was separately used as content, cite that webpage as its own source.
 - Student-facing webpage links are allowed only when the webpage itself was used as content input. Do not cite a book or standard and then send students to an abstract, catalog page, bookstore page, landing page, or teaser page as if it were the source content.
 - Do not name sources in the study-guide teaching prose. Use the source name only in figure captions/source legends and in the References section.
 - Boxes, callouts, and figure caption groups must never split across pages. If a box does not fit, move the whole box to the next page.

@@ -19,6 +19,7 @@ class Finding:
 GENERATED_TYPES = {"generated-conceptual-image"}
 SOURCE_TYPES = {"trusted-source-image", "real-source-image"}
 DIAGRAM_TYPES = {"deterministic-diagram", "chart", "process-flow", "structured-visual"}
+DIAGRAM_MECHANISMS = {"process-flow", "relationship-map", "comparison-matrix", "card-sequence"}
 BRAND_TYPES = {"brand-mark", "logo"}
 ALLOWED_HIGHLIGHT_REASONS = {
     "exception",
@@ -101,6 +102,9 @@ def run_checks(plan_path: Path) -> dict[str, Any]:
     people_representation_missing = []
     learning_claims: dict[str, list[str]] = {}
     generated_positions: list[tuple[int, str]] = []
+    missing_diagram_decisions = []
+    unsuitable_diagram_decisions = []
+    diagram_mechanisms: dict[str, list[str]] = {}
 
     for index, visual in enumerate(visuals):
         label = visual_label(visual, index)
@@ -174,6 +178,17 @@ def run_checks(plan_path: Path) -> dict[str, Any]:
             if position in {"below", "bottom", "caption-area"}:
                 text_below_diagram.append(label)
 
+        if kind in DIAGRAM_TYPES:
+            mechanism = str(visual.get("diagram_type") or "").strip().lower()
+            rationale = str(visual.get("diagram_rationale") or "").strip()
+            if mechanism not in DIAGRAM_MECHANISMS or len(rationale.split()) < 6:
+                missing_diagram_decisions.append(label)
+            else:
+                diagram_mechanisms.setdefault(mechanism, []).append(label)
+                claim_text = normalize(" ".join([purpose, learning_claim]))
+                if mechanism == "comparison-matrix" and re.search(r"\b(sequence|lifecycle|workflow|process|handoff|phase)\b", claim_text):
+                    unsuitable_diagram_decisions.append((label, mechanism, "sequential learning claim"))
+
     if required_missing:
         findings.append(Finding("fail", "required_visual_fields", f"Missing required visual fields: {required_missing}."))
     else:
@@ -243,6 +258,22 @@ def run_checks(plan_path: Path) -> dict[str, Any]:
         findings.append(Finding("fail", "diagram_internal_text_position", f"Diagram internal text is placed below the visual: {text_below_diagram}."))
     else:
         findings.append(Finding("pass", "diagram_internal_text_position", "Diagram internal text is not placed in the caption area."))
+
+    if missing_diagram_decisions:
+        findings.append(Finding("fail", "diagram_mechanism_decision", f"Deterministic diagrams lack an approved mechanism or pedagogical rationale: {missing_diagram_decisions}."))
+    else:
+        findings.append(Finding("pass", "diagram_mechanism_decision", "Each deterministic diagram declares a mechanism and pedagogical rationale."))
+
+    if unsuitable_diagram_decisions:
+        findings.append(Finding("fail", "diagram_mechanism_fit", f"Diagram mechanisms do not fit their learning jobs: {unsuitable_diagram_decisions}."))
+    else:
+        findings.append(Finding("pass", "diagram_mechanism_fit", "Diagram mechanisms fit their stated learning jobs."))
+
+    diagram_count = sum(len(labels) for labels in diagram_mechanisms.values())
+    if diagram_count >= 3 and len(diagram_mechanisms) == 1:
+        findings.append(Finding("fail", "diagram_mechanism_variety", f"All {diagram_count} diagrams use {next(iter(diagram_mechanisms))}; re-evaluate the mechanism for each learning job."))
+    else:
+        findings.append(Finding("pass", "diagram_mechanism_variety", "The visual plan does not mechanically repeat one diagram mechanism."))
 
     fail_count = sum(1 for item in findings if item.status == "fail")
     warn_count = sum(1 for item in findings if item.status == "warn")

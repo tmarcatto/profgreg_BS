@@ -25,7 +25,7 @@ Use Greg student-friendly references.
 
 Keep reading smooth. Inline citations are optional and should appear only when they strengthen the learning moment, highlight an important factual claim, or support a high-stakes technical statement.
 
-Student-facing references must be real in the form shown to the learner. Books, standards, recommended practices, and formal publications must be cited as publications, not linked to abstract, bookstore, catalog, landing, or teaser pages. Use links only when the linked webpage itself was used as content input.
+Student-facing references must be real in the form shown to the learner. Books, standards, recommended practices, reports, manuals, PDFs, and other paginated publications must be cited as publications without URLs. Use links only when a webpage itself was used as content input, and cite that webpage separately.
 
 ## Output
 

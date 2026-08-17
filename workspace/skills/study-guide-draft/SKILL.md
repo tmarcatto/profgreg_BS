@@ -72,14 +72,14 @@ Form follows function. Keep lessons in the same course reasonably consistent, bu
 Each study guide draft should include:
 
 1. Cover metadata.
-2. Static table of contents.
-3. Introduction.
-4. Lesson map or course-position visual placeholder.
-5. Learning objectives.
-6. MECE lesson sections.
-7. Summary and key takeaways.
-8. Glossary.
-9. Student-friendly references.
+2. Introduction.
+3. Learning objectives.
+4. MECE lesson sections.
+5. Summary and key takeaways.
+6. Glossary.
+7. Student-friendly references.
+
+Do not add a Lesson Roadmap. Do not use H3 or deeper Markdown headings. Avoid em dashes, en dashes, and spaced hyphens as prose punctuation.
 
 ## Section Drafting Rules
 

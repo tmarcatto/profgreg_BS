@@ -86,15 +86,16 @@ def is_formal_publication_reference(source: dict[str, Any]) -> bool:
     )
 
 
-def publication_link_is_direct_content(source: dict[str, Any]) -> bool:
-    """Allow links to the actual publication while rejecting catalog/abstract links."""
+def is_paginated_document_source(source: dict[str, Any]) -> bool:
+    source_type = str(source.get("source_type") or "").lower()
     url = str(source.get("url") or "").lower()
-    if not url:
-        return False
-    blocked_markers = ("/abstract", "/bookstore/", "/catalog", "/product/", "amazon.", "books.google.")
-    if any(marker in url for marker in blocked_markers):
-        return False
-    return url.endswith(".pdf") or "/sites/default/files/publications/" in url
+    document_types = {
+        "book", "published-book", "published-book-or-manual", "published-book-or-standard",
+        "standard", "professional-standard", "professional-standard-discussion",
+        "recommended-practice", "professional-guide", "government-publication",
+        "industry-publication", "manual", "report", "code",
+    }
+    return source_type in document_types or bool(re.search(r"\.(pdf|docx?|pptx?)(?:[?#]|$)", url))
 
 
 def eligible_for_student_reference(source: dict[str, Any]) -> bool:
@@ -221,15 +222,15 @@ def run_checks(ledger_path: Path, references_path: Path, production_date: date |
 
     formal_publications_with_links = []
     for source in sources:
-        if not is_formal_publication_reference(source):
+        if not (is_formal_publication_reference(source) or is_paginated_document_source(source)):
             continue
         line = student_reference_line_for_source(source, references_text)
-        if line and re.search(r"https?://", line, flags=re.IGNORECASE) and not publication_link_is_direct_content(source):
+        if line and re.search(r"https?://", line, flags=re.IGNORECASE):
             formal_publications_with_links.append(f"{source_label(source)} -> {line}")
     if formal_publications_with_links:
         findings.append(Finding("fail", "formal_publications_not_linked_as_webpages", f"Book/standard references include webpage links: {formal_publications_with_links}."))
     else:
-        findings.append(Finding("pass", "formal_publications_not_linked_as_webpages", "Books and standards are bibliographic references; any retained publication link points to the full content rather than an abstract or catalog page."))
+        findings.append(Finding("pass", "formal_publications_not_linked_as_webpages", "Books, standards, reports, manuals, and paginated documents use bibliographic references without URLs."))
 
     eligible_sources = [source for source in sources if eligible_for_student_reference(source)]
     missing_from_student_refs = []

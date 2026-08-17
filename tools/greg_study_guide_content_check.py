@@ -17,12 +17,20 @@ class Finding:
 
 
 STRUCTURAL_HEADINGS = {
-    "lesson roadmap",
     "summary",
     "summary and key takeaways",
     "key takeaways",
     "glossary",
     "references",
+}
+
+ALLOWED_CALLOUT_LABELS = {
+    "APPLY IT",
+    "KEY TERM",
+    "HANDS-ON EXAMPLE",
+    "SCENARIO",
+    "CALLBACK",
+    "BRIDGE",
 }
 
 ACTIVITY_PATTERNS = [
@@ -79,9 +87,9 @@ def heading_name(line: str) -> str | None:
 
 def is_callout_label(line: str) -> str | None:
     stripped = line.strip()
-    match = re.match(r"^>\s*\*\*([A-Z][A-Z ?&/-]{2,})\*\*\s*$", stripped)
+    match = re.match(r"^>\s*\*\*([^*]{2,80}?)\*\*", stripped)
     if match:
-        return match.group(1).strip()
+        return match.group(1).strip().rstrip(":").upper()
     return None
 
 
@@ -141,6 +149,29 @@ def run_checks(draft_path: Path, level: str | None = None) -> dict:
     text = read_text(draft_path)
     lines = text.splitlines()
 
+    if re.search(r"(?im)^#\s+Lesson Roadmap\s*$", text):
+        findings.append(Finding("fail", "no_lesson_roadmap", "Lesson Roadmap is not part of the approved student guide."))
+    else:
+        findings.append(Finding("pass", "no_lesson_roadmap", "The guide opens with Introduction rather than a Lesson Roadmap."))
+
+    deep_headings = [(index + 1, line.strip()) for index, line in enumerate(lines) if re.match(r"^#{3,}\s+", line)]
+    if deep_headings:
+        findings.append(Finding("fail", "no_deep_markdown_headings", f"Unsupported H3 or deeper headings found: {deep_headings[:8]}."))
+    else:
+        findings.append(Finding("pass", "no_deep_markdown_headings", "No H3 or deeper Markdown headings found."))
+
+    dash_punctuation = []
+    teaching_text = text.split("# References", 1)[0]
+    for index, line in enumerate(teaching_text.splitlines(), start=1):
+        if re.match(r"^#\s+Section\s+\d{2}\s+-\s+", line):
+            continue
+        if "—" in line or "–" in line or re.search(r"\s-{1,2}\s", line):
+            dash_punctuation.append(index)
+    if dash_punctuation:
+        findings.append(Finding("fail", "no_dash_punctuation", f"Dash punctuation found on lines {dash_punctuation[:12]}; rewrite with normal sentence punctuation."))
+    else:
+        findings.append(Finding("pass", "no_dash_punctuation", "No em dash, en dash, or spaced dash punctuation found."))
+
     if draft_path.exists():
         findings.append(Finding("pass", "draft_exists", "Study guide draft exists."))
     else:
@@ -180,11 +211,17 @@ def run_checks(draft_path: Path, level: str | None = None) -> dict:
     else:
         findings.append(Finding("warn", "callouts_present", "No callout blocks found."))
 
+    invalid_callouts = [f"{block['label']} line {block['line']}" for block in blocks if block["label"] not in ALLOWED_CALLOUT_LABELS]
+    if invalid_callouts:
+        findings.append(Finding("fail", "fixed_callout_vocabulary", f"Unapproved callout labels found: {invalid_callouts}."))
+    else:
+        findings.append(Finding("pass", "fixed_callout_vocabulary", "All callouts use the approved six-label vocabulary."))
+
     structural_callouts = [f"{block['label']} line {block['line']} in {block['section']}" for block in blocks if block["section"] in STRUCTURAL_HEADINGS]
     if structural_callouts:
         findings.append(Finding("fail", "callouts_not_structural", f"Callouts appear in structural sections: {structural_callouts}."))
     else:
-        findings.append(Finding("pass", "callouts_not_structural", "No callouts found in roadmap, summary, glossary, or references."))
+        findings.append(Finding("pass", "callouts_not_structural", "No callouts found in summary, glossary, or references."))
 
     long_callouts = [f"{block['label']} line {block['line']} ({block['paragraph_count']} paragraphs)" for block in blocks if block["paragraph_count"] > 3]
     if long_callouts:

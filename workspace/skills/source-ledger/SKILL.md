@@ -87,7 +87,7 @@ For each research need:
 
 Before drafting student-facing references, separate public/publishable sources from internal-only attachments.
 
-Do not create hybrid references. If the source is a book, standard, recommended practice, or formal publication, cite it as that publication. Do not attach a URL to an abstract, bookstore page, catalog page, landing page, or teaser page. Use a student-facing URL only when the webpage itself was used as content input.
+Do not create hybrid references. If the source is a book, standard, recommended practice, report, manual, PDF, or other paginated publication, cite it as that publication without a URL. Use a student-facing URL only when a webpage itself was used as content input, and cite that webpage as its own source.
 
 ## Authority Tiers
 
