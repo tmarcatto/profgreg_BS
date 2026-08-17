@@ -509,6 +509,52 @@ def force_student_references(draft: str, references: str) -> str:
     return f"{body}\n\n# References\n\n{references.removeprefix('# References').strip()}\n"
 
 
+def normalize_callout_density(draft: str, maximum: int = 4) -> str:
+    """Keep the most useful approved callouts and preserve excess content as prose."""
+    lines = draft.splitlines()
+    pattern = re.compile(
+        r"^>\s*(?:\*\*)?(KEY TERM|APPLY IT|HANDS-ON EXAMPLE|SCENARIO|CALLBACK|BRIDGE)(?:\*\*)?\s*(?::\s*(.*))?$",
+        flags=re.IGNORECASE,
+    )
+    blocks: list[dict[str, Any]] = []
+    index = 0
+    while index < len(lines):
+        match = pattern.match(lines[index].strip())
+        if not match:
+            index += 1
+            continue
+        end = index + 1
+        while end < len(lines) and lines[end].lstrip().startswith(">"):
+            end += 1
+        blocks.append({"start": index, "end": end, "label": match.group(1).upper(), "inline": (match.group(2) or "").strip()})
+        index = end
+    if len(blocks) <= maximum:
+        return draft
+
+    priority = {"SCENARIO": 6, "HANDS-ON EXAMPLE": 5, "APPLY IT": 4, "BRIDGE": 3, "CALLBACK": 2, "KEY TERM": 1}
+    keep = {
+        item[1]["start"]
+        for item in sorted(enumerate(blocks), key=lambda item: (-priority[item[1]["label"]], item[0]))[:maximum]
+    }
+    output: list[str] = []
+    block_by_start = {block["start"]: block for block in blocks}
+    index = 0
+    while index < len(lines):
+        block = block_by_start.get(index)
+        if not block:
+            output.append(lines[index])
+            index += 1
+            continue
+        if block["start"] in keep:
+            output.extend(lines[block["start"] : block["end"]])
+        else:
+            body = [block["inline"]] if block["inline"] else []
+            body.extend(line.lstrip()[1:].strip() for line in lines[block["start"] + 1 : block["end"]] if line.lstrip()[1:].strip())
+            output.append(" ".join(body).strip())
+        index = block["end"]
+    return "\n".join(output).rstrip() + "\n"
+
+
 def study_guide_revision_prompt(draft: str, feedback: str, references: str, *, attempt: int) -> str:
     return f"""Revise the existing Prof Greg student course-book chapter below. Return the complete revised Markdown only.
 
@@ -640,9 +686,9 @@ def merge_lesson_sources(run: Path, ledger: dict[str, Any], refresh: dict[str, A
 
 def reviewer_prompt(kind: str, seed, lesson: dict[str, Any], draft: str, ledger: dict[str, Any]) -> str:
     criteria = {
-        "pedagogy_review": "Check only learning progression, depth for level, MECE sections, residential examples, explanations before bullets, no activities, and no audience boilerplate. Citation style and reference formatting belong to the citation reviewer; do not fail this review merely because ordinary claims lack inline citations.",
+        "pedagogy_review": "Check only learning progression, depth for level, MECE sections, residential examples, explanations before bullets, no activities, and no audience boilerplate. Citation style and reference formatting belong to the citation reviewer; do not fail this review merely because ordinary claims lack inline citations. Figures are planned and inserted by a separate visual pipeline after this review. Do not request ASCII diagrams, Markdown tables, fenced visual source, or final figure rendering inside the chapter Markdown.",
         "citation_review": "Check factual support against the ledger, current applicability, clean student references, no invented claims, and no internal/local source language. Do not demand inline citations for every source or every ordinary claim. References may include materially consulted sources even when they are not named decoratively in the teaching prose. Never request or add accessed/retrieved dates. Books must be cited as books without abstract, catalog, preview, or search-result links; webpage references may include only the direct content URL actually used.",
-        "design_review": "Check only the draft's approved structural and presentation contract: Introduction followed by Learning Objectives with no Lesson Roadmap; continuous lesson body; separate summary, glossary, and references; only the six approved callout labels; no callouts in structural sections; no H3 or deeper headings; no dash punctuation in prose; no one-line section openers. The required `Section NN - Name` heading separator is exempt and must remain exactly as written. Useful callouts inside the teaching body are allowed. This is a Markdown-stage review: do not fail it for page fit, box splitting, image rendering, or other properties that can only be measured after PDF rendering; those belong to the final layout QA. Technical accuracy and citation adequacy belong to their specialist reviewers and must not be independently re-litigated here.",
+        "design_review": "Check only the draft's approved structural and presentation contract: Introduction followed by Learning Objectives with no Lesson Roadmap; continuous lesson body; separate summary, glossary, and references; only the six approved callout labels; no callouts in structural sections; no H3 or deeper headings; no dash punctuation in prose; no one-line section openers. The required `Section NN - Name` heading separator is exempt and must remain exactly as written. Useful callouts inside the teaching body are allowed. Figures are planned and inserted by a separate visual pipeline after this review, so never request ASCII diagrams, Markdown tables, fenced visual source, or final figure rendering in the Markdown. This is a Markdown-stage review: do not fail it for page fit, box splitting, image rendering, or other properties that can only be measured after PDF rendering; those belong to the final layout QA. Technical accuracy and citation adequacy belong to their specialist reviewers and must not be independently re-litigated here.",
     }[kind]
     return f"""Return JSON only as an independent Prof Greg reviewer.
 Review Lesson {lesson['lesson_number']}: {lesson['title']} for {seed.title}.
@@ -1072,6 +1118,7 @@ def produce_study_guide(course_slug: str, lesson_number: int) -> list[str]:
                 block(run, "lesson_draft", f"Configured technical-content model could not produce Lesson {lesson_number}.\n\nReason: {error}")
                 raise RuntimeError(str(error)) from error
             draft = force_student_references(draft, references)
+            draft = normalize_callout_density(draft)
             write_text(working_path, draft)
         reviewer_passed, changes = run_content_reviewers(seed, lesson, draft, active_ledger, run, lesson_tag)
         deterministic_qa = deterministic_checker.run_checks(working_path, seed.level)
@@ -1104,6 +1151,7 @@ def produce_study_guide(course_slug: str, lesson_number: int) -> list[str]:
                 block(run, "lesson_draft", f"Configured technical-content model could not revise Lesson {lesson_number}.\n\nReason: {error}")
                 raise RuntimeError(str(error)) from error
             draft = force_student_references(draft, references)
+            draft = normalize_callout_density(draft)
             prior_revision_was_noop = draft.strip() == force_student_references(prior_draft, references).strip()
             write_text(working_path, draft)
     else:

@@ -95,6 +95,24 @@ class GregLiveProductionTests(unittest.TestCase):
         self.assertTrue(production.technical_visual_requires_operator(visual))
         self.assertEqual(production.normalize_visual_strategy(visual)["visual_type"], "trusted-source-image")
 
+    def test_callout_normalization_keeps_four_and_preserves_excess_body(self) -> None:
+        draft = "\n\n".join(
+            [
+                "> **KEY TERM**\n> First definition.",
+                "> **KEY TERM**\n> Second definition.",
+                "> **KEY TERM**\n> Third definition.",
+                "> **SCENARIO**\n> A field situation.",
+                "> **HANDS-ON EXAMPLE**\n> A worked example.",
+                "> **BRIDGE**\n> The next connection.",
+            ]
+        )
+        normalized = production.normalize_callout_density(draft)
+        self.assertEqual(normalized.count("> **"), 4)
+        self.assertIn("First definition.", normalized)
+        self.assertIn("Second definition.", normalized)
+        self.assertIn("> **SCENARIO**", normalized)
+        self.assertIn("> **HANDS-ON EXAMPLE**", normalized)
+
 
 if __name__ == "__main__":
     unittest.main()
