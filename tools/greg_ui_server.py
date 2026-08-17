@@ -1309,13 +1309,13 @@ def ui_shell(default_course: str) -> str:
     }}
     function operatorJobMessage(job) {{
       const raw = String(job?.last_error || job?.input_summary || job?.request_type || '');
-      if (/source\/reference.*QA failed/i.test(raw)) return 'Automatic source review needs another pass before the file can be released.';
+      if (/source\\/reference.*QA failed/i.test(raw)) return 'Automatic source review needs another pass before the file can be released.';
       if (/layout automatic QA failed/i.test(raw)) return 'Automatic layout review needs another pass before the file can be released.';
-      if (/Traceback|File "\/opt\/profgreg/i.test(raw)) {{
-        const matches = [...raw.matchAll(/(?:RuntimeError|ValueError|ModelRequestError):\s*([^\\n]+)/g)];
+      if (/Traceback|File "\\/opt\\/profgreg/i.test(raw)) {{
+        const matches = [...raw.matchAll(/(?:RuntimeError|ValueError|ModelRequestError):\\s*([^\\n]+)/g)];
         return matches.length ? matches[matches.length - 1][1] : 'Production needs attention. Technical details were recorded internally.';
       }}
-      return raw.replace(/^.*?(RuntimeError|ValueError|ModelRequestError):\s*/s, '').slice(-500);
+      return raw.replace(/^.*?(RuntimeError|ValueError|ModelRequestError):\\s*/s, '').slice(-500);
     }}
     async function saveUpload(id) {{
       await post('/api/upload-update', {{ course: course.value, upload_id: id, scope: document.getElementById('scope-' + id).value, lesson: Number(document.getElementById('lesson-' + id).value || 1), reference_policy: document.getElementById('policy-' + id).value }});
