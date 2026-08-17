@@ -1108,6 +1108,9 @@ def produce_study_guide(course_slug: str, lesson_number: int) -> list[str]:
         if reusable_drafts and reusable_drafts[-1].stat().st_mtime > latest_pdf_mtime and reviewers_pass:
             draft = reusable_drafts[-1].read_text(encoding="utf-8", errors="replace")
             write_text(working_path, draft)
+    if draft:
+        draft = normalize_callout_density(draft)
+        write_text(working_path, draft)
     prior_revision_was_noop = False
     deterministic_checker = load_module("greg_study_guide_content_check_loop", "tools/greg_study_guide_content_check.py")
     for attempt in range(1, 6):
