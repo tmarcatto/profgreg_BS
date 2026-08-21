@@ -255,6 +255,7 @@ def produce_course_map(course_slug: str) -> list[str]:
         "level": seed.level,
         "target_audience": "U.S. residential construction workforce, including American-born and immigrant learners.",
         "sector_anchor": "Residential construction first; larger commercial examples only when they clarify a transferable concept.",
+        "source_basis": "Source and authority basis will prioritize applicable government, industry-body, formal publication, and practitioner-context sources during the lesson research stage.",
         "lesson_count_rationale": f"Lesson count rationale: this {seed.level} Course Map uses {len(normalized)} lessons because the operator's requested count and the researched learning progression both support that scope.",
     }
     data["target_audience"] = data["course"]["target_audience"]
@@ -279,6 +280,8 @@ Level: {seed.level}
 {data.get('course_summary', '')}
 
 This Course Map treats the operator syllabus as initial direction, not as a fixed contract. Greg may adapt, preserve, split, merge, or reorder lessons when research, source materials, or learner needs justify it.
+
+Source and authority basis: lesson research will prioritize applicable government, industry-body, formal publication, and practitioner-context sources.
 
 Lesson count rationale: this {seed.level} Course Map uses {len(normalized)} lessons because the requested scope and the current learning progression both support that size.
 

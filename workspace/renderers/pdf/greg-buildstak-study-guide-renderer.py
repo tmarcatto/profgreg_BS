@@ -71,6 +71,26 @@ def read_json(path: Path) -> dict[str, Any]:
     return json.loads(path.read_text(encoding="utf-8"))
 
 
+def validate_render_source(markdown: str) -> None:
+    """Keep direct renderer use from bypassing the summary and dash rules."""
+    match = re.search(
+        r"(?ims)^#\s+Summary and Key Takeaways\s*$\n(.*?)(?=^#\s+|\Z)",
+        markdown,
+    )
+    if not match:
+        raise ValueError("Study-guide source is missing Summary and Key Takeaways.")
+    lines = [line.strip() for line in match.group(1).splitlines() if line.strip()]
+    bullets_only = all(re.match(r"^[-*+]\s+\S", line) for line in lines)
+    if not bullets_only or not 4 <= len(lines) <= 6:
+        raise ValueError("Summary and Key Takeaways must contain only 4 to 6 concise bullet points; PDF was not rendered.")
+    teaching_text = markdown.split("# References", 1)[0]
+    for line in teaching_text.splitlines():
+        if re.match(r"^#\s+Section\s+\d{2}\s+-\s+", line):
+            continue
+        if "—" in line or "–" in line or re.search(r"\s-{1,2}\s", line):
+            raise ValueError("Dash punctuation found in study-guide source; PDF was not rendered.")
+
+
 def inline(text: str) -> str:
     escaped = html.escape(text)
     escaped = re.sub(r"\*\*(.+?)\*\*", r"<b>\1</b>", escaped)
@@ -791,6 +811,7 @@ def render(spec_path: Path) -> Path:
     spec = read_json(spec_path)
     run_folder = resolve_path(spec["run_folder"])
     markdown = resolve_path(spec["source_markdown"]).read_text(encoding="utf-8")
+    validate_render_source(markdown)
     output = run_folder / spec["output"]["pdf"]
     output.parent.mkdir(parents=True, exist_ok=True)
     blocks = parse_markdown(markdown)

@@ -31,6 +31,23 @@ except ModuleNotFoundError as error:
 
 
 class RenderStudyGuideFromSpecTests(unittest.TestCase):
+    def test_source_with_paragraph_summary_is_blocked_before_rendering(self) -> None:
+        with tempfile.TemporaryDirectory(dir=ROOT / "tmp") as tmp:
+            draft = Path(tmp) / "draft.md"
+            draft.write_text(
+                "# Introduction\n\nCourse orientation.\n\n"
+                "# Section 01 - One\n\nBody text.\n\n"
+                "# Section 02 - Two\n\nBody text.\n\n"
+                "# Section 03 - Three\n\nBody text.\n\n"
+                "# Section 04 - Four\n\nBody text.\n\n"
+                "# Summary and Key Takeaways\n\nThis must be bullets, not a paragraph.\n\n"
+                "# References\n\n- A formal source.\n",
+                encoding="utf-8",
+            )
+            relative = str(draft.relative_to(ROOT))
+            with self.assertRaisesRegex(RuntimeError, "Summary must contain only 4 to 6 bullet points"):
+                renderer.validate_source_markdown({"source_markdown": relative})
+
     def test_run_folder_from_relative_spec(self) -> None:
         path = renderer.run_folder_from_spec({"run_folder": "runs/demo"})
         self.assertEqual(path, ROOT / "runs" / "demo")
