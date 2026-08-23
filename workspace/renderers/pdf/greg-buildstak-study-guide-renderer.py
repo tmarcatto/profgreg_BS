@@ -11,12 +11,15 @@ import subprocess
 from pathlib import Path
 from typing import Any
 
+import reportlab
 from reportlab.lib import colors
 from reportlab.lib.enums import TA_CENTER
 from reportlab.lib.pagesizes import letter
 from reportlab.lib.styles import ParagraphStyle, getSampleStyleSheet
 from reportlab.lib.units import inch
+from reportlab.pdfbase import pdfmetrics
 from reportlab.pdfbase.pdfmetrics import stringWidth
+from reportlab.pdfbase.ttfonts import TTFont
 from reportlab.platypus import (
     BaseDocTemplate,
     Flowable,
@@ -45,15 +48,33 @@ LIGHT = colors.HexColor("#f5f7fb")
 PALE_ORANGE = colors.HexColor("#fff2e9")
 LINE = colors.HexColor("#d5dce8")
 
+# Use TrueType fonts so every rendered page remains readable in Poppler and
+# browser PDF viewers.  ReportLab's built-in Helvetica is not embedded, which
+# caused text to disappear on the production renderer when a viewer lacked it.
+FONT_REGULAR = "GregVera"
+FONT_BOLD = "GregVera-Bold"
+FONT_ITALIC = "GregVera-Italic"
+_REPORTLAB_FONTS = Path(reportlab.__file__).resolve().parent / "fonts"
+pdfmetrics.registerFont(TTFont(FONT_REGULAR, str(_REPORTLAB_FONTS / "Vera.ttf")))
+pdfmetrics.registerFont(TTFont(FONT_BOLD, str(_REPORTLAB_FONTS / "VeraBd.ttf")))
+pdfmetrics.registerFont(TTFont(FONT_ITALIC, str(_REPORTLAB_FONTS / "VeraIt.ttf")))
+pdfmetrics.registerFontFamily(
+    FONT_REGULAR,
+    normal=FONT_REGULAR,
+    bold=FONT_BOLD,
+    italic=FONT_ITALIC,
+    boldItalic=FONT_BOLD,
+)
+
 
 styles = getSampleStyleSheet()
-styles.add(ParagraphStyle(name="BodyGreg", parent=styles["BodyText"], fontName="Helvetica", fontSize=10.3, leading=15.3, textColor=INK, spaceAfter=7))
+styles.add(ParagraphStyle(name="BodyGreg", parent=styles["BodyText"], fontName=FONT_REGULAR, fontSize=10.3, leading=15.3, textColor=INK, spaceAfter=7))
 styles.add(ParagraphStyle(name="IntroBody", parent=styles["BodyGreg"], fontSize=10, leading=14.4, spaceAfter=6))
-styles.add(ParagraphStyle(name="H1Greg", parent=styles["Heading1"], fontName="Helvetica-Bold", fontSize=21, leading=25, textColor=NAVY, spaceBefore=12, spaceAfter=12))
-styles.add(ParagraphStyle(name="H2Greg", parent=styles["Heading2"], fontName="Helvetica-Bold", fontSize=14.2, leading=17, textColor=NAVY, spaceBefore=12, spaceAfter=6))
+styles.add(ParagraphStyle(name="H1Greg", parent=styles["Heading1"], fontName=FONT_BOLD, fontSize=21, leading=25, textColor=NAVY, spaceBefore=12, spaceAfter=12))
+styles.add(ParagraphStyle(name="H2Greg", parent=styles["Heading2"], fontName=FONT_BOLD, fontSize=14.2, leading=17, textColor=NAVY, spaceBefore=12, spaceAfter=6))
 styles.add(ParagraphStyle(name="H2Keep", parent=styles["H2Greg"], keepWithNext=1))
 styles.add(ParagraphStyle(name="RefGreg", parent=styles["BodyGreg"], fontSize=8.5, leading=11.5, leftIndent=10, firstLineIndent=-10, spaceAfter=5))
-styles.add(ParagraphStyle(name="CalloutLabel", parent=styles["BodyGreg"], fontName="Helvetica-Bold", fontSize=10, leading=12, textColor=NAVY, spaceAfter=0))
+styles.add(ParagraphStyle(name="CalloutLabel", parent=styles["BodyGreg"], fontName=FONT_BOLD, fontSize=10, leading=12, textColor=NAVY, spaceAfter=0))
 styles.add(ParagraphStyle(name="CalloutBody", parent=styles["BodyGreg"], fontSize=9.5, leading=13, textColor=INK, spaceAfter=0))
 styles.add(ParagraphStyle(name="Caption", parent=styles["BodyGreg"], fontSize=8.6, leading=11, textColor=MUTED, alignment=TA_CENTER, spaceBefore=4, spaceAfter=10))
 
@@ -118,7 +139,7 @@ def wrap_lines(text: str, font: str, size: int, max_width: float) -> list[str]:
 def fit_cover_title(text: str, max_width: float, max_lines: int = 3) -> tuple[list[str], int]:
     """Fit the complete course title into the fixed cover title region."""
     for font_size in (30, 28, 26, 24, 22, 20, 18):
-        lines = wrap_lines(text, "Helvetica-Bold", font_size, max_width)
+        lines = wrap_lines(text, FONT_BOLD, font_size, max_width)
         if len(lines) <= max_lines:
             return lines, font_size
     raise ValueError("Course title is too long for the approved cover layout.")
@@ -128,14 +149,14 @@ def draw_visual_title(canvas, title: str, width: float, height: float) -> int:
     """Draw a readable visual title without crossing the content frame."""
     max_width = width - 4
     for font_size in (15, 14, 13, 12, 11):
-        if stringWidth(title, "Helvetica-Bold", font_size) <= max_width:
+        if stringWidth(title, FONT_BOLD, font_size) <= max_width:
             canvas.setFillColor(NAVY)
-            canvas.setFont("Helvetica-Bold", font_size)
+            canvas.setFont(FONT_BOLD, font_size)
             canvas.drawString(0, height - 18, title)
             return 1
-    lines = wrap_lines(title, "Helvetica-Bold", 11, max_width)[:2]
+    lines = wrap_lines(title, FONT_BOLD, 11, max_width)[:2]
     canvas.setFillColor(NAVY)
-    canvas.setFont("Helvetica-Bold", 11)
+    canvas.setFont(FONT_BOLD, 11)
     for index, line in enumerate(lines):
         canvas.drawString(0, height - 18 - index * 14, line)
     return len(lines)
@@ -161,12 +182,12 @@ class SectionHeader(Flowable):
         c.line(0, self.height - 4, w, self.height - 4)
         heading = f"Section {self.number:02d} - {self.title}"
         c.setFillColor(NAVY)
-        c.setFont("Helvetica-Bold", 18)
-        if stringWidth(heading, "Helvetica-Bold", 18) <= w - 4:
+        c.setFont(FONT_BOLD, 18)
+        if stringWidth(heading, FONT_BOLD, 18) <= w - 4:
             c.drawString(0, self.height - 30, heading)
             return
-        c.setFont("Helvetica-Bold", 16)
-        for index, line in enumerate(wrap_lines(heading, "Helvetica-Bold", 16, w - 4)[:2]):
+        c.setFont(FONT_BOLD, 16)
+        for index, line in enumerate(wrap_lines(heading, FONT_BOLD, 16, w - 4)[:2]):
             c.drawString(0, self.height - 28 - 19 * index, line)
 
 
@@ -221,14 +242,14 @@ class CardRowDiagram(Flowable):
             c.setStrokeColor(ORANGE if card.get("highlight") else LINE)
             c.roundRect(x, y, card_w, 88, 6, stroke=1, fill=1)
             c.setFillColor(ORANGE if card.get("highlight") else NAVY)
-            c.setFont("Helvetica-Bold", 9.2)
-            for line_index, line in enumerate(wrap_lines(str(card["title"]), "Helvetica-Bold", 9.2, card_w - 14)[:2]):
+            c.setFont(FONT_BOLD, 9.2)
+            for line_index, line in enumerate(wrap_lines(str(card["title"]), FONT_BOLD, 9.2, card_w - 14)[:2]):
                 c.drawCentredString(x + card_w / 2, y + 58 - line_index * 11, line)
         if self.pill:
             c.setFillColor(NAVY)
             c.roundRect(w / 2 - 98, 14, 196, 32, 16, stroke=0, fill=1)
             c.setFillColor(colors.white)
-            c.setFont("Helvetica-Bold", 9.2)
+            c.setFont(FONT_BOLD, 9.2)
             c.drawCentredString(w / 2, 26, self.pill)
 
 
@@ -259,15 +280,15 @@ class ProcessFlowDiagram(Flowable):
             c.setStrokeColor(NAVY)
             c.roundRect(x, y, box_w, 82, 5, stroke=1, fill=1)
             c.setFillColor(ORANGE)
-            c.setFont("Helvetica-Bold", 9)
+            c.setFont(FONT_BOLD, 9)
             c.drawString(x + 9, y + 61, str(index + 1))
             c.setFillColor(NAVY)
-            c.setFont("Helvetica-Bold", 8.5)
-            for line_index, line in enumerate(wrap_lines(str(node.get("title", "")), "Helvetica-Bold", 8.5, box_w - 20)[:2]):
+            c.setFont(FONT_BOLD, 8.5)
+            for line_index, line in enumerate(wrap_lines(str(node.get("title", "")), FONT_BOLD, 8.5, box_w - 20)[:2]):
                 c.drawString(x + 9, y + 45 - line_index * 10, line)
             c.setFillColor(INK)
-            c.setFont("Helvetica", 7.2)
-            for line_index, line in enumerate(wrap_lines(str(node.get("detail", "")), "Helvetica", 7.2, box_w - 20)[:2]):
+            c.setFont(FONT_REGULAR, 7.2)
+            for line_index, line in enumerate(wrap_lines(str(node.get("detail", "")), FONT_REGULAR, 7.2, box_w - 20)[:2]):
                 c.drawString(x + 9, y + 20 - line_index * 9, line)
             if index < count - 1:
                 start = x + box_w + 3
@@ -316,16 +337,16 @@ class RelationshipMapDiagram(Flowable):
         c.setFillColor(NAVY)
         c.roundRect(center_x - 62, center_y - 24, 124, 48, 18, stroke=0, fill=1)
         c.setFillColor(colors.white)
-        c.setFont("Helvetica-Bold", 9)
-        for line_index, line in enumerate(wrap_lines(str(center.get("title", "")), "Helvetica-Bold", 9, 105)[:2]):
+        c.setFont(FONT_BOLD, 9)
+        for line_index, line in enumerate(wrap_lines(str(center.get("title", "")), FONT_BOLD, 9, 105)[:2]):
             c.drawCentredString(center_x, center_y + 7 - line_index * 11, line)
         for x, y, node in positions:
             c.setFillColor(LIGHT)
             c.setStrokeColor(ORANGE)
             c.roundRect(x - 52, y - 20, 104, 40, 5, stroke=1, fill=1)
             c.setFillColor(NAVY)
-            c.setFont("Helvetica-Bold", 7.8)
-            for line_index, line in enumerate(wrap_lines(str(node.get("title", "")), "Helvetica-Bold", 7.8, 90)[:2]):
+            c.setFont(FONT_BOLD, 7.8)
+            for line_index, line in enumerate(wrap_lines(str(node.get("title", "")), FONT_BOLD, 7.8, 90)[:2]):
                 c.drawCentredString(x, y + 5 - line_index * 9, line)
 
 
@@ -343,7 +364,7 @@ class TimelineDiagram(Flowable):
         c = self.canv
         w = self.width
         draw_visual_title(c, self.title, w, self.height)
-        c.setFont("Helvetica-Bold", 10)
+        c.setFont(FONT_BOLD, 10)
         c.drawString(0, 184, "Weak timeline")
         c.setStrokeColor(LINE)
         c.setLineWidth(1.5)
@@ -352,10 +373,10 @@ class TimelineDiagram(Flowable):
         c.circle(120, 189, 4, fill=1, stroke=0)
         c.circle(w - 25, 189, 4, fill=1, stroke=0)
         c.setFillColor(MUTED)
-        c.setFont("Helvetica-Oblique", 8.2)
+        c.setFont(FONT_ITALIC, 8.2)
         c.drawCentredString(w / 2 + 45, 168, "Shows dates, but not enough logic to manage the work.")
         c.setFillColor(NAVY)
-        c.setFont("Helvetica-Bold", 10)
+        c.setFont(FONT_BOLD, 10)
         c.drawString(0, 120, "Usable baseline")
         labels = [("Layout", "field start"), ("Framing", "trade work"), ("Rough-ins", "MEP path"), ("Inspection", "approval gate"), ("Drywall", "next phase")]
         x0 = 112
@@ -366,10 +387,10 @@ class TimelineDiagram(Flowable):
             c.setStrokeColor(ORANGE if title == "Inspection" else LINE)
             c.roundRect(x, 92, bw - 8, 48, 5, stroke=1, fill=1)
             c.setFillColor(NAVY)
-            c.setFont("Helvetica-Bold", 8.6)
+            c.setFont(FONT_BOLD, 8.6)
             c.drawCentredString(x + (bw - 8) / 2, 120, title)
             c.setFillColor(INK)
-            c.setFont("Helvetica", 7.8)
+            c.setFont(FONT_REGULAR, 7.8)
             c.drawCentredString(x + (bw - 8) / 2, 107, sub)
             if index < 4:
                 c.setStrokeColor(ORANGE)
@@ -391,7 +412,7 @@ class SourceToWBSMatrix(Flowable):
 
     def draw_cell_text(self, x: float, y: float, width: float, text: str, *, bold: bool = False):
         c = self.canv
-        font = "Helvetica-Bold" if bold else "Helvetica"
+        font = FONT_BOLD if bold else FONT_REGULAR
         size = 8.4 if bold else 8.2
         c.setFont(font, size)
         c.setFillColor(NAVY if bold else INK)
@@ -414,7 +435,7 @@ class SourceToWBSMatrix(Flowable):
         c.setFillColor(NAVY)
         c.roundRect(table_x, table_y - header_h, table_w, header_h, 6, stroke=0, fill=1)
         c.setFillColor(colors.white)
-        c.setFont("Helvetica-Bold", 8.7)
+        c.setFont(FONT_BOLD, 8.7)
         c.drawString(table_x + 11, table_y - 18, self.left_header)
         c.drawString(table_x + left_w + 11, table_y - 18, self.right_header)
 
@@ -450,11 +471,11 @@ class CPMNetworkDiagram(Flowable):
         c.setStrokeColor(ORANGE if critical else LINE)
         c.roundRect(x, y, w, 42, 5, stroke=1, fill=1)
         c.setFillColor(ORANGE if critical else NAVY)
-        c.setFont("Helvetica-Bold", 7.8)
-        for index, line in enumerate(wrap_lines(title, "Helvetica-Bold", 7.8, w - 10)[:2]):
+        c.setFont(FONT_BOLD, 7.8)
+        for index, line in enumerate(wrap_lines(title, FONT_BOLD, 7.8, w - 10)[:2]):
             c.drawCentredString(x + w / 2, y + 27 - index * 9, line)
         c.setFillColor(INK)
-        c.setFont("Helvetica", 7.1)
+        c.setFont(FONT_REGULAR, 7.1)
         c.drawCentredString(x + w / 2, y + 7, days)
 
     def draw(self):
@@ -468,7 +489,7 @@ class CPMNetworkDiagram(Flowable):
         lane_gap = 80
         top_y = 142
         c.setFillColor(NAVY)
-        c.setFont("Helvetica-Bold", 8.4)
+        c.setFont(FONT_BOLD, 8.4)
         c.drawCentredString(start_x + 26, top_y + 22, "Start")
         c.drawCentredString(finish_x + 30, top_y + 22, "Finish")
         c.setStrokeColor(NAVY)
@@ -496,7 +517,7 @@ class CPMNetworkDiagram(Flowable):
                     else:
                         c.line(x + node_w, y + 6, finish_x + 18, y + 6)
             c.setFillColor(ORANGE if critical else MUTED)
-            c.setFont("Helvetica-Bold", 8.6)
+            c.setFont(FONT_BOLD, 8.6)
             c.drawString(0, y - 26, str(path_data.get("label", "")))
 
 
@@ -510,6 +531,7 @@ def bullets(items: list[str], style: str = "BodyGreg"):
         bulletType="bullet",
         start="circle",
         leftIndent=18,
+        bulletFontName=FONT_REGULAR,
         bulletFontSize=7,
         bulletColor=ORANGE,
     )
@@ -607,7 +629,7 @@ def make_doc(output: Path, metadata: dict[str, Any]):
         if icon.exists():
             canvas.drawImage(str(icon), doc.leftMargin, y - 7, width=16, height=16, mask="auto")
         canvas.setFillColor(NAVY)
-        canvas.setFont("Helvetica", 8.5)
+        canvas.setFont(FONT_REGULAR, 8.5)
         canvas.drawString(doc.leftMargin + 22, y - 2, course)
         canvas.setFillColor(colors.HexColor("#8a8f98"))
         canvas.drawRightString(letter[0] - doc.rightMargin, y - 2, str(doc.page))
@@ -624,13 +646,13 @@ def make_doc(output: Path, metadata: dict[str, Any]):
         canvas.setFillColor(colors.white)
         canvas.rect(1.35 * inch, 1.35 * inch, W - 2.7 * inch, H - 2.7 * inch, fill=1, stroke=0)
         canvas.setFillColor(ORANGE)
-        canvas.setFont("Helvetica-Bold", 14)
+        canvas.setFont(FONT_BOLD, 14)
         canvas.drawString(1.75 * inch, H - 2.05 * inch, "STUDY GUIDE")
         if icon.exists():
             canvas.drawImage(str(icon), W - 2.12 * inch, H - 2.1 * inch, width=0.48 * inch, height=0.48 * inch, mask="auto")
         canvas.setFillColor(NAVY)
         title_lines, title_font = fit_cover_title(course, W - 3.5 * inch)
-        canvas.setFont("Helvetica-Bold", title_font)
+        canvas.setFont(FONT_BOLD, title_font)
         text = canvas.beginText(1.75 * inch, H - 3.1 * inch)
         text.setLeading(title_font + 4)
         for line in title_lines:
@@ -641,27 +663,27 @@ def make_doc(output: Path, metadata: dict[str, Any]):
         canvas.line(1.75 * inch, H - 4.58 * inch, W - 2.4 * inch, H - 4.58 * inch)
         canvas.setFillColor(colors.HexColor("#111827"))
         lesson_font = 16
-        lesson_lines = wrap_lines(metadata["lesson_short_title"], "Helvetica-Bold", lesson_font, W - 3.5 * inch)[:3]
+        lesson_lines = wrap_lines(metadata["lesson_short_title"], FONT_BOLD, lesson_font, W - 3.5 * inch)[:3]
         lesson_text = canvas.beginText(1.75 * inch, H - 5.18 * inch)
-        lesson_text.setFont("Helvetica-Bold", lesson_font)
+        lesson_text.setFont(FONT_BOLD, lesson_font)
         lesson_text.setLeading(19)
         for line in lesson_lines:
             lesson_text.textLine(line)
         canvas.drawText(lesson_text)
         canvas.setFillColor(ORANGE)
-        canvas.setFont("Helvetica-Bold", 15)
+        canvas.setFont(FONT_BOLD, 15)
         canvas.drawString(1.75 * inch, H - 6.25 * inch, f"Lesson {metadata['lesson_number']}")
         canvas.setFillColor(colors.HexColor("#4b5563"))
-        canvas.setFont("Helvetica", 12)
+        canvas.setFont(FONT_REGULAR, 12)
         canvas.drawString(1.75 * inch, H - 6.55 * inch, metadata.get("level_label", "Basic Level"))
         if metadata.get("quote"):
             canvas.setFillColor(NAVY)
-            canvas.setFont("Helvetica-Bold", 13)
+            canvas.setFont(FONT_BOLD, 13)
             canvas.drawString(1.75 * inch, 2.02 * inch, metadata["quote"])
-            canvas.setFont("Helvetica", 10)
+            canvas.setFont(FONT_REGULAR, 10)
             canvas.drawString(1.75 * inch, 1.78 * inch, metadata.get('quote_author', ''))
         canvas.setFillColor(colors.HexColor("#4b5563"))
-        canvas.setFont("Helvetica", 9)
+        canvas.setFont(FONT_REGULAR, 9)
         canvas.drawString(1.75 * inch, 1.48 * inch, "BuildStak Learning Series")
         canvas.restoreState()
 
