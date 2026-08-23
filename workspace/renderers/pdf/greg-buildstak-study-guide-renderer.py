@@ -850,7 +850,11 @@ def build_story(blocks: list[dict[str, Any]], visuals: list[dict[str, Any]]) -> 
         elif block_type == "callout":
             story.append(Callout(block["label"], block["body"]).flowable())
         elif block_type == "paragraph":
-            story.append(p(block["text"], "IntroBody" if len(story) < 20 else "BodyGreg"))
+            paragraph = p(block["text"], "IntroBody" if len(story) < 20 else "BodyGreg")
+            # Do not begin a fresh page with a short tail of the preceding
+            # paragraph.  ReportLab will still split a paragraph that is taller
+            # than a full page, but ordinary teaching paragraphs stay intact.
+            story.append(KeepTogether([paragraph]))
             for index, visual in enumerate(visual_after_heading):
                 if index not in inserted_visuals and visual_matches_heading(str(visual["after_heading"]), current_heading):
                     story.extend(visual_flowables(visual))
