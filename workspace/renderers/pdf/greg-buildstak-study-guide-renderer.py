@@ -529,7 +529,7 @@ def bullets(items: list[str], style: str = "BodyGreg"):
     return ListFlowable(
         [ListItem(Paragraph(inline(item), styles[style]), leftIndent=14) for item in items],
         bulletType="bullet",
-        start="bulletchar",
+        start="circle",
         leftIndent=18,
         bulletFontName=FONT_REGULAR,
         bulletFontSize=7,
