@@ -68,7 +68,7 @@ pdfmetrics.registerFontFamily(
 
 
 styles = getSampleStyleSheet()
-styles.add(ParagraphStyle(name="BodyGreg", parent=styles["BodyText"], fontName=FONT_REGULAR, fontSize=10.3, leading=15.3, textColor=INK, spaceAfter=7))
+styles.add(ParagraphStyle(name="BodyGreg", parent=styles["BodyText"], fontName=FONT_REGULAR, fontSize=10.3, leading=15.3, textColor=INK, spaceAfter=7, allowWidows=0, allowOrphans=0))
 styles.add(ParagraphStyle(name="IntroBody", parent=styles["BodyGreg"], fontSize=10, leading=14.4, spaceAfter=6))
 styles.add(ParagraphStyle(name="H1Greg", parent=styles["Heading1"], fontName=FONT_BOLD, fontSize=21, leading=25, textColor=NAVY, spaceBefore=12, spaceAfter=12))
 styles.add(ParagraphStyle(name="H2Greg", parent=styles["Heading2"], fontName=FONT_BOLD, fontSize=14.2, leading=17, textColor=NAVY, spaceBefore=12, spaceAfter=6))
@@ -134,6 +134,28 @@ def wrap_lines(text: str, font: str, size: int, max_width: float) -> list[str]:
     if current:
         lines.append(current)
     return lines
+
+
+def fit_single_line(text: str, font: str, max_width: float, sizes: tuple[float, ...]) -> tuple[str, float]:
+    """Return a readable one-line label that cannot collide with adjacent content."""
+    for size in sizes:
+        if stringWidth(text, font, size) <= max_width:
+            return text, size
+    size = sizes[-1]
+    ellipsis = "..."
+    clipped = text
+    while clipped and stringWidth(f"{clipped}{ellipsis}", font, size) > max_width:
+        clipped = clipped[:-1]
+    return f"{clipped.rstrip()}{ellipsis}", size
+
+
+def fit_two_lines(text: str, font: str, max_width: float, sizes: tuple[float, ...]) -> tuple[list[str], float]:
+    """Fit text completely within a two-line fixed canvas area."""
+    for size in sizes:
+        lines = wrap_lines(text, font, size, max_width)
+        if len(lines) <= 2:
+            return lines, size
+    raise ValueError("Cover quotation is too long for the approved two-line cover area.")
 
 
 def fit_cover_title(text: str, max_width: float, max_lines: int = 3) -> tuple[list[str], int]:
@@ -525,16 +547,32 @@ def p(text: str, style: str = "BodyGreg"):
     return Paragraph(inline(text), styles[style])
 
 
+class BulletDot(Flowable):
+    """A vector marker that never depends on a PDF viewer's font glyphs."""
+    def __init__(self):
+        super().__init__()
+        self.width = 12
+        self.height = 12
+
+    def wrap(self, availWidth, availHeight):
+        return self.width, self.height
+
+    def draw(self):
+        self.canv.setFillColor(ORANGE)
+        self.canv.circle(5.5, 6, 1.7, stroke=0, fill=1)
+
+
 def bullets(items: list[str], style: str = "BodyGreg"):
-    return ListFlowable(
-        [ListItem(Paragraph(inline(item), styles[style]), leftIndent=14) for item in items],
-        bulletType="bullet",
-        start="circle",
-        leftIndent=18,
-        bulletFontName=FONT_REGULAR,
-        bulletFontSize=7,
-        bulletColor=ORANGE,
-    )
+    rows = [[BulletDot(), Paragraph(inline(item), styles[style])] for item in items]
+    table = Table(rows, colWidths=[14, 6.36 * inch], hAlign="LEFT")
+    table.setStyle(TableStyle([
+        ("VALIGN", (0, 0), (-1, -1), "TOP"),
+        ("LEFTPADDING", (0, 0), (-1, -1), 0),
+        ("RIGHTPADDING", (0, 0), (-1, -1), 0),
+        ("TOPPADDING", (0, 0), (-1, -1), 0),
+        ("BOTTOMPADDING", (0, 0), (-1, -1), 3),
+    ]))
+    return table
 
 
 def parse_markdown(markdown: str) -> list[dict[str, Any]]:
@@ -629,8 +667,10 @@ def make_doc(output: Path, metadata: dict[str, Any]):
         if icon.exists():
             canvas.drawImage(str(icon), doc.leftMargin, y - 7, width=16, height=16, mask="auto")
         canvas.setFillColor(NAVY)
-        canvas.setFont(FONT_REGULAR, 8.5)
-        canvas.drawString(doc.leftMargin + 22, y - 2, course)
+        footer_width = letter[0] - doc.rightMargin - (doc.leftMargin + 22) - 24
+        footer_text, footer_size = fit_single_line(course, FONT_REGULAR, footer_width, (8.5, 8, 7.5, 7))
+        canvas.setFont(FONT_REGULAR, footer_size)
+        canvas.drawString(doc.leftMargin + 22, y - 2, footer_text)
         canvas.setFillColor(colors.HexColor("#8a8f98"))
         canvas.drawRightString(letter[0] - doc.rightMargin, y - 2, str(doc.page))
         canvas.restoreState()
@@ -677,11 +717,16 @@ def make_doc(output: Path, metadata: dict[str, Any]):
         canvas.setFont(FONT_REGULAR, 12)
         canvas.drawString(1.75 * inch, H - 6.55 * inch, metadata.get("level_label", "Basic Level"))
         if metadata.get("quote"):
+            quote_lines, quote_size = fit_two_lines(metadata["quote"], FONT_BOLD, W - 3.5 * inch, (13, 12, 11))
             canvas.setFillColor(NAVY)
-            canvas.setFont(FONT_BOLD, 13)
-            canvas.drawString(1.75 * inch, 2.02 * inch, metadata["quote"])
+            quote_text = canvas.beginText(1.75 * inch, 2.20 * inch)
+            quote_text.setFont(FONT_BOLD, quote_size)
+            quote_text.setLeading(quote_size + 3)
+            for line in quote_lines:
+                quote_text.textLine(line)
+            canvas.drawText(quote_text)
             canvas.setFont(FONT_REGULAR, 10)
-            canvas.drawString(1.75 * inch, 1.78 * inch, metadata.get('quote_author', ''))
+            canvas.drawString(1.75 * inch, 1.64 * inch, metadata.get('quote_author', ''))
         canvas.setFillColor(colors.HexColor("#4b5563"))
         canvas.setFont(FONT_REGULAR, 9)
         canvas.drawString(1.75 * inch, 1.48 * inch, "BuildStak Learning Series")

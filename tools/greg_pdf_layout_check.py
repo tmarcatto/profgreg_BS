@@ -68,7 +68,7 @@ def meaningful_lines(text: str) -> list[str]:
         line
         for line in lines
         if not re.fullmatch(r"\d{1,3}", line)
-        and not re.fullmatch(r"Construction .+", line)
+        and not re.fullmatch(r"(?:The )?Complete Construction Project Manager:.+", line)
         and line not in {"STUDY GUIDE", "BuildStak Learning Series"}
     ]
 
@@ -220,6 +220,7 @@ def run_checks(pdf_path: Path, qa_path: Path | None = None) -> dict:
     content_pages = list(content_page_range(sequence, page_count))
     sparse_pages = []
     orphan_endings = []
+    orphan_openings = []
     heading_openings = []
     split_callout_labels = []
     figures_by_page: dict[int, list[str]] = {}
@@ -240,6 +241,13 @@ def run_checks(pdf_path: Path, qa_path: Path | None = None) -> dict:
             last = lines[-1]
             if is_heading_line(last):
                 orphan_endings.append((page_number, last))
+            first = lines[0]
+            if (
+                re.match(r"^[a-z]", first)
+                and len(first.split()) <= 6
+                and re.search(r"[.!?]$", first)
+            ):
+                orphan_openings.append((page_number, first))
             if re.match(r"Section\s+\d{2}\s+-", lines[0], flags=re.I) and len(lines) <= 2:
                 heading_openings.append((page_number, lines[:2]))
         for index, line in enumerate(lines):
@@ -257,6 +265,11 @@ def run_checks(pdf_path: Path, qa_path: Path | None = None) -> dict:
         findings.append(Finding("fail", "orphan_heading_endings", f"Pages end with likely orphan headings: {orphan_endings[:5]}."))
     else:
         findings.append(Finding("pass", "orphan_heading_endings", "No content page ends with a likely orphan heading."))
+
+    if orphan_openings:
+        findings.append(Finding("fail", "orphan_line_openings", f"Pages start with likely orphan continuation lines: {orphan_openings[:5]}."))
+    else:
+        findings.append(Finding("pass", "orphan_line_openings", "No content page starts with an orphan continuation line."))
 
     if heading_openings:
         findings.append(Finding("fail", "one_line_section_openings", f"Section openings with too little body text: {heading_openings[:5]}."))
