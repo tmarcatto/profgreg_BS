@@ -1360,15 +1360,15 @@ def ui_shell(default_course: str) -> str:
       document.querySelectorAll('[data-level]').forEach(btn => btn.classList.toggle('active', btn.dataset.level === level));
       document.getElementById('expectedLessons').value = expectedLessonsByLevel[level] || 10;
     }}
-    async function startProductionFlow() {{
+    async function ensureCourseIntake() {{
       const title = document.getElementById('courseTitle').value.trim();
       const syllabus = document.getElementById('syllabus').value.trim();
       if (!title || !syllabus) {{
-        msg.textContent = 'Enter the course name and syllabus to start a new course.';
-        return;
+        throw new Error('Enter the course name and syllabus to create this course workspace.');
       }}
+      if (course.value.trim()) return course.value;
       const level = document.querySelector('[data-level].active')?.dataset.level || 'Basic';
-      const created = await post('/api/create-course', {{
+      const created = await api('/api/create-course', {{
         title,
         level,
         expected_lessons: Number(document.getElementById('expectedLessons').value || 0),
@@ -1377,6 +1377,16 @@ def ui_shell(default_course: str) -> str:
       }});
       const manualSlug = document.getElementById('courseSlug').value;
       course.value = created.course_slug || manualSlug;
+      await loadWorkspace();
+      return course.value;
+    }}
+    async function startProductionFlow() {{
+      try {{
+        await ensureCourseIntake();
+      }} catch (error) {{
+        msg.textContent = error.message;
+        return;
+      }}
       return post('/api/start-course', {{course: course.value}});
     }}
     function selectedLessons() {{
@@ -1456,7 +1466,7 @@ def ui_shell(default_course: str) -> str:
     }}
     async function uploadFiles() {{
       try {{
-        if (!course.value.trim()) throw new Error('Create the course intake before uploading source materials.');
+        await ensureCourseIntake();
         const form = new FormData();
         form.append('course', course.value);
         form.append('scope', document.getElementById('uploadScope').value);
