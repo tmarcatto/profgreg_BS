@@ -61,7 +61,11 @@ class GregUiServerTests(unittest.TestCase):
         self.assertIn("approveArtifact", html)
         self.assertIn("/api/approve", html)
         self.assertIn("/api/request-changes", html)
-        self.assertIn("demo-course", html)
+        self.assertIn("New course workspace", html)
+        self.assertIn("function resetWorkspace", html)
+        self.assertIn("New course workspace ready.", html)
+        self.assertIn("setInterval(loadWorkspace, 10000)", html)
+        self.assertNotIn('value="demo-course"', html)
 
     def test_json_bytes_preserves_utf8(self) -> None:
         data = ui.json_bytes({"message": "ação"})

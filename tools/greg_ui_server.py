@@ -831,7 +831,7 @@ def ui_shell(default_course: str) -> str:
     <div class="workspace-bar">
       <div class="workspace-field">
         <label for="course">Active course workspace</label>
-        <input id="course" value="{course}" aria-label="Course slug">
+        <input id="course" value="" placeholder="New course workspace" aria-label="Course slug" readonly>
       </div>
       <div class="workspace-field">
         <label for="targetLesson">Review lesson</label>
@@ -1264,14 +1264,40 @@ def ui_shell(default_course: str) -> str:
         msg.textContent = data.message || 'Done.';
         const route = document.getElementById('route');
         if (data.route && route) route.innerHTML = `<strong>${{esc(data.route.intent)}}</strong> · ${{esc(data.route.stage)}}<br>${{esc(data.route.next_action)}}`;
-        await refresh();
+        await loadWorkspace();
         return data;
       }} catch (error) {{
         msg.textContent = error.message;
         throw error;
       }}
     }}
-    async function refresh() {{
+    function resetWorkspace(showMessage = true) {{
+      currentStatus = null;
+      currentJobs = [];
+      operatorTargetMap = {{}};
+      course.value = '';
+      document.getElementById('targetLesson').value = '1';
+      document.getElementById('courseTitle').value = '';
+      document.getElementById('courseSlug').value = '';
+      document.getElementById('syllabus').value = '';
+      document.getElementById('expectedLessons').value = '10';
+      document.getElementById('uploadScope').value = 'course';
+      document.getElementById('referencePolicy').value = 'context_only';
+      document.getElementById('uploadLesson').value = '1';
+      document.getElementById('files').value = '';
+      setLevel('Basic');
+      document.getElementById('uploads').innerHTML = '<tr><td colspan="5" class="muted">No source materials attached yet.</td></tr>';
+      toggleLessonInput();
+      renderPipeline();
+      renderLessonSelection();
+      renderJobs();
+      if (showMessage) msg.textContent = 'New course workspace ready.';
+    }}
+    async function loadWorkspace() {{
+      if (!course.value.trim()) {{
+        resetWorkspace(false);
+        return;
+      }}
       try {{
         currentStatus = await api('/api/status?course=' + encodeURIComponent(course.value));
         const jobs = await api('/api/jobs?course=' + encodeURIComponent(course.value));
@@ -1337,18 +1363,20 @@ def ui_shell(default_course: str) -> str:
     async function startProductionFlow() {{
       const title = document.getElementById('courseTitle').value.trim();
       const syllabus = document.getElementById('syllabus').value.trim();
-      if (title && syllabus) {{
-        const level = document.querySelector('[data-level].active')?.dataset.level || 'Basic';
-        const created = await post('/api/create-course', {{
-          title,
-          level,
-          expected_lessons: Number(document.getElementById('expectedLessons').value || 0),
-          slug: document.getElementById('courseSlug').value,
-          syllabus
-        }});
-        const manualSlug = document.getElementById('courseSlug').value;
-        course.value = created.course_slug || manualSlug || course.value;
+      if (!title || !syllabus) {{
+        msg.textContent = 'Enter the course name and syllabus to start a new course.';
+        return;
       }}
+      const level = document.querySelector('[data-level].active')?.dataset.level || 'Basic';
+      const created = await post('/api/create-course', {{
+        title,
+        level,
+        expected_lessons: Number(document.getElementById('expectedLessons').value || 0),
+        slug: document.getElementById('courseSlug').value,
+        syllabus
+      }});
+      const manualSlug = document.getElementById('courseSlug').value;
+      course.value = created.course_slug || manualSlug;
       return post('/api/start-course', {{course: course.value}});
     }}
     function selectedLessons() {{
@@ -1428,6 +1456,7 @@ def ui_shell(default_course: str) -> str:
     }}
     async function uploadFiles() {{
       try {{
+        if (!course.value.trim()) throw new Error('Create the course intake before uploading source materials.');
         const form = new FormData();
         form.append('course', course.value);
         form.append('scope', document.getElementById('uploadScope').value);
@@ -1438,7 +1467,7 @@ def ui_shell(default_course: str) -> str:
         const data = await res.json();
         if (!res.ok) throw new Error(data.error || 'Upload failed');
         msg.textContent = data.message || 'Uploaded.';
-        await refresh();
+        await loadWorkspace();
       }} catch (error) {{ msg.textContent = error.message; }}
     }}
     async function uploadVisualBatch(lesson, requests) {{
@@ -1458,13 +1487,12 @@ def ui_shell(default_course: str) -> str:
         const data = await res.json();
         if (!res.ok) throw new Error(data.error || 'Image upload failed');
         msg.textContent = data.message || 'Technical image batch received.';
-        await refresh();
+        await loadWorkspace();
       }} catch (error) {{ msg.textContent = error.message; }}
     }}
     document.querySelectorAll('[data-level]').forEach(btn => btn.onclick = () => setLevel(btn.dataset.level));
-    document.getElementById('refreshTop').onclick = refresh;
-    document.getElementById('refreshWorkspace').onclick = refresh;
-    course.onchange = refresh;
+    document.getElementById('refreshTop').onclick = () => resetWorkspace();
+    document.getElementById('refreshWorkspace').onclick = () => resetWorkspace();
     document.getElementById('startProduction').onclick = startProductionFlow;
     document.getElementById('uploadScope').onchange = toggleLessonInput;
     document.getElementById('upload').onclick = uploadFiles;
@@ -1482,8 +1510,8 @@ def ui_shell(default_course: str) -> str:
       document.querySelectorAll('[data-lesson-select]').forEach(input => input.checked = event.target.checked);
     }};
     toggleLessonInput();
-    refresh();
-    setInterval(refresh, 10000);
+    resetWorkspace(false);
+    setInterval(loadWorkspace, 10000);
   </script>
 </body>
 </html>"""
