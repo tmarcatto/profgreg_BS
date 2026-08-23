@@ -379,6 +379,10 @@ def student_reference_text(value: str) -> str:
 
 def student_reference_for_source(source: dict[str, Any]) -> str:
     text = student_reference_text(str(source.get("formal_reference") or ""))
+    in_book = re.match(r"^(.+?\)\.)(?:\s+.+?)?\s+In\s+(.+?)(?:\s*\([^)]*p{1,2}\..*)?$", text, flags=re.I)
+    if in_book:
+        text = f"{in_book.group(1)} {in_book.group(2).rstrip(' .')}"
+        text = re.sub(r"\s*\([^)]*\bpp?\.[^)]*\)", "", text, flags=re.I).rstrip(" .") + "."
     source_type = str(source.get("source_type") or "").lower()
     url = str(source.get("url") or "").strip()
     document_url = bool(re.search(r"\.(pdf|docx?|pptx?)(?:[?#]|$)", url, flags=re.I))
@@ -679,7 +683,7 @@ def merge_lesson_sources(run: Path, ledger: dict[str, Any], refresh: dict[str, A
     seen_references: set[str] = set()
     for item in lesson_sources:
         line = student_reference_for_source(item)
-        key = re.sub(r"[^a-z0-9]+", " ", str(item.get("title") or line).lower()).strip()
+        key = re.sub(r"[^a-z0-9]+", " ", line.lower()).strip()
         if line and key not in seen_references:
             reference_lines.append(f"- {line}")
             seen_references.add(key)

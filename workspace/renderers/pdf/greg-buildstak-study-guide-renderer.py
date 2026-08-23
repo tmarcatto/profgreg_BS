@@ -224,10 +224,6 @@ class CardRowDiagram(Flowable):
             c.setFont("Helvetica-Bold", 9.2)
             for line_index, line in enumerate(wrap_lines(str(card["title"]), "Helvetica-Bold", 9.2, card_w - 14)[:2]):
                 c.drawCentredString(x + card_w / 2, y + 58 - line_index * 11, line)
-            c.setFillColor(INK)
-            c.setFont("Helvetica", 7.8)
-            for line_index, line in enumerate(card.get("lines", [])[:2]):
-                c.drawCentredString(x + card_w / 2, y + 31 - line_index * 11, str(line))
         if self.pill:
             c.setFillColor(NAVY)
             c.roundRect(w / 2 - 98, 14, 196, 32, 16, stroke=0, fill=1)
