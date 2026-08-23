@@ -726,6 +726,31 @@ def visual_flowables(visual: dict[str, Any]) -> list[Any]:
     return [KeepTogether(result)]
 
 
+_COUNT_WORDS = {
+    "one": 1, "two": 2, "three": 3, "four": 4, "five": 5,
+    "six": 6, "seven": 7, "eight": 8, "nine": 9, "ten": 10,
+}
+
+
+def validate_visuals(visuals: list[dict[str, Any]]) -> None:
+    """Reject diagrams whose stated count disagrees with their visible items."""
+    for visual in visuals:
+        if visual.get("type") != "card_row":
+            continue
+        cards = visual.get("cards")
+        if not isinstance(cards, list) or not cards:
+            raise ValueError("Card-row diagram must contain at least one card.")
+        title = str(visual.get("title", "")).lower()
+        declared = next((value for word, value in _COUNT_WORDS.items() if re.search(rf"\b{word}\b", title)), None)
+        if declared is None:
+            digit = re.search(r"\b(\d{1,2})\b", title)
+            declared = int(digit.group(1)) if digit else None
+        if declared is not None and declared != len(cards):
+            raise ValueError(
+                f"Card-row title declares {declared} items but contains {len(cards)} cards: {visual.get('title', '')}"
+            )
+
+
 def add_page_break(story: list[Any]) -> None:
     if not story or not isinstance(story[-1], PageBreak):
         story.append(PageBreak())
@@ -830,6 +855,7 @@ def render(spec_path: Path) -> Path:
     run_folder = resolve_path(spec["run_folder"])
     markdown = resolve_path(spec["source_markdown"]).read_text(encoding="utf-8")
     validate_render_source(markdown)
+    validate_visuals(spec.get("visuals", []))
     output = run_folder / spec["output"]["pdf"]
     output.parent.mkdir(parents=True, exist_ok=True)
     blocks = parse_markdown(markdown)

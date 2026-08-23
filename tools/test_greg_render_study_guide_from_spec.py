@@ -48,6 +48,16 @@ class RenderStudyGuideFromSpecTests(unittest.TestCase):
         diagram.draw()
         self.assertNotIn("This detail must not cross the diagram.", diagram.canv.text)
 
+    def test_card_row_count_must_match_its_title(self) -> None:
+        if pdf_renderer is None:
+            self.skipTest("ReportLab is not installed in this Python environment.")
+        with self.assertRaisesRegex(ValueError, "declares 7 items but contains 5 cards"):
+            pdf_renderer.validate_visuals([{
+                "type": "card_row",
+                "title": "Seven Core Responsibilities",
+                "cards": [{"title": "Item"}] * 5,
+            }])
+
     def test_source_with_paragraph_summary_is_blocked_before_rendering(self) -> None:
         with tempfile.TemporaryDirectory(dir=ROOT / "tmp") as tmp:
             draft = Path(tmp) / "draft.md"
