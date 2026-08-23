@@ -58,6 +58,29 @@ class RenderStudyGuideFromSpecTests(unittest.TestCase):
                 "cards": [{"title": "Item"}] * 5,
             }])
 
+    def test_seven_card_diagram_keeps_every_title(self) -> None:
+        if pdf_renderer is None:
+            self.skipTest("ReportLab is not installed in this Python environment.")
+        class Canvas:
+            def __init__(self): self.text = []
+            def setFillColor(self, *_): pass
+            def setStrokeColor(self, *_): pass
+            def setFont(self, *_): pass
+            def roundRect(self, *_ , **__): pass
+            def drawString(self, _, __, text): self.text.append(text)
+            def drawCentredString(self, _, __, text): self.text.append(text)
+        cards = [{"title": title} for title in [
+            "Review the job file", "Maintain two schedule horizons", "Conduct daily home walks",
+            "Coordinate trades and dependencies", "Document progress and records",
+            "Coordinate jobsite safety", "Address homeowner concerns",
+        ]]
+        diagram = pdf_renderer.CardRowDiagram("Seven Core Responsibilities", cards)
+        diagram.width = 500
+        diagram.canv = Canvas()
+        diagram.draw()
+        self.assertIn("safety", " ".join(diagram.canv.text).lower())
+        self.assertIn("homeowner", " ".join(diagram.canv.text).lower())
+
     def test_source_with_paragraph_summary_is_blocked_before_rendering(self) -> None:
         with tempfile.TemporaryDirectory(dir=ROOT / "tmp") as tmp:
             draft = Path(tmp) / "draft.md"

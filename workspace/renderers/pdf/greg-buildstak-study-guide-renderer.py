@@ -245,7 +245,7 @@ class CardRowDiagram(Flowable):
         self.title = title
         self.cards = cards
         self.pill = pill
-        self.height = 230 if pill else 205
+        self.height = 310 if len(cards) > 5 else (230 if pill else 205)
 
     def wrap(self, availWidth, availHeight):
         self.width = availWidth
@@ -255,18 +255,31 @@ class CardRowDiagram(Flowable):
         c = self.canv
         w = self.width
         draw_visual_title(c, self.title, w, self.height)
-        card_gap = 12
-        card_w = (w - card_gap * (len(self.cards) - 1)) / len(self.cards)
-        y = 58 if self.pill else 42
-        for index, card in enumerate(self.cards):
-            x = index * (card_w + card_gap)
-            c.setFillColor(PALE_ORANGE if card.get("highlight") else LIGHT)
-            c.setStrokeColor(ORANGE if card.get("highlight") else LINE)
-            c.roundRect(x, y, card_w, 88, 6, stroke=1, fill=1)
-            c.setFillColor(ORANGE if card.get("highlight") else NAVY)
-            c.setFont(FONT_BOLD, 9.2)
-            for line_index, line in enumerate(wrap_lines(str(card["title"]), FONT_BOLD, 9.2, card_w - 14)[:2]):
-                c.drawCentredString(x + card_w / 2, y + 58 - line_index * 11, line)
+        rows = [self.cards] if len(self.cards) <= 5 else [self.cards[:4], self.cards[4:]]
+        row_y = [58 if self.pill else 42] if len(rows) == 1 else [160, 58]
+        card_h = 88 if len(rows) == 1 else 76
+        for cards, y in zip(rows, row_y):
+            card_gap = 12
+            card_w = (w - card_gap * (len(cards) - 1)) / len(cards)
+            start_x = (w - (card_w * len(cards) + card_gap * (len(cards) - 1))) / 2
+            for index, card in enumerate(cards):
+                x = start_x + index * (card_w + card_gap)
+                c.setFillColor(PALE_ORANGE if card.get("highlight") else LIGHT)
+                c.setStrokeColor(ORANGE if card.get("highlight") else LINE)
+                c.roundRect(x, y, card_w, card_h, 6, stroke=1, fill=1)
+                c.setFillColor(ORANGE if card.get("highlight") else NAVY)
+                title = str(card["title"])
+                for font_size in (9.2, 8.6, 8.0, 7.4):
+                    title_lines = wrap_lines(title, FONT_BOLD, font_size, card_w - 14)
+                    if len(title_lines) <= 2:
+                        break
+                else:
+                    raise ValueError(f"Card title does not fit in the diagram: {title}")
+                c.setFont(FONT_BOLD, font_size)
+                line_gap = font_size + 1.8
+                title_y = y + card_h / 2 + (len(title_lines) - 1) * line_gap / 2
+                for line_index, line in enumerate(title_lines):
+                    c.drawCentredString(x + card_w / 2, title_y - line_index * line_gap, line)
         if self.pill:
             c.setFillColor(NAVY)
             c.roundRect(w / 2 - 98, 14, 196, 32, 16, stroke=0, fill=1)
