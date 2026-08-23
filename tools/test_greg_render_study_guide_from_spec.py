@@ -31,6 +31,23 @@ except ModuleNotFoundError as error:
 
 
 class RenderStudyGuideFromSpecTests(unittest.TestCase):
+    def test_card_row_never_draws_unwrapped_detail_text(self) -> None:
+        if pdf_renderer is None:
+            self.skipTest("ReportLab is not installed in this Python environment.")
+        class Canvas:
+            def __init__(self): self.text = []
+            def setFillColor(self, *_): pass
+            def setStrokeColor(self, *_): pass
+            def setFont(self, *_): pass
+            def roundRect(self, *_ , **__): pass
+            def drawString(self, _, __, text): self.text.append(text)
+            def drawCentredString(self, _, __, text): self.text.append(text)
+        diagram = pdf_renderer.CardRowDiagram("Title", [{"title": "Card", "lines": ["This detail must not cross the diagram."]}])
+        diagram.width = 400
+        diagram.canv = Canvas()
+        diagram.draw()
+        self.assertNotIn("This detail must not cross the diagram.", diagram.canv.text)
+
     def test_source_with_paragraph_summary_is_blocked_before_rendering(self) -> None:
         with tempfile.TemporaryDirectory(dir=ROOT / "tmp") as tmp:
             draft = Path(tmp) / "draft.md"
