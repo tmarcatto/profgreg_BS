@@ -1107,8 +1107,14 @@ def produce_study_guide(course_slug: str, lesson_number: int) -> list[str]:
     revision_feedback = feedback_for(run, lesson_tag, "study_guide")
     working_path = run / "lesson_draft" / f"{lesson_tag}_working.md"
     draft = working_path.read_text(encoding="utf-8", errors="replace") if working_path.exists() else ""
+    reusable_drafts = sorted((run / "lesson_draft").glob(f"{lesson_tag}_draft_r*.md"), key=lambda path: path.stat().st_mtime)
+    latest_reusable_draft = reusable_drafts[-1] if reusable_drafts else None
+    if latest_reusable_draft and (
+        not draft or latest_reusable_draft.stat().st_mtime > working_path.stat().st_mtime
+    ):
+        draft = latest_reusable_draft.read_text(encoding="utf-8", errors="replace")
+        write_text(working_path, draft)
     if not draft:
-        reusable_drafts = sorted((run / "lesson_draft").glob(f"{lesson_tag}_draft_r*.md"), key=lambda path: path.stat().st_mtime)
         existing_pdfs = list((run / "docx_pdf").glob(f"{lesson_tag}_study_guide*.pdf"))
         latest_pdf_mtime = max((path.stat().st_mtime for path in existing_pdfs), default=0)
         reviewer_files = [run / "review" / f"{lesson_tag}_{suffix}.md" for suffix in ("pedagogy_review", "citation_review", "design_qa")]

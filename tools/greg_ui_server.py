@@ -943,13 +943,13 @@ def ui_shell(default_course: str) -> str:
       <div class="section-head">
         <div class="title-row">
           <div class="step-num">3</div>
-          <div><h2>Course Map</h2><div class="hint">Start here after the brief and source materials are ready. When Greg creates the map, it appears here for review and download.</div></div>
+          <div><h2>Course Map</h2><div class="hint">When the course brief is ready and you have added any optional source materials, choose when to start the Course Map. It appears here for review and download.</div></div>
         </div>
       </div>
       <div class="body">
         <div class="course-map-actions">
-          <button class="primary" id="startProduction">Create intake and start Course Map</button>
-          <span class="muted">This launches Course Map generation and source research.</span>
+          <button class="primary" id="startProduction">Start Course Map with current brief and sources</button>
+          <span class="muted">This is your confirmation that Section 1 is complete and any optional materials from Section 2 have been added.</span>
         </div>
         <div id="courseMapPanel" class="notice">Course Map has not been generated for this course yet.</div>
       </div>
@@ -1159,15 +1159,15 @@ def ui_shell(default_course: str) -> str:
       const startButton = document.getElementById('startProduction');
       const activeCourseMap = currentJobs.some(job => job.request_type === 'course_start' && ['queued', 'running'].includes(job.state));
       const courseMapReady = Boolean(map && currentStatus?.course_map_ready === true);
-      startButton.disabled = activeCourseMap || courseMapReady;
-      startButton.textContent = activeCourseMap ? 'Creating Course Map...' : (courseMapReady ? 'Course Map complete' : 'Create intake and start Course Map');
+      startButton.disabled = activeCourseMap;
+      startButton.textContent = activeCourseMap ? 'Creating Course Map...' : (courseMapReady ? 'Regenerate Course Map with current brief and sources' : 'Start Course Map with current brief and sources');
       if (activeCourseMap) {{
         panel.innerHTML = '<strong>Course Map is being researched and reviewed.</strong> The file will appear only after every automatic check passes.';
         return;
       }}
       if (!courseMapReady) {{
         const blocked = currentStatus?.stage === 'SOURCE_QA_BLOCKED' || currentStatus?.stage === 'COURSE_MAP_QA_BLOCKED';
-        panel.innerHTML = blocked ? '<strong>Course Map is not released.</strong> Greg must complete an automatic correction and pass QA first.' : 'Course Map has not been generated for this course yet.';
+        panel.innerHTML = blocked ? '<strong>Course Map is not released.</strong> Greg must complete an automatic correction and pass QA first.' : '<strong>Course Map has not been generated yet.</strong> Add any optional source materials, then use the button above when you are ready.';
         return;
       }}
       const mapName = `${{cleanFilenamePart(course.value)}} - Course Map.md`;
@@ -1351,6 +1351,7 @@ def ui_shell(default_course: str) -> str:
       const raw = String(job?.last_error || job?.input_summary || job?.request_type || '');
       if (/source\\/reference.*QA failed/i.test(raw)) return 'Automatic source review needs another pass before the file can be released.';
       if (/layout automatic QA failed/i.test(raw)) return 'Automatic layout review needs another pass before the file can be released.';
+      if (/Independent study-guide reviewers still require changes/i.test(raw)) return 'The Course Book reviewers found unresolved content issues. No new file was released, and the previous approved version remains unchanged.';
       if (/Traceback|File "\\/opt\\/profgreg/i.test(raw)) {{
         const matches = [...raw.matchAll(/(?:RuntimeError|ValueError|ModelRequestError):\\s*([^\\n]+)/g)];
         return matches.length ? matches[matches.length - 1][1] : 'Production needs attention. Technical details were recorded internally.';
