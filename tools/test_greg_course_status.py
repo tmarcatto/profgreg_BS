@@ -134,6 +134,7 @@ class CourseStatusTests(unittest.TestCase):
             self.assertNotIn("study_guide_path", lessons[0])
             self.assertIn("study_guide_blocked_path", lessons[0])
             self.assertTrue(lessons[0]["study_guide_quality_blockers"])
+            self.assertEqual(lessons[0]["visual_status"], "not_planned")
 
     def test_render_markdown_includes_lesson_table(self) -> None:
         text = status.render_markdown(

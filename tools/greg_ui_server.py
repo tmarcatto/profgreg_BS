@@ -1453,7 +1453,12 @@ def ui_shell(default_course: str) -> str:
       document.getElementById('selectAllLessons').checked = false;
     }}
     function visualCell(item) {{
-      const pill = statusPill(item.visual_status === 'waiting_images' ? 'waiting images' : item.visual_status || 'pending');
+      const visualLabel = item.visual_status === 'waiting_images'
+        ? 'waiting images'
+        : item.visual_status === 'pending_course_book'
+          ? 'pending course book'
+          : item.visual_status || 'pending';
+      const pill = statusPill(visualLabel);
       if (item.visual_status !== 'waiting_images' || !item.image_request_path) return `<span class="doc-cell">${{pill}}</span>`;
       const filename = `Lesson ${{String(item.lesson).padStart(2, '0')}} - Image Requests.md`;
       return `<span class="doc-cell">${{pill}} <a class="doc-link" href="/artifact?path=${{encodeURIComponent(item.image_request_path)}}&filename=${{encodeURIComponent(filename)}}" target="_blank" rel="noopener">request</a></span>`;

@@ -69,6 +69,7 @@ class GregUiServerTests(unittest.TestCase):
         self.assertIn("Start Course Map with current brief and sources", html)
         self.assertIn("Regenerate Course Map with current brief and sources", html)
         self.assertIn("The Course Book reviewers found unresolved content issues", html)
+        self.assertIn("pending course book", html)
         self.assertIn("New course workspace ready.", html)
         self.assertIn("if (!course.value.trim()) {\n        return;", html)
         self.assertIn("setInterval(loadWorkspace, 10000)", html)

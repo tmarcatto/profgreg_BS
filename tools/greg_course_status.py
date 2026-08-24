@@ -102,11 +102,15 @@ def study_guide_quality_blockers(run: Path, lesson: str, artifact_path: Path | N
         blockers.append("PDF layout QA report is failing.")
     if re.search(r"Source/reference QA passed:\s*no", source_qa, flags=re.I):
         blockers.append("Source/reference QA report is failing.")
+    def revision_review_path(suffix_name: str) -> Path:
+        archived = run / "review" / f"lesson_{lesson}_{suffix_name}{suffix}.md"
+        return archived if archived.exists() else run / "review" / f"lesson_{lesson}_{suffix_name}.md"
+
     required_reviews = {
-        "pedagogy": run / "review" / f"lesson_{lesson}_pedagogy_review.md",
-        "citation": run / "review" / f"lesson_{lesson}_citation_review.md",
-        "design": run / "review" / f"lesson_{lesson}_design_qa.md",
-        "visual": run / "review" / f"lesson_{lesson}_visual_qa.md",
+        "pedagogy": revision_review_path("pedagogy_review"),
+        "citation": revision_review_path("citation_review"),
+        "design": revision_review_path("design_qa"),
+        "visual": revision_review_path("visual_qa"),
     }
     for label, path in required_reviews.items():
         text = read_text(path)
@@ -382,7 +386,7 @@ def summarize_lessons(run: Path, manifest: dict) -> list[dict]:
             row["study_guide"] = "waiting_images"
             row.pop("study_guide_path", None)
         elif visual_plan.exists() and report_passed(visual_qa, "Visual plan QA passed") is not False:
-            row["visual_status"] = "ready"
+            row["visual_status"] = "ready" if row.get("study_guide") in {"active", "approved"} else "pending_course_book"
     return [lessons[key] for key in sorted(lessons)]
 
 

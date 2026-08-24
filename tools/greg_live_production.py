@@ -774,6 +774,13 @@ def render_review(title: str, data: dict[str, Any]) -> str:
     )
 
 
+def archive_review_report(run: Path, lesson_tag: str, suffix: str, revision: int) -> None:
+    """Keep the QA report paired with the exact revision it released."""
+    source = run / "review" / f"{lesson_tag}_{suffix}.md"
+    if source.exists():
+        write_text(run / "review" / f"{lesson_tag}_{suffix}_r{revision:02d}.md", source.read_text(encoding="utf-8", errors="replace"))
+
+
 def run_content_reviewers(seed, lesson: dict[str, Any], draft: str, ledger: dict[str, Any], run: Path, lesson_tag: str) -> tuple[bool, list[str]]:
     passed = True
     required_changes: list[str] = []
@@ -1184,7 +1191,10 @@ def produce_study_guide(course_slug: str, lesson_number: int) -> list[str]:
     write_text(content_qa_path, checker.render_markdown(content_qa))
     if not content_qa["passed"]:
         raise RuntimeError("Study guide content automatic QA failed; no student PDF was released.")
+    for suffix in ("pedagogy_review", "citation_review", "design_qa"):
+        archive_review_report(run, lesson_tag, suffix, revision)
     render_visuals, waiting_images = create_visual_assets(seed, lesson, draft, run, lesson_tag)
+    archive_review_report(run, lesson_tag, "visual_qa", revision)
     if waiting_images:
         working_path.unlink(missing_ok=True)
         update_canonical_manifest(seed.slug)
