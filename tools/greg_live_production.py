@@ -1147,7 +1147,10 @@ def produce_study_guide(course_slug: str, lesson_number: int) -> list[str]:
         write_text(working_path, draft)
     prior_revision_was_noop = False
     deterministic_checker = load_module("greg_study_guide_content_check_loop", "tools/greg_study_guide_content_check.py")
-    for attempt in range(1, 6):
+    # Three complete review rounds preserve independent QA while avoiding the
+    # former five-pass loop, which could spend heavily on a draft that was not
+    # converging. A blocked lesson remains blocked; it is never released.
+    for attempt in range(1, 4):
         if not draft:
             try:
                 draft = request_text(seed.slug, "technical_content", study_guide_prompt(seed, lesson, references, active_ledger, revision_feedback), max_tokens=14000)
@@ -1175,7 +1178,7 @@ def produce_study_guide(course_slug: str, lesson_number: int) -> list[str]:
                 "and verify each required change against the final wording."
             )
         write_text(run / "review" / f"{lesson_tag}_automatic_revision_{attempt:02d}.md", revision_feedback)
-        if attempt < 5:
+        if attempt < 3:
             try:
                 prior_draft = draft
                 draft = request_text(
@@ -1192,7 +1195,7 @@ def produce_study_guide(course_slug: str, lesson_number: int) -> list[str]:
             prior_revision_was_noop = draft.strip() == force_student_references(prior_draft, references).strip()
             write_text(working_path, draft)
     else:
-        raise RuntimeError("Independent study-guide reviewers still require changes after five automatic revision passes.")
+        raise RuntimeError("Independent study-guide reviewers still require changes after three automatic revision passes.")
 
     revision = next_study_guide_revision(run, lesson_tag)
     draft_name = f"{lesson_tag}_draft_r{revision:02d}.md"

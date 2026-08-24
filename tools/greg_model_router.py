@@ -46,7 +46,15 @@ def binding_for(role: str) -> tuple[dict[str, Any], dict[str, Any]]:
     return binding, provider
 
 
-def append_usage(course_slug: str, *, role: str, binding: dict[str, Any], outcome: str, detail: str = "") -> None:
+def append_usage(
+    course_slug: str,
+    *,
+    role: str,
+    binding: dict[str, Any],
+    outcome: str,
+    detail: str = "",
+    usage: dict[str, Any] | None = None,
+) -> None:
     path = ROOT / "runs" / course_slug / "ops" / "model_usage_log.jsonl"
     path.parent.mkdir(parents=True, exist_ok=True)
     row = {
@@ -57,6 +65,10 @@ def append_usage(course_slug: str, *, role: str, binding: dict[str, Any], outcom
         "outcome": outcome,
         "detail": detail[:300],
     }
+    if usage:
+        # Keep the operational log small and private: usage metadata is enough
+        # for cost reporting and never includes a prompt or generated content.
+        row["usage"] = usage
     with path.open("a", encoding="utf-8") as handle:
         handle.write(json.dumps(row, ensure_ascii=False) + "\n")
 
@@ -130,7 +142,13 @@ def request_image(course_slug: str, prompt: str, output_path: Path, *, size: str
     except (ModelRequestError, ValueError) as error:
         append_usage(course_slug, role=role, binding=binding, outcome="failed", detail=str(error))
         raise ModelRequestError(str(error)) from error
-    append_usage(course_slug, role=role, binding=binding, outcome="completed")
+    append_usage(
+        course_slug,
+        role=role,
+        binding=binding,
+        outcome="completed",
+        usage={"images": 1, "size": size, "quality": payload["quality"]},
+    )
     return output_path
 
 
@@ -142,7 +160,8 @@ def anthropic_text(
     max_tokens: int,
     *,
     timeout: int = 600,
-) -> str:
+    return_usage: bool = False,
+) -> str | tuple[str, dict[str, Any]]:
     response = post_json(
         f"{base_url.rstrip('/')}/v1/messages",
         {"model": model, "max_tokens": max_tokens, "messages": [{"role": "user", "content": prompt}]},
@@ -155,7 +174,8 @@ def anthropic_text(
     ).strip()
     if not text:
         raise ModelRequestError("Anthropic returned no text content.")
-    return text
+    usage = dict(response.get("usage") or {})
+    return (text, usage) if return_usage else text
 
 
 def openai_text(
@@ -167,7 +187,8 @@ def openai_text(
     web_search: bool,
     *,
     timeout: int = 600,
-) -> str:
+    return_usage: bool = False,
+) -> str | tuple[str, dict[str, Any]]:
     payload: dict[str, Any] = {
         "model": model,
         "input": prompt,
@@ -190,7 +211,8 @@ def openai_text(
                     text += str(block.get("text") or "")
     if not text.strip():
         raise ModelRequestError("OpenAI returned no text content.")
-    return text.strip()
+    usage = dict(response.get("usage") or {})
+    return (text.strip(), usage) if return_usage else text.strip()
 
 
 def request_text(course_slug: str, role: str, prompt: str, *, max_tokens: int = 8000, web_search: bool = False) -> str:
@@ -211,15 +233,30 @@ def request_text(course_slug: str, role: str, prompt: str, *, max_tokens: int = 
         raise ModelRequestError(f"Provider `{provider_name}` needs {base_url_name} configured.")
     try:
         if provider_name == "anthropic":
-            text = anthropic_text(base_url, api_key, str(binding.get("model")), prompt, max_tokens)
+            text, usage = anthropic_text(
+                base_url,
+                api_key,
+                str(binding.get("model")),
+                prompt,
+                max_tokens,
+                return_usage=True,
+            )
         elif provider_name == "openai":
-            text = openai_text(base_url, api_key, str(binding.get("model")), prompt, max_tokens, web_search)
+            text, usage = openai_text(
+                base_url,
+                api_key,
+                str(binding.get("model")),
+                prompt,
+                max_tokens,
+                web_search,
+                return_usage=True,
+            )
         else:
             raise ModelRequestError(f"Provider `{provider_name}` is not implemented by the production router yet.")
     except ModelRequestError as error:
         append_usage(course_slug, role=role, binding=binding, outcome="failed", detail=str(error))
         raise
-    append_usage(course_slug, role=role, binding=binding, outcome="completed")
+    append_usage(course_slug, role=role, binding=binding, outcome="completed", usage=usage)
     return text
 
 
