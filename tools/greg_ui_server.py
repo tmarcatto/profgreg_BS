@@ -709,6 +709,17 @@ def ui_shell(default_course: str) -> str:
       gap: 10px;
       align-items: center;
     }}
+    .upload-queue {{ display: grid; gap: 8px; margin-top: 14px; }}
+    .upload-queue:empty {{ display: none; }}
+    .upload-queue-item {{ border: 1px solid var(--line); border-radius: 7px; padding: 9px 11px; background: #fbfcfe; }}
+    .upload-queue-meta {{ display: flex; justify-content: space-between; gap: 12px; color: var(--muted); font-size: 13px; }}
+    .upload-queue-item strong {{ color: var(--navy); overflow-wrap: anywhere; }}
+    .upload-queue-item.error {{ border-color: #f4b5ae; background: #fff8f7; }}
+    .upload-queue-item.done {{ border-color: #b8dec8; background: #f4fbf6; }}
+    .upload-bar {{ height: 5px; border-radius: 999px; background: #e6ebf1; margin-top: 8px; overflow: hidden; }}
+    .upload-bar span {{ display: block; height: 100%; background: var(--orange); transition: width .15s ease; }}
+    .upload-queue-item.done .upload-bar span {{ background: var(--ok); }}
+    .upload-queue-item.error .upload-bar span {{ background: #d92d20; }}
     .table-wrap {{ overflow-x: auto; border: 1px solid var(--line); border-radius: 8px; margin-top: 16px; }}
     table {{ width: 100%; border-collapse: collapse; min-width: 760px; }}
     th, td {{ text-align: left; border-bottom: 1px solid var(--line); padding: 12px 10px; vertical-align: top; font-size: 14px; }}
@@ -918,6 +929,7 @@ def ui_shell(default_course: str) -> str:
           <input id="uploadLesson" type="number" min="1" value="1" aria-label="Lesson number">
           <button class="primary" id="upload">Upload selected files</button>
         </div>
+        <div id="uploadQueue" class="upload-queue" aria-live="polite"></div>
         <div class="table-wrap">
           <table>
             <thead><tr><th>File</th><th>Scope</th><th>Reference policy</th><th>Size</th><th>Actions</th></tr></thead>
@@ -1011,6 +1023,7 @@ def ui_shell(default_course: str) -> str:
     let currentStatus = null;
     let currentJobs = [];
     let operatorTargetMap = {{}};
+    let uploadQueue = [];
     const progressSteps = [
       ['course_map', 'Course Map', 'Map and source research'],
       ['book', 'Course books', 'English PDFs by lesson'],
@@ -1285,6 +1298,8 @@ def ui_shell(default_course: str) -> str:
       document.getElementById('referencePolicy').value = 'context_only';
       document.getElementById('uploadLesson').value = '1';
       document.getElementById('files').value = '';
+      uploadQueue = [];
+      renderUploadQueue();
       setLevel('Basic');
       document.getElementById('uploads').innerHTML = '<tr><td colspan="5" class="muted">No source materials attached yet.</td></tr>';
       toggleLessonInput();
@@ -1359,6 +1374,28 @@ def ui_shell(default_course: str) -> str:
       document.querySelectorAll('[data-level]').forEach(btn => btn.classList.toggle('active', btn.dataset.level === level));
       document.getElementById('expectedLessons').value = expectedLessonsByLevel[level] || 10;
     }}
+    function formatUploadSize(bytes) {{
+      if (!Number.isFinite(bytes) || bytes < 1024) return `${{bytes || 0}} B`;
+      if (bytes < 1024 * 1024) return `${{Math.round(bytes / 1024)}} KB`;
+      return `${{(bytes / (1024 * 1024)).toFixed(1)}} MB`;
+    }}
+    function renderUploadQueue() {{
+      const holder = document.getElementById('uploadQueue');
+      if (!holder) return;
+      holder.innerHTML = uploadQueue.map(item => `<div class="upload-queue-item ${{esc(item.state)}}">
+        <div class="upload-queue-meta"><strong>${{esc(item.name)}}</strong><span>${{esc(item.status)}}</span></div>
+        <div class="upload-queue-meta"><span>${{esc(formatUploadSize(item.size))}}</span><span>${{Math.round(item.progress)}}%</span></div>
+        <div class="upload-bar"><span style="width:${{Math.max(0, Math.min(100, item.progress))}}%"></span></div>
+      </div>`).join('');
+    }}
+    function setUploadQueue(files, state = 'ready', status = 'Ready to upload', progress = 0) {{
+      uploadQueue = [...files].map(file => ({{ name: file.name, size: file.size, state, status, progress }}));
+      renderUploadQueue();
+    }}
+    function updateUploadQueue(state, status, progress) {{
+      uploadQueue.forEach(item => {{ item.state = state; item.status = status; item.progress = progress; }});
+      renderUploadQueue();
+    }}
     async function ensureCourseIntake() {{
       const title = document.getElementById('courseTitle').value.trim();
       const syllabus = document.getElementById('syllabus').value.trim();
@@ -1368,11 +1405,14 @@ def ui_shell(default_course: str) -> str:
       if (course.value.trim()) return course.value;
       const level = document.querySelector('[data-level].active')?.dataset.level || 'Basic';
       const created = await api('/api/create-course', {{
-        title,
-        level,
-        expected_lessons: Number(document.getElementById('expectedLessons').value || 0),
-        slug: document.getElementById('courseSlug').value,
-        syllabus
+        method: 'POST',
+        body: JSON.stringify({{
+          title,
+          level,
+          expected_lessons: Number(document.getElementById('expectedLessons').value || 0),
+          slug: document.getElementById('courseSlug').value,
+          syllabus
+        }})
       }});
       const manualSlug = document.getElementById('courseSlug').value;
       course.value = created.course_slug || manualSlug;
@@ -1465,19 +1505,42 @@ def ui_shell(default_course: str) -> str:
     }}
     async function uploadFiles() {{
       try {{
+        const files = [...document.getElementById('files').files];
+        if (!files.length) throw new Error('Choose one or more source files to upload.');
+        setUploadQueue(files, 'uploading', 'Preparing upload', 0);
+        const uploadButton = document.getElementById('upload');
+        uploadButton.disabled = true;
         await ensureCourseIntake();
         const form = new FormData();
         form.append('course', course.value);
         form.append('scope', document.getElementById('uploadScope').value);
         form.append('lesson', document.getElementById('uploadLesson').value || '1');
         form.append('reference_policy', document.getElementById('referencePolicy').value);
-        for (const file of document.getElementById('files').files) form.append('files', file);
-        const res = await fetch('/api/upload', {{ method: 'POST', body: form }});
-        const data = await res.json();
-        if (!res.ok) throw new Error(data.error || 'Upload failed');
+        for (const file of files) form.append('files', file);
+        const data = await new Promise((resolve, reject) => {{
+          const request = new XMLHttpRequest();
+          request.open('POST', '/api/upload');
+          request.upload.onprogress = event => {{
+            if (event.lengthComputable) updateUploadQueue('uploading', 'Uploading', event.loaded / event.total * 100);
+          }};
+          request.onerror = () => reject(new Error('Upload failed. Check your connection and try again.'));
+          request.onload = () => {{
+            let response = {{}};
+            try {{ response = JSON.parse(request.responseText || '{{}}'); }} catch (_) {{}}
+            if (request.status < 200 || request.status >= 300) reject(new Error(response.error || response.message || 'Upload failed'));
+            else resolve(response);
+          }};
+          request.send(form);
+        }});
+        updateUploadQueue('done', 'Uploaded', 100);
         msg.textContent = data.message || 'Uploaded.';
         await loadWorkspace();
-      }} catch (error) {{ msg.textContent = error.message; }}
+      }} catch (error) {{
+        if (uploadQueue.length) updateUploadQueue('error', error.message || 'Upload failed', 0);
+        msg.textContent = error.message;
+      }} finally {{
+        document.getElementById('upload').disabled = false;
+      }}
     }}
     async function uploadVisualBatch(lesson, requests) {{
       try {{
@@ -1504,6 +1567,7 @@ def ui_shell(default_course: str) -> str:
     document.getElementById('refreshWorkspace').onclick = () => resetWorkspace();
     document.getElementById('startProduction').onclick = startProductionFlow;
     document.getElementById('uploadScope').onchange = toggleLessonInput;
+    document.getElementById('files').onchange = event => setUploadQueue(event.target.files);
     document.getElementById('upload').onclick = uploadFiles;
     document.getElementById('targetLesson').onchange = () => {{ renderOperatorTool(); renderLessonSelection(); }};
     document.getElementById('operatorTarget').onchange = renderOperatorToolDetails;
