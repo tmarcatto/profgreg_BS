@@ -8,6 +8,7 @@ import json
 import mimetypes
 import os
 import re
+import shutil
 from http import HTTPStatus
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
@@ -25,6 +26,7 @@ DEFAULT_COURSE = "construction-schedule-management"
 ROOT = Path(__file__).resolve().parents[1]
 SERVER_UPLOAD_ROOT = Path("/srv/profgreg/uploads")
 LOCAL_UPLOAD_ROOT = ROOT / "tmp" / "uploads"
+SESSION_RUN_ROOT = ROOT / "runs"
 MAX_UPLOAD_FILE_BYTES = 200 * 1024 * 1024
 MAX_UPLOAD_REQUEST_BYTES = 500 * 1024 * 1024
 MAX_IMAGE_UPLOAD_BYTES = 25 * 1024 * 1024
@@ -126,6 +128,25 @@ def safe_upload_root(path: Path) -> Path:
     if resolved == server or server in resolved.parents:
         return resolved
     raise ValueError(f"Upload root must stay under {server} or {local}: {path}")
+
+
+def clear_session_storage(*, job_root: Path, upload_root: Path, run_root: Path = SESSION_RUN_ROOT) -> dict[str, int]:
+    """Clear only session data, never application code or reusable framework materials."""
+    resolved_run_root = run_root.expanduser().resolve()
+    if resolved_run_root != SESSION_RUN_ROOT.resolve():
+        raise ValueError("Run root is outside the session storage area.")
+    roots = {"runs": resolved_run_root, "uploads": safe_upload_root(upload_root), "jobs": safe_job_root(job_root)}
+    removed = {key: 0 for key in roots}
+    for label, root in roots.items():
+        if not root.exists():
+            continue
+        for child in root.iterdir():
+            if child.is_dir():
+                shutil.rmtree(child)
+            else:
+                child.unlink()
+            removed[label] += 1
+    return removed
 
 
 def safe_filename(value: str) -> str:
@@ -1308,6 +1329,19 @@ def ui_shell(default_course: str) -> str:
       renderJobs();
       if (showMessage) msg.textContent = 'New course workspace ready.';
     }}
+    async function resetSession() {{
+      const buttons = [document.getElementById('refreshTop'), document.getElementById('refreshWorkspace')];
+      buttons.forEach(button => button.disabled = true);
+      try {{
+        const data = await api('/api/reset-session', {{method: 'POST', body: JSON.stringify({{}})}});
+        resetWorkspace(false);
+        msg.textContent = data.message || 'Session cleared. Start a new course.';
+      }} catch (error) {{
+        msg.textContent = error.message;
+      }} finally {{
+        buttons.forEach(button => button.disabled = false);
+      }}
+    }}
     async function loadWorkspace() {{
       if (!course.value.trim()) {{
         return;
@@ -1571,8 +1605,8 @@ def ui_shell(default_course: str) -> str:
       }} catch (error) {{ msg.textContent = error.message; }}
     }}
     document.querySelectorAll('[data-level]').forEach(btn => btn.onclick = () => setLevel(btn.dataset.level));
-    document.getElementById('refreshTop').onclick = () => resetWorkspace();
-    document.getElementById('refreshWorkspace').onclick = () => resetWorkspace();
+    document.getElementById('refreshTop').onclick = resetSession;
+    document.getElementById('refreshWorkspace').onclick = resetSession;
     document.getElementById('startProduction').onclick = startProductionFlow;
     document.getElementById('uploadScope').onchange = toggleLessonInput;
     document.getElementById('files').onchange = event => setUploadQueue(event.target.files);
@@ -1671,6 +1705,13 @@ class GregUiHandler(BaseHTTPRequestHandler):
             return
         parsed = urlparse(self.path)
         try:
+            if parsed.path == "/api/reset-session":
+                removed = clear_session_storage(
+                    job_root=getattr(self.server, "job_root"),
+                    upload_root=getattr(self.server, "upload_root"),
+                )
+                self.send_json(HTTPStatus.OK, {"message": "Session cleared. Start a new course.", "removed": removed})
+                return
             if parsed.path == "/api/upload":
                 content_length = int(self.headers.get("Content-Length", "0") or "0")
                 if content_length > MAX_UPLOAD_REQUEST_BYTES:
