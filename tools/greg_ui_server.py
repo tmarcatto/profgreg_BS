@@ -1295,7 +1295,6 @@ def ui_shell(default_course: str) -> str:
     }}
     async function loadWorkspace() {{
       if (!course.value.trim()) {{
-        resetWorkspace(false);
         return;
       }}
       try {{

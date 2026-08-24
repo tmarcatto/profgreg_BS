@@ -65,6 +65,7 @@ class GregUiServerTests(unittest.TestCase):
         self.assertIn("function resetWorkspace", html)
         self.assertIn("function ensureCourseIntake", html)
         self.assertIn("New course workspace ready.", html)
+        self.assertIn("if (!course.value.trim()) {\n        return;", html)
         self.assertIn("setInterval(loadWorkspace, 10000)", html)
         self.assertNotIn('value="demo-course"', html)
 
