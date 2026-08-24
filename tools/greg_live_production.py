@@ -232,7 +232,7 @@ def produce_course_map(course_slug: str) -> list[str]:
     try:
         # A 15-lesson map needs room for both maximum reasoning and the
         # complete JSON schema. A smaller cap can end in reasoning-only output.
-        data = strip_json_fence(request_text(seed.slug, "course_architect", course_map_prompt(seed, read_uploads(seed.slug)), max_tokens=64000))
+        data = strip_json_fence(request_text(seed.slug, "course_architect", course_map_prompt(seed, read_uploads(seed.slug)), max_tokens=16000))
     except ModelRequestError as error:
         block(run, "course_map", f"Configured course architecture model could not produce a Course Map.\n\nReason: {error}")
         raise RuntimeError(str(error)) from error
@@ -339,7 +339,7 @@ def produce_source_ledger(course_slug: str) -> list[str]:
     run = RUNS / seed.slug
     course_map = json.loads((run / "course_map" / "course_map.json").read_text(encoding="utf-8"))
     try:
-        data = strip_json_fence(request_text(seed.slug, "source_research", source_research_prompt(seed, course_map, read_uploads(seed.slug)), max_tokens=24000, web_search=True))
+        data = strip_json_fence(request_text(seed.slug, "source_research", source_research_prompt(seed, course_map, read_uploads(seed.slug)), max_tokens=12000, web_search=True))
     except ModelRequestError as error:
         block(run, "sources", f"Configured source research could not produce a validated ledger.\n\nReason: {error}")
         raise RuntimeError(str(error)) from error
@@ -658,7 +658,7 @@ Operator material inventory and bounded excerpts:
 Return:
 {{"lesson_number":{lesson_number},"applicability_review":"...","research_log":["..."],"source_gaps":[],"sources":[{{"source_id":"L{lesson_number:02d}S01","title":"...","author_or_organization":"...","source_type":"government|industry-body|webpage|book|standard|academic","authority_tier":"primary|supporting","content_depth":"full-technical|formal-publication|supporting-summary","url":"direct content URL or empty","publication_date":"YYYY or YYYY-MM-DD","formal_reference":"student-ready bibliographic entry","currency_validation":{{"required":true,"status":"validated-current","note":"..."}},"claims_supported":[{{"claim":"...","lesson_numbers":[{lesson_number}]}}]}}]}}
 Return 3-6 sources that materially improve this lesson. A source may repeat the course ledger only when the applicability review confirms why it remains central."""
-    data = strip_json_fence(request_text(seed.slug, "source_research", prompt, max_tokens=24000, web_search=True))
+    data = strip_json_fence(request_text(seed.slug, "source_research", prompt, max_tokens=12000, web_search=True))
     if not lesson_sources_are_adequate(data):
         follow_up = (
             prompt
@@ -666,7 +666,7 @@ Return 3-6 sources that materially improve this lesson. A source may repeat the 
             "Search again, replace course-description and summary pages with substantive technical sources, and close every source gap before returning the complete JSON object.\n\nPrevious result:\n"
             + json.dumps(data, ensure_ascii=False)[:18000]
         )
-        data = strip_json_fence(request_text(seed.slug, "source_research", follow_up, max_tokens=24000, web_search=True))
+        data = strip_json_fence(request_text(seed.slug, "source_research", follow_up, max_tokens=12000, web_search=True))
     if not lesson_sources_are_adequate(data):
         raise ModelRequestError("Lesson research did not establish adequate technical authority after two passes.")
     data.setdefault("lesson_number", lesson_number)
@@ -760,7 +760,7 @@ def select_cover_quote(seed, lesson: dict[str, Any], run: Path, lesson_tag: str)
         except json.JSONDecodeError:
             continue
     selected = strip_json_fence(
-        request_text(seed.slug, "source_research", cover_quote_prompt(seed, lesson, prior_quotes), max_tokens=8000, web_search=True)
+        request_text(seed.slug, "source_research", cover_quote_prompt(seed, lesson, prior_quotes), max_tokens=4000, web_search=True)
     )
     quote = str(selected.get("quote") or "").strip().strip('"“”')
     author = str(selected.get("author") or "").strip()
@@ -806,7 +806,7 @@ def run_content_reviewers(seed, lesson: dict[str, Any], draft: str, ledger: dict
     }
     for role, (title, suffix) in labels.items():
         try:
-            data = strip_json_fence(request_text(seed.slug, role, reviewer_prompt(role, seed, lesson, draft, ledger), max_tokens=16000))
+            data = strip_json_fence(request_text(seed.slug, role, reviewer_prompt(role, seed, lesson, draft, ledger), max_tokens=8000))
         except ModelRequestError as error:
             data = {"passed": False, "verdict": "REVISE", "findings": [str(error)], "required_changes": ["Restore the configured reviewer and rerun this lesson."]}
         data["passed"] = data.get("passed") is True
@@ -927,7 +927,7 @@ def create_visual_assets(seed, lesson: dict[str, Any], draft: str, run: Path, le
     if prior_request.exists() and prior_plan.exists():
         plan = json.loads(prior_plan.read_text(encoding="utf-8"))
     else:
-        plan = strip_json_fence(request_text(seed.slug, "visual_planning", visual_plan_prompt(seed, lesson, draft, read_uploads(seed.slug)), max_tokens=24000))
+        plan = strip_json_fence(request_text(seed.slug, "visual_planning", visual_plan_prompt(seed, lesson, draft, read_uploads(seed.slug)), max_tokens=12000))
     visuals = [normalize_visual_strategy(visual) for visual in (plan.get("visuals") or [])]
     section_headings = re.findall(r"(?im)^#\s+(Section\s+\d{2}\s+-\s+[^\n]+)$", draft)
     generated_seen = 0
@@ -1155,7 +1155,7 @@ def produce_study_guide(course_slug: str, lesson_number: int) -> list[str]:
     for attempt in range(1, 4):
         if not draft:
             try:
-                draft = request_text(seed.slug, "technical_content", study_guide_prompt(seed, lesson, references, active_ledger, revision_feedback), max_tokens=48000)
+                draft = request_text(seed.slug, "technical_content", study_guide_prompt(seed, lesson, references, active_ledger, revision_feedback), max_tokens=24000)
             except ModelRequestError as error:
                 block(run, "lesson_draft", f"Configured technical-content model could not produce Lesson {lesson_number}.\n\nReason: {error}")
                 raise RuntimeError(str(error)) from error
@@ -1187,7 +1187,7 @@ def produce_study_guide(course_slug: str, lesson_number: int) -> list[str]:
                     seed.slug,
                     "technical_content",
                     study_guide_revision_prompt(draft, revision_feedback, references, attempt=attempt),
-                    max_tokens=48000,
+                    max_tokens=24000,
                 )
             except ModelRequestError as error:
                 block(run, "lesson_draft", f"Configured technical-content model could not revise Lesson {lesson_number}.\n\nReason: {error}")
@@ -1271,7 +1271,7 @@ def produce_deck(course_slug: str, lesson_number: int) -> list[str]:
     lesson_tag = lid(lesson_number)
     approved = latest_approved_book(run, lesson_tag)
     try:
-        plan = strip_json_fence(request_text(seed.slug, "technical_content", deck_prompt(seed, lesson, approved.read_text(encoding="utf-8", errors="replace"), feedback_for(run, lesson_tag, "deck")), max_tokens=24000))
+        plan = strip_json_fence(request_text(seed.slug, "technical_content", deck_prompt(seed, lesson, approved.read_text(encoding="utf-8", errors="replace"), feedback_for(run, lesson_tag, "deck")), max_tokens=12000))
         slides = normalize_deck_slides(plan, lesson)
     except ModelRequestError as error:
         block(run, "deck", f"Configured technical-content model could not produce Lesson {lesson_number} presentation.\n\nReason: {error}")
@@ -1330,7 +1330,7 @@ def localize_book(course_slug: str, lesson_number: int, locale: str) -> list[str
     references = (run / "sources" / "student_references.md").read_text(encoding="utf-8")
     prompt = f"""Translate the following student-facing construction course book into {language}. Return Markdown only. Preserve the structural order: Introduction, Learning Objectives, numbered Sections, Summary and Key Takeaways, Glossary, and References. Do not add a Lesson Roadmap. Translate all body text and section titles. Preserve every Summary and Key Takeaways item as a concise bullet point; never convert that section into paragraphs. Keep U.S. construction terminology, units, codes, and market context. Preserve the six approved callout labels semantically in the target language and never invent a new callout type. Do not add or remove facts, activities, citations, or references. Do not use em dashes, en dashes, or spaced hyphens as punctuation.\n\n{source_draft.read_text(encoding='utf-8', errors='replace')[:48000]}"""
     try:
-        translated = request_text(seed.slug, "localization", prompt, max_tokens=48000)
+        translated = request_text(seed.slug, "localization", prompt, max_tokens=24000)
     except ModelRequestError as error:
         block(run, "localization", f"Localization model could not produce Lesson {lesson_number} {locale} course book.\n\nReason: {error}")
         raise RuntimeError(str(error)) from error
@@ -1381,7 +1381,7 @@ def localize_deck(course_slug: str, lesson_number: int, locale: str) -> list[str
     source = json.loads(source_spec.read_text(encoding="utf-8"))
     prompt = f"""Translate every student-visible text value in this Prof Greg deck JSON into {language}. Return JSON only in the form {{"slides": [...]}}. Preserve all keys, layout names, numbers, filenames, asset paths, and slide count exactly. Do not add slides or speaker notes. Preserve U.S. construction terms, units, and facts.\n\n{json.dumps(source['slides'], ensure_ascii=False)}"""
     try:
-        data = strip_json_fence(request_text(seed.slug, "localization", prompt, max_tokens=24000))
+        data = strip_json_fence(request_text(seed.slug, "localization", prompt, max_tokens=12000))
     except ModelRequestError as error:
         raise RuntimeError(str(error)) from error
     slides = normalize_deck_slides(data, {"title": f"Lesson {lesson_number}", "learning_goal": ""})
