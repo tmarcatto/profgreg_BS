@@ -213,7 +213,22 @@ def openai_text(
                 if block.get("type") in {"output_text", "text"}:
                     text += str(block.get("text") or "")
     if not text.strip():
-        raise ModelRequestError("OpenAI returned no text content.")
+        # Do not retain model content in logs, but make an empty response
+        # diagnosable to the operator. This distinguishes an incomplete
+        # response from a provider-side refusal or an unexpected shape.
+        output_shapes = [
+            {
+                "type": item.get("type"),
+                "status": item.get("status"),
+                "content_types": [block.get("type") for block in item.get("content") or []],
+            }
+            for item in response.get("output") or []
+        ]
+        reason = response.get("incomplete_details") or response.get("error") or "no completion detail"
+        raise ModelRequestError(
+            f"OpenAI returned no text content (status={response.get('status')!r}, "
+            f"reason={reason!r}, output={output_shapes!r})."
+        )
     usage = dict(response.get("usage") or {})
     return (text.strip(), usage) if return_usage else text.strip()
 
