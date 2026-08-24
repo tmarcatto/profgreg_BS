@@ -62,6 +62,14 @@ class GregLiveProductionTests(unittest.TestCase):
         self.assertNotIn("accessed", text.lower())
         self.assertIn("Current online edition.", text)
 
+    def test_forced_references_keep_summary_bullet_only_and_normalize_osha_title(self) -> None:
+        draft = "# Summary and Key Takeaways\n\nReview this first.\n\n- Keep this point.\n\n# Glossary\n\nTerm"
+        references = "# References\n\n- Occupational Safety and Health Administration. (2016). Construction (OSHA Publication 3886)."
+        normalized = production.force_student_references(draft, references)
+        self.assertNotIn("Review this first.", normalized)
+        self.assertIn("- Keep this point.", normalized)
+        self.assertIn("Recommended Practices for Safety and Health Programs in Construction", normalized)
+
     def test_visual_cards_are_lesson_specific(self) -> None:
         cards = production.visual_cards_from_lesson(
             {"sections": ["Project lifecycle phases", "PM responsibilities vs field leadership", "Stakeholder expectations", "Jobsite vocabulary"]}

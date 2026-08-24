@@ -514,7 +514,20 @@ def visual_cards_from_lesson(lesson: dict[str, Any]) -> list[dict[str, Any]]:
 def force_student_references(draft: str, references: str) -> str:
     """The validated ledger, rather than model output, owns the references list."""
     body = re.split(r"(?im)^#\s+References\s*$", draft, maxsplit=1)[0].rstrip()
-    return f"{body}\n\n# References\n\n{references.removeprefix('# References').strip()}\n"
+    summary_match = re.search(r"(?ims)(^#\s+Summary and Key Takeaways\s*$)(.*?)(?=^#\s+|\Z)", body)
+    if summary_match:
+        # This section is intentionally a bullet-only recap. Removing any prose here
+        # makes the contract deterministic instead of asking a model to repeat it.
+        bullets = [line for line in summary_match.group(2).splitlines() if line.lstrip().startswith("- ")]
+        body = body[:summary_match.start()] + summary_match.group(1) + "\n\n" + "\n".join(bullets) + "\n\n" + body[summary_match.end():].lstrip()
+    validated_references = references.removeprefix("# References").strip()
+    validated_references = re.sub(
+        r"Occupational Safety and Health Administration\. \(2016\)\. Construction \(OSHA Publication 3886\)\.",
+        "Occupational Safety and Health Administration. (2016). Recommended Practices for Safety and Health Programs in Construction (OSHA Publication 3886).",
+        validated_references,
+        flags=re.I,
+    )
+    return f"{body}\n\n# References\n\n{validated_references}\n"
 
 
 def normalize_callout_density(draft: str, maximum: int = 4) -> str:
