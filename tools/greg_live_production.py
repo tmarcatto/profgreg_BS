@@ -230,7 +230,9 @@ def produce_course_map(course_slug: str) -> list[str]:
     seed = parse_intake(course_slug)
     run = RUNS / seed.slug
     try:
-        data = strip_json_fence(request_text(seed.slug, "course_architect", course_map_prompt(seed, read_uploads(seed.slug)), max_tokens=10000))
+        # A 15-lesson map needs room for both maximum reasoning and the
+        # complete JSON schema. A smaller cap can end in reasoning-only output.
+        data = strip_json_fence(request_text(seed.slug, "course_architect", course_map_prompt(seed, read_uploads(seed.slug)), max_tokens=16000))
     except ModelRequestError as error:
         block(run, "course_map", f"Configured course architecture model could not produce a Course Map.\n\nReason: {error}")
         raise RuntimeError(str(error)) from error
