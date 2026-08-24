@@ -188,12 +188,15 @@ def openai_text(
     *,
     timeout: int = 600,
     return_usage: bool = False,
+    reasoning: str = "",
 ) -> str | tuple[str, dict[str, Any]]:
     payload: dict[str, Any] = {
         "model": model,
         "input": prompt,
         "max_output_tokens": max_tokens,
     }
+    if reasoning:
+        payload["reasoning"] = {"effort": reasoning}
     if web_search:
         payload["tools"] = [{"type": "web_search_preview"}]
     response = post_json(
@@ -250,6 +253,7 @@ def request_text(course_slug: str, role: str, prompt: str, *, max_tokens: int = 
                 max_tokens,
                 web_search,
                 return_usage=True,
+                reasoning=str(binding.get("reasoning") or ""),
             )
         else:
             raise ModelRequestError(f"Provider `{provider_name}` is not implemented by the production router yet.")

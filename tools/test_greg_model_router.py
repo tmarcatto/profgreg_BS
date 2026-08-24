@@ -51,6 +51,17 @@ class ModelRouterRetryTests(unittest.TestCase):
                 row = json.loads(log.read_text(encoding="utf-8"))
         self.assertEqual({"input_tokens": 12, "output_tokens": 34}, row["usage"])
 
+    @patch("greg_model_router.post_json")
+    def test_openai_reasoning_effort_is_sent_from_the_binding(self, post_json):
+        post_json.return_value = {"output_text": "review", "usage": {"input_tokens": 1, "output_tokens": 2}}
+
+        result = greg_model_router.openai_text(
+            "https://example.test", "secret", "gpt-5.6-luna", "prompt", 100, False, reasoning="max"
+        )
+
+        self.assertEqual("review", result)
+        self.assertEqual({"effort": "max"}, post_json.call_args.args[1]["reasoning"])
+
     @patch("greg_model_router.time.sleep")
     @patch("greg_model_router.urllib.request.urlopen")
     def test_remote_disconnect_is_normalized_after_last_attempt(self, urlopen, sleep):
