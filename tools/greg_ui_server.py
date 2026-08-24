@@ -1455,8 +1455,10 @@ def ui_shell(default_course: str) -> str:
     function visualCell(item) {{
       const visualLabel = item.visual_status === 'waiting_images'
         ? 'waiting images'
-        : item.visual_status === 'pending_course_book'
-          ? 'pending course book'
+        : item.visual_status === 'content_ready'
+          ? 'course book content ready'
+          : item.visual_status === 'included'
+            ? 'included in course book'
           : item.visual_status || 'pending';
       const pill = statusPill(visualLabel);
       if (item.visual_status !== 'waiting_images' || !item.image_request_path) return `<span class="doc-cell">${{pill}}</span>`;

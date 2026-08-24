@@ -386,7 +386,10 @@ def summarize_lessons(run: Path, manifest: dict) -> list[dict]:
             row["study_guide"] = "waiting_images"
             row.pop("study_guide_path", None)
         elif visual_plan.exists() and report_passed(visual_qa, "Visual plan QA passed") is not False:
-            row["visual_status"] = "ready" if row.get("study_guide") in {"active", "approved"} else "pending_course_book"
+            # A visual plan is created only after the course-book Markdown has passed
+            # content QA. It is not a standalone deliverable: the visual and the PDF
+            # remain one connected production item until the book is rendered.
+            row["visual_status"] = "included" if row.get("study_guide") in {"active", "approved"} else "content_ready"
     return [lessons[key] for key in sorted(lessons)]
 
 
