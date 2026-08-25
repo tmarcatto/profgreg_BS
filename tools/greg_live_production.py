@@ -1553,12 +1553,7 @@ def localize_book(course_slug: str, lesson_number: int, locale: str) -> list[str
     references = (run / "sources" / "student_references.md").read_text(encoding="utf-8")
     pending_draft = latest_matching_path(run / "localization" / folder, f"{lesson_tag}_study_guide_{locale}_r*.md")
     pending_match = re.search(r"_r(\d+)\.md$", pending_draft.name) if pending_draft else None
-    pending_pdf = (
-        run / "localization" / folder / f"{lesson_tag}_study_guide_{locale}_r{int(pending_match.group(1)):02d}.pdf"
-        if pending_match else None
-    )
-    localized_visuals_path = run / "localization" / folder / f"{lesson_tag}_visuals_{locale}.json"
-    if pending_draft and pending_match and pending_pdf and (not pending_pdf.exists() or not localized_visuals_path.exists()):
+    if pending_draft and pending_match:
         translated = pending_draft.read_text(encoding="utf-8", errors="replace")
         revision = int(pending_match.group(1))
         draft_name = pending_draft.name
