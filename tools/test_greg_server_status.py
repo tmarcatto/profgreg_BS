@@ -31,6 +31,18 @@ class GregServerStatusTests(unittest.TestCase):
             self.assertNotEqual(first["job_id"], second["job_id"])
             self.assertEqual(len(list(root.glob("job_*/job.json"))), 2)
 
+    def test_worker_startup_recovers_interrupted_jobs(self) -> None:
+        (ROOT / "tmp" / "jobs").mkdir(parents=True, exist_ok=True)
+        with tempfile.TemporaryDirectory(dir=ROOT / "tmp" / "jobs") as tmp:
+            root = Path(tmp)
+            job = checker.create_job(job_root=root, request_type="backup")
+            checker.transition_job(root, job["job_id"], "running", note="claimed")
+            recovered = checker.recover_interrupted_jobs(root)
+            current = checker.list_jobs(root)[0]
+            self.assertEqual(recovered, [job["job_id"]])
+            self.assertEqual(current["state"], "failed")
+            self.assertIn("Worker restart interrupted", current["last_error"])
+
     def test_qa_report_passed_detection(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             path = Path(tmp) / "deploy_qa.md"

@@ -437,6 +437,19 @@ def run_worker_loop(
         time.sleep(poll_interval)
 
 
+def recover_interrupted_jobs(job_root: Path) -> list[str]:
+    """Fail jobs left running by a previous worker process before startup."""
+    root = safe_job_root(job_root)
+    recovered: list[str] = []
+    for job in list_jobs(root):
+        if job.get("state") != "running":
+            continue
+        job_id = str(job.get("job_id") or "")
+        transition_job(root, job_id, "failed", note="Worker restart interrupted this job; start it again from the operator console.")
+        recovered.append(job_id)
+    return recovered
+
+
 def add_tree_to_archive(archive: tarfile.TarFile, source: Path, arc_prefix: str) -> list[dict[str, Any]]:
     included: list[dict[str, Any]] = []
     if not source.exists():
@@ -922,6 +935,7 @@ def main() -> int:
     args = parser.parse_args()
 
     if args.worker:
+        recover_interrupted_jobs(Path(args.job_root))
         data = run_worker_loop(job_root=Path(args.job_root), backup_root=Path(args.backup_root), once=args.once, max_jobs=args.max_jobs, poll_interval=args.poll_interval, dry_run=args.dry_run)
         report = json.dumps(data, indent=2, ensure_ascii=False) + "\n"
     elif args.create_backup:

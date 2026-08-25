@@ -15,6 +15,7 @@ import json
 import re
 import subprocess
 import sys
+from concurrent.futures import ThreadPoolExecutor
 from datetime import date
 from pathlib import Path
 from typing import Any
@@ -1500,8 +1501,7 @@ def localized_book_visuals(seed, run: Path, lesson_tag: str, locale: str, langua
     if not source_visuals:
         return []
     headings = re.findall(r"(?im)^#\s+(.+)$", translated)
-    visuals: list[dict[str, Any]] = []
-    for source_visual in source_visuals:
+    def translate_visual(source_visual: dict[str, Any]) -> dict[str, Any]:
         prompt = f"""Translate every student-visible text value in this single course-book visual specification into {language}.
 Return exactly one JSON object in the form {{"visual": {{...}}}}. The first response character must be `{{` and the last must be `}}`; do not use Markdown or commentary. Preserve every key, visual type, visual_id, figure number, node count, row count, and ordering. Translate `after_heading` to one of the exact target Markdown headings listed below so placement remains exact. Keep process-flow titles at most 30 characters and details at most 36 characters. Keep comparison-matrix left cells at most 40 characters and right cells at most 130 characters. Do not omit, merge, or add nodes or rows. Preserve U.S. construction meaning.
 
@@ -1523,7 +1523,10 @@ English visual specification:
                 parsed = None
         if not parsed:
             raise RuntimeError(f"Localized visual translation failed after two validated attempts: {last_error}")
-        visuals.append(parsed["visual"])
+        return parsed["visual"]
+
+    with ThreadPoolExecutor(max_workers=min(4, len(source_visuals))) as executor:
+        visuals = list(executor.map(translate_visual, source_visuals))
     if len(visuals) != len(source_visuals):
         raise RuntimeError("Localized visual plan changed the required visual count.")
     for source_visual, localized_visual in zip(source_visuals, visuals):
