@@ -1499,14 +1499,25 @@ def localize_book(course_slug: str, lesson_number: int, locale: str) -> list[str
     }[locale]
     localized_level = localized_metadata["levels"].get(str(seed.level).lower(), str(seed.level))
     references = (run / "sources" / "student_references.md").read_text(encoding="utf-8")
-    prompt = f"""Translate the following student-facing construction course book into {language}. Return Markdown only. Preserve the structural order: Introduction, Learning Objectives, numbered Sections, Summary and Key Takeaways, Glossary, and References. Do not add a Lesson Roadmap. Translate all body text and section titles. Preserve every Summary and Key Takeaways item as a concise bullet point; never convert that section into paragraphs. Keep U.S. construction terminology, units, codes, and market context. Preserve the six approved callout labels semantically in the target language and never invent a new callout type. Do not add or remove facts, activities, citations, or references. Do not use em dashes, en dashes, or spaced hyphens as punctuation.\n\n{source_draft.read_text(encoding='utf-8', errors='replace')[:48000]}"""
-    try:
-        translated = request_text(seed.slug, "localization", prompt, max_tokens=24000)
-    except ModelRequestError as error:
-        block(run, "localization", f"Localization model could not produce Lesson {lesson_number} {locale} course book.\n\nReason: {error}")
-        raise RuntimeError(str(error)) from error
+    pending_draft = latest_matching_path(run / "localization" / folder, f"{lesson_tag}_study_guide_{locale}_r*.md")
+    pending_match = re.search(r"_r(\d+)\.md$", pending_draft.name) if pending_draft else None
+    pending_pdf = (
+        run / "localization" / folder / f"{lesson_tag}_study_guide_{locale}_r{int(pending_match.group(1)):02d}.pdf"
+        if pending_match else None
+    )
+    if pending_draft and pending_match and pending_pdf and not pending_pdf.exists():
+        translated = pending_draft.read_text(encoding="utf-8", errors="replace")
+        revision = int(pending_match.group(1))
+        draft_name = pending_draft.name
+    else:
+        prompt = f"""Translate the following student-facing construction course book into {language}. Return Markdown only. Preserve the structural order: Introduction, Learning Objectives, numbered Sections, Summary and Key Takeaways, Glossary, and References. Do not add a Lesson Roadmap. Translate all body text and section titles. Preserve every Summary and Key Takeaways item as a concise bullet point; never convert that section into paragraphs. Keep U.S. construction terminology, units, codes, and market context. Preserve the six approved callout labels semantically in the target language and never invent a new callout type. Do not add or remove facts, activities, citations, or references. Do not use em dashes, en dashes, or spaced hyphens as punctuation.\n\n{source_draft.read_text(encoding='utf-8', errors='replace')[:48000]}"""
+        try:
+            translated = request_text(seed.slug, "localization", prompt, max_tokens=24000)
+        except ModelRequestError as error:
+            block(run, "localization", f"Localization model could not produce Lesson {lesson_number} {locale} course book.\n\nReason: {error}")
+            raise RuntimeError(str(error)) from error
+        revision, draft_name = revisioned(run, f"localization/{folder}", f"{lesson_tag}_study_guide_{locale}", ".md")
     translated = force_student_references(translated, references, locale)
-    revision, draft_name = revisioned(run, f"localization/{folder}", f"{lesson_tag}_study_guide_{locale}", ".md")
     draft_path = run / "localization" / folder / draft_name
     write_text(draft_path, translated)
     reference_heading = "# Referências" if locale == "pt_br" else "# Referencias"
