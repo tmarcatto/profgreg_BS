@@ -1493,6 +1493,11 @@ def localize_book(course_slug: str, lesson_number: int, locale: str) -> list[str
     if not source_draft:
         raise RuntimeError("The approved course book has no revisioned source draft for localization.")
     language, folder = localization_name(locale)
+    localized_metadata = {
+        "pt_br": {"course": "O Gerente Completo de Projetos de Construção: da Pré-Construção ao Encerramento", "title": "O Sistema Operacional do Gerente de Projetos de Construção", "guide": "APOSTILA", "lesson": "Lição", "levels": {"basic": "Nível Básico", "intermediate": "Nível Intermediário", "advanced": "Nível Avançado"}},
+        "es": {"course": "El Gerente Completo de Proyectos de Construcción: de la Preconstrucción al Cierre", "title": "El Sistema Operativo del Gerente de Proyectos de Construcción", "guide": "GUÍA DE ESTUDIO", "lesson": "Lección", "levels": {"basic": "Nivel Básico", "intermediate": "Nivel Intermedio", "advanced": "Nivel Avanzado"}},
+    }[locale]
+    localized_level = localized_metadata["levels"].get(str(seed.level).lower(), str(seed.level))
     references = (run / "sources" / "student_references.md").read_text(encoding="utf-8")
     prompt = f"""Translate the following student-facing construction course book into {language}. Return Markdown only. Preserve the structural order: Introduction, Learning Objectives, numbered Sections, Summary and Key Takeaways, Glossary, and References. Do not add a Lesson Roadmap. Translate all body text and section titles. Preserve every Summary and Key Takeaways item as a concise bullet point; never convert that section into paragraphs. Keep U.S. construction terminology, units, codes, and market context. Preserve the six approved callout labels semantically in the target language and never invent a new callout type. Do not add or remove facts, activities, citations, or references. Do not use em dashes, en dashes, or spaced hyphens as punctuation.\n\n{source_draft.read_text(encoding='utf-8', errors='replace')[:48000]}"""
     try:
@@ -1513,7 +1518,7 @@ def localize_book(course_slug: str, lesson_number: int, locale: str) -> list[str
         "course_slug": seed.slug, "course_title": seed.title, "lesson_number": str(lesson_number), "locale": locale,
         "production_mode": "initial", "revision": f"r{revision:02d}", "run_folder": f"runs/{seed.slug}",
         "source_markdown": rel(draft_path),
-        "metadata": {"course_title": seed.title, "lesson_number": str(lesson_number), "lesson_short_title": f"{locale.upper()} Lesson {lesson_number}", "lesson_subtitle": language, "level_label": f"{seed.level} Level", "quote": f'"{cover_quote["quote"]}"', "quote_author": cover_quote["author"], "quote_verification_url": cover_quote["verification_url"], "icon": BRAND_ICON},
+        "metadata": {"course_title": localized_metadata["course"], "lesson_number": str(lesson_number), "lesson_short_title": localized_metadata["title"], "lesson_subtitle": language, "level_label": localized_level, "study_guide_label": localized_metadata["guide"], "lesson_label": localized_metadata["lesson"], "quote": f'"{cover_quote["quote"]}"', "quote_author": cover_quote["author"], "quote_verification_url": cover_quote["verification_url"], "icon": BRAND_ICON},
         "output": {"pdf": f"localization/{folder}/{pdf_name}", "render_qa": f"localization/{folder}/{lesson_tag}_{locale}_render_qa_r{revision:02d}.md", "layout_qa": f"localization/{folder}/{lesson_tag}_{locale}_layout_qa_r{revision:02d}.md", "rendered_dir": f"localization/{folder}/rendered_pages_{lesson_tag}_r{revision:02d}"},
         "visuals": [], "qa_notes": ["Initial production is being prepared for approval.", "Localized artifact is derived from an approved English course book."]
     }

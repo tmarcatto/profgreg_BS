@@ -723,7 +723,7 @@ def make_doc(output: Path, metadata: dict[str, Any]):
         canvas.rect(1.35 * inch, 1.35 * inch, W - 2.7 * inch, H - 2.7 * inch, fill=1, stroke=0)
         canvas.setFillColor(ORANGE)
         canvas.setFont(FONT_BOLD, 14)
-        canvas.drawString(1.75 * inch, H - 2.05 * inch, "STUDY GUIDE")
+        canvas.drawString(1.75 * inch, H - 2.05 * inch, metadata.get("study_guide_label", "STUDY GUIDE"))
         if icon.exists():
             canvas.drawImage(str(icon), W - 2.12 * inch, H - 2.1 * inch, width=0.48 * inch, height=0.48 * inch, mask="auto")
         canvas.setFillColor(NAVY)
@@ -748,7 +748,7 @@ def make_doc(output: Path, metadata: dict[str, Any]):
         canvas.drawText(lesson_text)
         canvas.setFillColor(ORANGE)
         canvas.setFont(FONT_BOLD, 15)
-        canvas.drawString(1.75 * inch, H - 6.25 * inch, f"Lesson {metadata['lesson_number']}")
+        canvas.drawString(1.75 * inch, H - 6.25 * inch, f"{metadata.get('lesson_label', 'Lesson')} {metadata['lesson_number']}")
         canvas.setFillColor(colors.HexColor("#4b5563"))
         canvas.setFont(FONT_REGULAR, 12)
         canvas.drawString(1.75 * inch, H - 6.55 * inch, metadata.get("level_label", "Basic Level"))

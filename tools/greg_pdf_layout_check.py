@@ -83,9 +83,9 @@ def word_count(text: str) -> int:
 
 def is_heading_line(line: str) -> bool:
     return bool(
-        re.match(r"Section\s+\d{2}\s+-", line, flags=re.I)
-        or line in {"Summary and Key Takeaways", "Glossary", "References", "Introduction", "Learning Objectives"}
-        or re.fullmatch(r"(KEY TERM|APPLY IT|HANDS-ON EXAMPLE|SCENARIO|CALLBACK|BRIDGE)", line, flags=re.I)
+        re.match(r"(?:Section|Seção|Sección)\s+\d{2}\s*[:-]", line, flags=re.I)
+        or line in {"Summary and Key Takeaways", "Resumo e Principais Conclusões", "Resumen y Conclusiones Clave", "Glossary", "Glossário", "Glosario", "References", "Referências", "Referencias", "Introduction", "Introdução", "Introducción", "Learning Objectives", "Objetivos de Aprendizagem", "Objetivos de Aprendizaje"}
+        or re.fullmatch(r"(KEY TERM|APPLY IT|HANDS-ON EXAMPLE|SCENARIO|CALLBACK|BRIDGE|TERMO-CHAVE|APLIQUE|EXEMPLO PRÁTICO|CENÁRIO|RETOMADA|PONTE|TÉRMINO CLAVE|APLICACIÓN|EJEMPLO PRÁCTICO|ESCENARIO|RETOMAR|PUENTE)", line, flags=re.I)
     )
 
 
@@ -142,20 +142,20 @@ def run_checks(pdf_path: Path, qa_path: Path | None = None) -> dict:
 
     if pages:
         cover = pages[0]
-        cover_requirements = ["STUDY GUIDE", "Lesson", "Level", "BuildStak Learning Series"]
-        missing = [item for item in cover_requirements if item.lower() not in cover.lower()]
+        cover_requirements = [("study-guide label", r"STUDY GUIDE|APOSTILA|GUÍA DE ESTUDIO"), ("lesson label", r"Lesson|Lição|Lección"), ("level label", r"Level|Nível|Nivel"), ("series label", r"BuildStak Learning Series")]
+        missing = [name for name, pattern in cover_requirements if not re.search(pattern, cover, flags=re.I)]
         if missing:
             findings.append(Finding("fail", "cover_template", f"Cover missing expected elements: {missing}."))
         else:
             findings.append(Finding("pass", "cover_template", "Cover includes expected BuildStak study-guide elements."))
 
-    roadmap_page = find_page(pages, r"Lesson Roadmap", heading_only=True)
-    intro_page = find_page(pages, r"Introduction", min_page=2, heading_only=True)
-    objectives_page = find_page(pages, r"Learning Objectives", min_page=2, heading_only=True)
-    section_01_page = find_page(pages, r"Section\s+01\s+-.*", min_page=3, heading_only=True)
-    summary_page = find_page(pages, r"Summary and Key Takeaways", min_page=3, heading_only=True)
-    glossary_page = find_page(pages, r"Glossary", min_page=3, heading_only=True)
-    references_page = find_page(pages, r"References", min_page=3, heading_only=True)
+    roadmap_page = find_page(pages, r"(?:Lesson Roadmap|Roteiro da Lição|Ruta de la Lección)", heading_only=True)
+    intro_page = find_page(pages, r"(?:Introduction|Introdução|Introducción)", min_page=2, heading_only=True)
+    objectives_page = find_page(pages, r"(?:Learning Objectives|Objetivos de Aprendizagem|Objetivos de Aprendizaje)", min_page=2, heading_only=True)
+    section_01_page = find_page(pages, r"(?:Section|Seção|Sección)\s+01\s*[:-].*", min_page=3, heading_only=True)
+    summary_page = find_page(pages, r"(?:Summary and Key Takeaways|Resumo e Principais Conclusões|Resumen y Conclusiones Clave)", min_page=3, heading_only=True)
+    glossary_page = find_page(pages, r"(?:Glossary|Glossário|Glosario)", min_page=3, heading_only=True)
+    references_page = find_page(pages, r"(?:References|Referências|Referencias)", min_page=3, heading_only=True)
 
     sequence = {
         "introduction": intro_page,
@@ -226,7 +226,7 @@ def run_checks(pdf_path: Path, qa_path: Path | None = None) -> dict:
     for page_number, text in enumerate(pages, start=1):
         lines = [line.strip() for line in text.splitlines() if line.strip()]
         for index, line in enumerate(lines[:-1]):
-            if re.match(r"Section\s+\d{2}\s+-", line, flags=re.IGNORECASE) and lines[index + 1].endswith("?"):
+            if re.match(r"(?:Section|Seção|Sección)\s+\d{2}\s*[:-]", line, flags=re.IGNORECASE) and lines[index + 1].endswith("?"):
                 section_heading_questions.append((page_number, line, lines[index + 1]))
     if section_heading_questions:
         findings.append(Finding("fail", "section_heading_questions", f"Section headings followed by question subtitles: {section_heading_questions[:3]}."))
@@ -235,7 +235,7 @@ def run_checks(pdf_path: Path, qa_path: Path | None = None) -> dict:
 
     if summary_page and references_page:
         structural_tail = "\n".join(pages[summary_page - 1 : references_page])
-        callout_labels = re.findall(r"\b(KEY TERM|APPLY IT|HANDS-ON EXAMPLE|SCENARIO|CALLBACK|BRIDGE)\b", structural_tail, flags=re.IGNORECASE)
+        callout_labels = re.findall(r"\b(KEY TERM|APPLY IT|HANDS-ON EXAMPLE|SCENARIO|CALLBACK|BRIDGE|TERMO-CHAVE|APLIQUE|EXEMPLO PRÁTICO|CENÁRIO|RETOMADA|PONTE|TÉRMINO CLAVE|APLICACIÓN|EJEMPLO PRÁCTICO|ESCENARIO|RETOMAR|PUENTE)\b", structural_tail, flags=re.IGNORECASE)
         if callout_labels:
             findings.append(Finding("fail", "callouts_in_structural_sections", f"Callout labels found in structural tail sections: {sorted(set(callout_labels))}."))
         else:
@@ -272,10 +272,10 @@ def run_checks(pdf_path: Path, qa_path: Path | None = None) -> dict:
                 and re.search(r"[.!?]$", first)
             ):
                 orphan_openings.append((page_number, first))
-            if re.match(r"Section\s+\d{2}\s+-", lines[0], flags=re.I) and len(lines) <= 2:
+            if re.match(r"(?:Section|Seção|Sección)\s+\d{2}\s*[:-]", lines[0], flags=re.I) and len(lines) <= 2:
                 heading_openings.append((page_number, lines[:2]))
         for index, line in enumerate(lines):
-            if re.fullmatch(r"(KEY TERM|APPLY IT|HANDS-ON EXAMPLE|SCENARIO|CALLBACK|BRIDGE)", line, flags=re.I):
+            if re.fullmatch(r"(KEY TERM|APPLY IT|HANDS-ON EXAMPLE|SCENARIO|CALLBACK|BRIDGE|TERMO-CHAVE|APLIQUE|EXEMPLO PRÁTICO|CENÁRIO|RETOMADA|PONTE|TÉRMINO CLAVE|APLICACIÓN|EJEMPLO PRÁCTICO|ESCENARIO|RETOMAR|PUENTE)", line, flags=re.I):
                 remaining = " ".join(lines[index + 1 : index + 3])
                 if len(remaining.split()) < 6:
                     split_callout_labels.append((page_number, line))
