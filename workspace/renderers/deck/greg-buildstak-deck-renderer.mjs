@@ -209,15 +209,18 @@ function addBullet(slide, text, x, y, w, idx, size = 22) {
 }
 
 function card(slide, key, title, body, x, y, w, h, accent = C.navy, fill = C.white) {
+  const compact = w < 300;
+  const titleHeight = compact ? 48 : 34;
+  const bodyTop = compact ? 76 : 72;
   addShape(slide, `${key}-card`, "roundRect", x, y, w, h, fill, C.line, 1.4);
-  addText(slide, `${key}-title`, title, x + 20, y + 22, w - 40, 34, {
-    fontSize: 21,
+  addText(slide, `${key}-title`, title, x + 20, y + 18, w - 40, titleHeight, {
+    fontSize: compact ? 18 : 21,
     bold: true,
     color: accent,
     alignment: "center",
   });
-  addText(slide, `${key}-body`, body, x + 22, y + 72, w - 44, h - 84, {
-    fontSize: 18,
+  addText(slide, `${key}-body`, body, x + 22, y + bodyTop, w - 44, h - bodyTop - 14, {
+    fontSize: compact ? 14 : 18,
     color: C.gray,
     alignment: "center",
   });
@@ -240,31 +243,31 @@ async function renderCover(deck, slideSpec) {
       "contain"
     );
   } catch {}
-  addText(slide, "course", currentSpec.course_title, 218, 104, 780, 34, {
+  addText(slide, "course", currentSpec.course_title, 218, 88, 830, 64, {
     fontSize: 22,
     color: C.slate,
   });
-  addText(slide, "lesson", `LESSON ${currentSpec.lesson_number}`, 218, 158, 220, 28, {
+  addText(slide, "lesson", `LESSON ${currentSpec.lesson_number}`, 218, 156, 220, 28, {
     fontSize: 18,
     bold: true,
     color: C.orange,
   });
-  addText(slide, "title", slideSpec.title, 218, 204, 830, 70, {
-    fontSize: 50,
+  addText(slide, "title", slideSpec.title, 218, 198, 900, 132, {
+    fontSize: 42,
     bold: true,
     color: C.navy,
   });
-  addText(slide, "subtitle", slideSpec.subtitle, 220, 286, 880, 44, {
-    fontSize: 27,
+  addText(slide, "subtitle", slideSpec.subtitle, 220, 338, 900, 58, {
+    fontSize: 24,
     bold: true,
     color: C.ink,
   });
-  addText(slide, "topics", "Main topics covered", 222, 378, 620, 36, {
-    fontSize: 23,
+  addText(slide, "topics", "Main topics covered", 222, 410, 620, 32, {
+    fontSize: 21,
     bold: true,
     color: C.navy,
   });
-  slideSpec.topics.forEach((item, idx) => addBullet(slide, item, 222, 438 + idx * 46, 820, idx + 1, 21));
+  slideSpec.topics.forEach((item, idx) => addBullet(slide, item, 222, 454 + idx * 43, 850, idx + 1, 19));
   await addFooter(slide, currentSlide, 198);
 }
 
@@ -323,15 +326,15 @@ async function renderCardSequence(deck, slideSpec) {
   const slide = addSlide(deck);
   await addChrome(slide, currentSlide);
   addTitle(slide, slideSpec.title, slideSpec.subtitle);
-  const x0 = 90;
-  const w = 205;
+  const x0 = 70;
+  const w = 260;
   slideSpec.items.forEach((item, i) => {
-    const x = x0 + i * 225;
-    card(slide, `${slideSpec.key || "sequence"}-${i + 1}`, item.title, item.body, x, 286, w, 142, C.navy, C.light);
-    if (i < slideSpec.items.length - 1) addLine(slide, `${slideSpec.key || "sequence"}-arrow-${i + 1}`, x + w, 357, x + 225, 357);
+    const x = x0 + i * 282;
+    card(slide, `${slideSpec.key || "sequence"}-${i + 1}`, item.title, item.body, x, 270, w, 230, C.navy, C.light);
+    if (i < slideSpec.items.length - 1) addLine(slide, `${slideSpec.key || "sequence"}-arrow-${i + 1}`, x + w, 385, x + 282, 385);
   });
-  addText(slide, "takeaway", slideSpec.takeaway, 162, 520, 956, 48, {
-    fontSize: 25,
+  addText(slide, "takeaway", slideSpec.takeaway, 150, 528, 980, 58, {
+    fontSize: 22,
     bold: true,
     color: C.navy,
     alignment: "center",
