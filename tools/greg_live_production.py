@@ -1108,6 +1108,17 @@ def render_reviewed_study_guide(seed, lesson: dict[str, Any], draft_path: Path, 
     return [f"Study guide revision r{revision:02d} created: {rel(run / spec['output']['pdf'])}", "All required automatic content, reviewer, visual, MECE, and layout gates passed."]
 
 
+def reviewed_draft_can_resume_visuals(run: Path, lesson_tag: str, revision: int) -> bool:
+    visual_qa = run / "review" / f"{lesson_tag}_visual_qa.md"
+    if not visual_qa.exists() or "Visual plan QA passed: no" not in visual_qa.read_text(encoding="utf-8", errors="replace"):
+        return False
+    snapshots = [
+        run / "review" / f"{lesson_tag}_{suffix}_r{revision:02d}.md"
+        for suffix in ("pedagogy_review", "citation_review", "design_qa")
+    ]
+    return all(path.exists() and "## Verdict\n\nPASS" in path.read_text(encoding="utf-8", errors="replace") for path in snapshots)
+
+
 def produce_study_guide(course_slug: str, lesson_number: int) -> list[str]:
     seed = parse_intake(course_slug)
     run = RUNS / seed.slug
@@ -1129,6 +1140,17 @@ def produce_study_guide(course_slug: str, lesson_number: int) -> list[str]:
             update_canonical_manifest(seed.slug)
             return [f"Lesson {lesson_number} is still waiting for one or more requested images."]
         return render_reviewed_study_guide(seed, lesson, draft_path, revision, render_visuals)
+    if prior_drafts:
+        draft_path = prior_drafts[-1]
+        match = re.search(r"_r(\d+)\.md$", draft_path.name)
+        if match and reviewed_draft_can_resume_visuals(run, lesson_tag, int(match.group(1))):
+            revision = int(match.group(1))
+            draft = draft_path.read_text(encoding="utf-8", errors="replace")
+            render_visuals, waiting_images = create_visual_assets(seed, lesson, draft, run, lesson_tag)
+            if waiting_images:
+                update_canonical_manifest(seed.slug)
+                return [f"Lesson {lesson_number} is waiting for one or more requested images."]
+            return render_reviewed_study_guide(seed, lesson, draft_path, revision, render_visuals)
     try:
         refresh_path = run / "sources" / f"{lesson_tag}_source_refresh.json"
         cached_refresh = json.loads(refresh_path.read_text(encoding="utf-8")) if refresh_path.exists() else {}

@@ -90,6 +90,17 @@ class GregLiveProductionTests(unittest.TestCase):
         self.assertIn("after the final `# References` heading", prompt)
         self.assertIn("teaching prose is not a bibliography defect", prompt)
 
+    def test_visual_retry_reuses_frozen_passed_content_review(self) -> None:
+        from tempfile import TemporaryDirectory
+
+        with TemporaryDirectory() as directory:
+            run = Path(directory)
+            (run / "review").mkdir()
+            (run / "review" / "lesson_01_visual_qa.md").write_text("Visual plan QA passed: no\n")
+            for suffix in ("pedagogy_review", "citation_review", "design_qa"):
+                (run / "review" / f"lesson_01_{suffix}_r01.md").write_text("## Verdict\n\nPASS\n")
+            self.assertTrue(production.reviewed_draft_can_resume_visuals(run, "lesson_01", 1))
+
     def test_student_reference_text_removes_access_dates(self) -> None:
         text = production.student_reference_text(
             "Occupational Safety and Health Administration. Safety and Health Regulations for Construction. Current online edition accessed August 16, 2026."
