@@ -58,6 +58,15 @@ class RenderStudyGuideFromSpecTests(unittest.TestCase):
                 "cards": [{"title": "Item"}] * 5,
             }])
 
+    def test_card_row_uses_first_count_declared_in_title(self) -> None:
+        if pdf_renderer is None:
+            self.skipTest("ReportLab is not installed in this Python environment.")
+        pdf_renderer.validate_visuals([{
+            "type": "card_row",
+            "title": "Five Operating Responsibilities Applied to One Change",
+            "cards": [{"title": "Item"}] * 5,
+        }])
+
     def test_seven_card_diagram_keeps_every_title(self) -> None:
         if pdf_renderer is None:
             self.skipTest("ReportLab is not installed in this Python environment.")

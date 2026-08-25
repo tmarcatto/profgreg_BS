@@ -799,10 +799,15 @@ def validate_visuals(visuals: list[dict[str, Any]]) -> None:
         if not isinstance(cards, list) or not cards:
             raise ValueError("Card-row diagram must contain at least one card.")
         title = str(visual.get("title", "")).lower()
-        declared = next((value for word, value in _COUNT_WORDS.items() if re.search(rf"\b{word}\b", title)), None)
-        if declared is None:
-            digit = re.search(r"\b(\d{1,2})\b", title)
-            declared = int(digit.group(1)) if digit else None
+        declarations: list[tuple[int, int]] = []
+        for word, value in _COUNT_WORDS.items():
+            match = re.search(rf"\b{word}\b", title)
+            if match:
+                declarations.append((match.start(), value))
+        digit = re.search(r"\b(\d{1,2})\b", title)
+        if digit:
+            declarations.append((digit.start(), int(digit.group(1))))
+        declared = min(declarations)[1] if declarations else None
         if declared is not None and declared != len(cards):
             raise ValueError(
                 f"Card-row title declares {declared} items but contains {len(cards)} cards: {visual.get('title', '')}"
