@@ -642,10 +642,10 @@ def parse_markdown(markdown: str, locale: str = "en") -> list[dict[str, Any]]:
             blocks.append({"type": "paragraph", "text": f"**{line[4:].strip()}**"})
             index += 1
             continue
-        if line.startswith("- "):
+        if re.match(r"^[-*+]\s+\S", line):
             items: list[str] = []
-            while index < len(lines) and lines[index].strip().startswith("- "):
-                items.append(lines[index].strip()[2:].strip())
+            while index < len(lines) and re.match(r"^[-*+]\s+\S", lines[index].strip()):
+                items.append(re.sub(r"^[-*+]\s+", "", lines[index].strip()).strip())
                 index += 1
             blocks.append({"type": "bullets", "items": items})
             continue

@@ -161,6 +161,12 @@ class RenderStudyGuideFromSpecTests(unittest.TestCase):
             "These responsibilities are one job, not six. The duties run simultaneously.",
         )
 
+    def test_all_common_markdown_bullet_markers_render_as_bullets(self) -> None:
+        if pdf_renderer is None:
+            self.skipTest("ReportLab is not installed in this Python environment.")
+        blocks = pdf_renderer.parse_markdown("* Primeiro\n+ Segundo\n- Terceiro")
+        self.assertEqual(blocks, [{"type": "bullets", "items": ["Primeiro", "Segundo", "Terceiro"]}])
+
     def test_unapproved_callout_label_is_not_rendered_as_box(self) -> None:
         if pdf_renderer is None:
             self.skipTest("ReportLab is not installed in this Python environment.")

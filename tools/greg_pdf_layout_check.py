@@ -59,7 +59,7 @@ def contains(text: str, pattern: str) -> bool:
 
 
 def has_unrendered_markdown(text: str) -> bool:
-    return "**" in text
+    return "**" in text or bool(re.search(r"(?:^|\s)\*(?:\s|$)", text))
 
 
 def meaningful_lines(text: str) -> list[str]:
