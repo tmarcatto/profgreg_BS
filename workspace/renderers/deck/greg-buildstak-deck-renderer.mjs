@@ -21,6 +21,16 @@ let currentSlide = 0;
 let currentSpec = null;
 const ROOT = process.cwd();
 
+function localizedLabels() {
+  if (currentSpec?.locale === "pt_br") {
+    return { lesson: "LIÇÃO", topics: "Principais tópicos abordados", takeaway: "CONCLUSÃO DA LIÇÃO" };
+  }
+  if (currentSpec?.locale === "es") {
+    return { lesson: "LECCIÓN", topics: "Temas principales", takeaway: "CONCLUSIÓN DE LA LECCIÓN" };
+  }
+  return { lesson: "LESSON", topics: "Main topics covered", takeaway: "LESSON TAKEAWAY" };
+}
+
 function assertInsideRoot(resolvedPath, originalValue) {
   const relative = path.relative(ROOT, resolvedPath);
   if (relative === "" || (!relative.startsWith("..") && !path.isAbsolute(relative))) {
@@ -170,7 +180,7 @@ async function addFooter(slide, n, startX = 68) {
 }
 
 function addEyebrow(slide) {
-  addText(slide, "eyebrow", `LESSON ${currentSpec.lesson_number}`, 72, 44, 300, 26, {
+  addText(slide, "eyebrow", `${localizedLabels().lesson} ${currentSpec.lesson_number}`, 72, 44, 300, 26, {
     fontSize: 16,
     bold: true,
     color: C.orange,
@@ -247,7 +257,7 @@ async function renderCover(deck, slideSpec) {
     fontSize: 22,
     color: C.slate,
   });
-  addText(slide, "lesson", `LESSON ${currentSpec.lesson_number}`, 218, 156, 220, 28, {
+  addText(slide, "lesson", `${localizedLabels().lesson} ${currentSpec.lesson_number}`, 218, 156, 220, 28, {
     fontSize: 18,
     bold: true,
     color: C.orange,
@@ -262,7 +272,7 @@ async function renderCover(deck, slideSpec) {
     bold: true,
     color: C.ink,
   });
-  addText(slide, "topics", "Main topics covered", 222, 410, 620, 32, {
+  addText(slide, "topics", localizedLabels().topics, 222, 410, 620, 32, {
     fontSize: 21,
     bold: true,
     color: C.navy,
@@ -417,7 +427,7 @@ async function renderChecklistRows(deck, slideSpec) {
 async function renderTakeaway(deck, slideSpec) {
   const slide = addSlide(deck);
   await addChrome(slide, currentSlide);
-  addText(slide, "lesson-label", `LESSON ${currentSpec.lesson_number} TAKEAWAY`, 78, 98, 420, 28, { fontSize: 17, bold: true, color: C.orange });
+  addText(slide, "lesson-label", `${localizedLabels().takeaway} ${currentSpec.lesson_number}`, 78, 98, 520, 28, { fontSize: 17, bold: true, color: C.orange });
   addText(slide, "takeaway-title", slideSpec.title, 78, 150, 1044, 100, {
     fontSize: 44,
     bold: true,

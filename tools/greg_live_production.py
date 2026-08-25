@@ -1500,15 +1500,30 @@ def localized_book_visuals(seed, run: Path, lesson_tag: str, locale: str, langua
     if not source_visuals:
         return []
     headings = re.findall(r"(?im)^#\s+(.+)$", translated)
-    prompt = f"""Translate every student-visible text value in these course-book visual specifications into {language}. Return JSON only as {{"visuals": [...]}}. Preserve every key, visual type, visual_id, figure number, node count, row count, and ordering. Translate each `after_heading` to one of the exact target Markdown headings listed below so placement remains exact. Keep process-flow titles at most 30 characters and details at most 36 characters. Keep comparison-matrix left cells at most 40 characters and right cells at most 130 characters. Do not omit, merge, or add nodes or rows. Preserve U.S. construction meaning.
+    visuals: list[dict[str, Any]] = []
+    for source_visual in source_visuals:
+        prompt = f"""Translate every student-visible text value in this single course-book visual specification into {language}.
+Return exactly one JSON object in the form {{"visual": {{...}}}}. The first response character must be `{{` and the last must be `}}`; do not use Markdown or commentary. Preserve every key, visual type, visual_id, figure number, node count, row count, and ordering. Translate `after_heading` to one of the exact target Markdown headings listed below so placement remains exact. Keep process-flow titles at most 30 characters and details at most 36 characters. Keep comparison-matrix left cells at most 40 characters and right cells at most 130 characters. Do not omit, merge, or add nodes or rows. Preserve U.S. construction meaning.
 
 Exact target headings:
 {json.dumps(headings, ensure_ascii=False)}
 
-English visual specs:
-{json.dumps(source_visuals, ensure_ascii=False)}"""
-    data = strip_json_fence(request_text(seed.slug, "diagram_planning", prompt, max_tokens=8000))
-    visuals = data.get("visuals") if isinstance(data.get("visuals"), list) else []
+English visual specification:
+{json.dumps(source_visual, ensure_ascii=False)}"""
+        parsed: dict[str, Any] | None = None
+        last_error: Exception | None = None
+        for _ in range(2):
+            try:
+                parsed = strip_json_fence(request_text(seed.slug, "diagram_planning", prompt, max_tokens=4000))
+                if isinstance(parsed.get("visual"), dict):
+                    break
+                raise ModelRequestError("The diagram model did not return the required `visual` object.")
+            except (ModelRequestError, json.JSONDecodeError) as error:
+                last_error = error
+                parsed = None
+        if not parsed:
+            raise RuntimeError(f"Localized visual translation failed after two validated attempts: {last_error}")
+        visuals.append(parsed["visual"])
     if len(visuals) != len(source_visuals):
         raise RuntimeError("Localized visual plan changed the required visual count.")
     for source_visual, localized_visual in zip(source_visuals, visuals):
@@ -1605,7 +1620,11 @@ def localize_deck(course_slug: str, lesson_number: int, locale: str) -> list[str
         raise RuntimeError(str(error)) from error
     slides = normalize_deck_slides(data, {"title": f"Lesson {lesson_number}", "learning_goal": ""})
     revision, filename = revisioned(run, f"localization/{folder}", f"{lesson_tag}_deck_{locale}", ".pptx")
-    spec = {**source, "created": date.today().isoformat(), "production_mode": "initial", "revision": f"r{revision:02d}", "output": {"pptx": f"localization/{folder}/{filename}", "qa": f"localization/{folder}/{lesson_tag}_{locale}_deck_qa_r{revision:02d}.md", "rendered_dir": f"localization/{folder}/rendered_slides_{lesson_tag}_r{revision:02d}"}, "slides": slides}
+    localized_course_title = {
+        "pt_br": "O Gerente Completo de Projetos de Construção: da Pré-Construção ao Encerramento",
+        "es": "El Gerente Completo de Proyectos de Construcción: de la Preconstrucción al Cierre",
+    }[locale]
+    spec = {**source, "created": date.today().isoformat(), "production_mode": "initial", "revision": f"r{revision:02d}", "locale": locale, "course_title": localized_course_title, "output": {"pptx": f"localization/{folder}/{filename}", "qa": f"localization/{folder}/{lesson_tag}_{locale}_deck_qa_r{revision:02d}.md", "rendered_dir": f"localization/{folder}/rendered_slides_{lesson_tag}_r{revision:02d}"}, "slides": slides}
     spec_path = run / "localization" / folder / f"{lesson_tag}_deck_{locale}_spec_r{revision:02d}.json"
     write_json(spec_path, spec)
     subprocess.run([sys.executable, str(ROOT / "tools" / "greg_render_deck_from_spec.py"), str(spec_path)], cwd=ROOT, check=True)
