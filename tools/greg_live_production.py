@@ -1659,7 +1659,7 @@ def localized_slide_visible_items(slide: dict[str, Any]) -> list[str]:
 
 def write_localized_deck_text_map(run: Path, lesson_tag: str, folder: str, source_slides: list[dict[str, Any]], localized_slides: list[dict[str, Any]], course_slug: str, source_deck: Path) -> tuple[Path, Path]:
     map_path = run / "localization" / folder / f"{lesson_tag}_deck_text_map_{folder}.md"
-    qa_path = run / "localization" / folder / f"{lesson_tag}_deck_localization_qa_{folder}.md"
+    qa_path = run / "localization" / folder / f"{lesson_tag}_deck_localization_qa.md"
     lines = [
         f"Course slug: {course_slug}", f"Lesson: {int(lesson_tag[-2:])}", f"Source deck: {rel(source_deck)}",
         f"Target locale: {folder}", "Scope: deck_text_map", "Status: completed", "",
