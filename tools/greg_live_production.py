@@ -389,6 +389,16 @@ def student_reference_for_source(source: dict[str, Any]) -> str:
     if in_book:
         text = f"{in_book.group(1)} {in_book.group(2).rstrip(' .')}"
         text = re.sub(r"\s*\([^)]*\bpp?\.[^)]*\)", "", text, flags=re.I).rstrip(" .") + "."
+    # Student references identify each work once. Chapter, section, and page
+    # locators belong in research metadata, not as duplicate bibliography
+    # entries for the same publication.
+    text = re.sub(
+        r",?\s+(?:Chapter|Section)\s+[A-Za-z0-9.-]+(?::\s*[^.]+)?\.",
+        ".",
+        text,
+        flags=re.I,
+    )
+    text = re.sub(r"\s*\([^)]*\bpp?\.\s*[^)]*\)", "", text, flags=re.I)
     source_type = str(source.get("source_type") or "").lower()
     url = str(source.get("url") or "").strip()
     document_url = bool(re.search(r"\.(pdf|docx?|pptx?)(?:[?#]|$)", url, flags=re.I))

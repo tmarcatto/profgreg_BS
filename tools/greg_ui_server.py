@@ -1393,14 +1393,14 @@ def ui_shell(default_course: str) -> str:
       const lessonCount = Math.max(1, (job?.payload?.lessons || []).length || Number(job?.lesson || 1));
       const minutesByStage = {{
         course_start: 6,
-        study_guide: 15,
+        study_guide: 25,
         deck: 6,
         pt_br_book: 8,
         es_book: 8,
         pt_br_deck: 6,
         es_deck: 6
       }};
-      const estimatedMinutes = (minutesByStage[stage] || (job.request_type === 'course_start' ? 6 : 10)) * lessonCount;
+      const estimatedMinutes = (minutesByStage[stage] || 10) * lessonCount;
       const started = Date.parse(job.updated_at || job.created_at || '');
       if (!Number.isFinite(started)) return `Estimated completion: about ${{estimatedMinutes}} min`;
       const elapsedMinutes = Math.max(0, (Date.now() - started) / 60000);

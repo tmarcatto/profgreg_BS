@@ -61,6 +61,21 @@ class GregLiveProductionTests(unittest.TestCase):
         self.assertFalse(production.lesson_sources_are_adequate(weak))
         self.assertTrue(production.lesson_sources_are_adequate(strong))
 
+    def test_student_reference_removes_chapter_and_page_locators(self) -> None:
+        source = {
+            "formal_reference": (
+                "International Code Council. 2024 International Residential Code for One- and Two-Family "
+                "Dwellings, Chapter 1: Scope and Administration. International Code Council, 2024."
+            ),
+            "source_type": "code",
+            "url": "",
+        }
+        reference = production.student_reference_for_source(source)
+        self.assertEqual(
+            "International Code Council. 2024 International Residential Code for One- and Two-Family Dwellings. International Code Council, 2024.",
+            reference,
+        )
+
     def test_student_reference_text_removes_access_dates(self) -> None:
         text = production.student_reference_text(
             "Occupational Safety and Health Administration. Safety and Health Regulations for Construction. Current online edition accessed August 16, 2026."
