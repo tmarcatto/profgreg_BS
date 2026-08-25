@@ -868,7 +868,7 @@ def starts_structural_page(heading: str, locale: str = "en") -> bool:
     glossary = "Glossário" if locale == "pt_br" else "Glosario" if locale == "es" else "Glossary"
     if normalized in {normalized_heading(labels["introduction"]), normalized_heading(labels["summary"]), normalized_heading(glossary), normalized_heading(labels["references"])}:
         return True
-    return bool(re.match(rf"{re.escape(labels['section'])}\s+01\s*[:-]\s+", heading, flags=re.IGNORECASE))
+    return bool(re.match(rf"{re.escape(labels['section'])}\s+\d{{2}}\s*[:-]\s+", heading, flags=re.IGNORECASE))
 
 
 def visual_matches_heading(visual_heading: str, rendered_heading: str) -> bool:
