@@ -293,7 +293,7 @@ class ProcessFlowDiagram(Flowable):
         super().__init__()
         self.title = title
         self.nodes = nodes[:6]
-        self.height = 225
+        self.height = 210
 
     def wrap(self, availWidth, availHeight):
         self.width = availWidth
@@ -308,7 +308,7 @@ class ProcessFlowDiagram(Flowable):
         box_w = min(108, (w - gap * (count - 1)) / count)
         total_w = box_w * count + gap * (count - 1)
         x0 = (w - total_w) / 2
-        y = 55
+        y = 45
         for index, node in enumerate(self.nodes):
             x = x0 + index * (box_w + gap)
             c.setFillColor(LIGHT)
@@ -319,7 +319,10 @@ class ProcessFlowDiagram(Flowable):
             c.drawString(x + 9, y + 75, str(index + 1))
             c.setFillColor(NAVY)
             c.setFont(FONT_BOLD, 8.5)
-            for line_index, line in enumerate(wrap_lines(str(node.get("title", "")), FONT_BOLD, 8.5, box_w - 20)[:2]):
+            title_lines = wrap_lines(str(node.get("title", "")), FONT_BOLD, 8.5, box_w - 20)
+            if len(title_lines) > 3:
+                raise ValueError(f"Process-flow title does not fit in three visible lines: {node.get('title', '')}")
+            for line_index, line in enumerate(title_lines):
                 c.drawString(x + 9, y + 59 - line_index * 10, line)
             c.setFillColor(INK)
             c.setFont(FONT_REGULAR, 7.2)
