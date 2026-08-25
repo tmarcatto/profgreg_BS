@@ -261,7 +261,7 @@ def run_checks(pdf_path: Path, qa_path: Path | None = None) -> dict:
                     split_callout_labels.append((page_number, line))
 
     if sparse_pages:
-        findings.append(Finding("warn", "sparse_content_pages", f"Content pages with very little extracted text and no figure: {sparse_pages}."))
+        findings.append(Finding("fail", "sparse_content_pages", f"Content pages with very little extracted text and no figure: {sparse_pages}."))
     else:
         findings.append(Finding("pass", "sparse_content_pages", "No sparse body-content pages found."))
 

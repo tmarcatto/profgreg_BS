@@ -68,7 +68,7 @@ pdfmetrics.registerFontFamily(
 
 
 styles = getSampleStyleSheet()
-styles.add(ParagraphStyle(name="BodyGreg", parent=styles["BodyText"], fontName=FONT_REGULAR, fontSize=10.3, leading=15.3, textColor=INK, spaceAfter=7, allowWidows=0, allowOrphans=0))
+styles.add(ParagraphStyle(name="BodyGreg", parent=styles["BodyText"], fontName=FONT_REGULAR, fontSize=10.3, leading=15.0, textColor=INK, spaceAfter=6.5, allowWidows=0, allowOrphans=0))
 styles.add(ParagraphStyle(name="IntroBody", parent=styles["BodyGreg"], fontSize=10, leading=14.4, spaceAfter=6))
 styles.add(ParagraphStyle(name="H1Greg", parent=styles["Heading1"], fontName=FONT_BOLD, fontSize=21, leading=25, textColor=NAVY, spaceBefore=12, spaceAfter=12))
 styles.add(ParagraphStyle(name="H2Greg", parent=styles["Heading2"], fontName=FONT_BOLD, fontSize=14.2, leading=17, textColor=NAVY, spaceBefore=12, spaceAfter=6))
