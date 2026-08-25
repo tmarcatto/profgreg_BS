@@ -19,6 +19,9 @@ spec.loader.exec_module(pdf_qa)
 
 
 class PdfLayoutCheckUnitTests(unittest.TestCase):
+    def test_figure_numbers_accept_english_portuguese_and_spanish_labels(self) -> None:
+        self.assertEqual(["1.1", "1.2", "1.3"], pdf_qa.figure_numbers("Figure 1.1 Figura 1.2 Figura 1.3"))
+
     def test_find_page(self) -> None:
         pages = ["Cover", "Lesson Roadmap", "Introduction\nLearning Objectives", "Section 01 - Start"]
         self.assertEqual(pdf_qa.find_page(pages, r"Lesson Roadmap"), 2)

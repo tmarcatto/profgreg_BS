@@ -90,7 +90,7 @@ def is_heading_line(line: str) -> bool:
 
 
 def figure_numbers(text: str) -> list[str]:
-    return re.findall(r"\bFigure\s+(\d+\.\d+)\b", text)
+    return re.findall(r"\b(?:Figure|Figura)\s+(\d+\.\d+)\b", text)
 
 
 def expected_visible_visual_text(spec: dict) -> list[str]:
@@ -335,7 +335,7 @@ def run_checks(pdf_path: Path, qa_path: Path | None = None) -> dict:
                 expected_figures = [
                     match.group(1)
                     for visual in spec.get("visuals", [])
-                    for match in [re.search(r"Figure\s+(\d+\.\d+)", str(visual.get("caption") or ""))]
+                    for match in [re.search(r"(?:Figure|Figura)\s+(\d+\.\d+)", str(visual.get("caption") or ""))]
                     if match
                 ]
                 expected_visual_text = expected_visible_visual_text(spec)

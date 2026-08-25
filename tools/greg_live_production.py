@@ -1486,6 +1486,38 @@ def localization_name(locale: str) -> tuple[str, str]:
     raise ValueError(f"Unsupported locale: {locale}")
 
 
+def localized_book_visuals(seed, run: Path, lesson_tag: str, locale: str, language: str, translated: str) -> list[dict[str, Any]]:
+    _, folder = localization_name(locale)
+    cache_path = run / "localization" / folder / f"{lesson_tag}_visuals_{locale}.json"
+    if cache_path.exists():
+        cached = json.loads(cache_path.read_text(encoding="utf-8"))
+        if isinstance(cached.get("visuals"), list):
+            return cached["visuals"]
+    source_spec_path = latest_matching_path(run / "docx_pdf", f"{lesson_tag}_study_guide_spec_r*.json")
+    if not source_spec_path:
+        raise RuntimeError("The approved English course book has no visual spec for localization.")
+    source_visuals = json.loads(source_spec_path.read_text(encoding="utf-8")).get("visuals") or []
+    if not source_visuals:
+        return []
+    headings = re.findall(r"(?im)^#\s+(.+)$", translated)
+    prompt = f"""Translate every student-visible text value in these course-book visual specifications into {language}. Return JSON only as {{"visuals": [...]}}. Preserve every key, visual type, visual_id, figure number, node count, row count, and ordering. Translate each `after_heading` to one of the exact target Markdown headings listed below so placement remains exact. Keep process-flow titles at most 30 characters and details at most 36 characters. Keep comparison-matrix left cells at most 40 characters and right cells at most 130 characters. Do not omit, merge, or add nodes or rows. Preserve U.S. construction meaning.
+
+Exact target headings:
+{json.dumps(headings, ensure_ascii=False)}
+
+English visual specs:
+{json.dumps(source_visuals, ensure_ascii=False)}"""
+    data = strip_json_fence(request_text(seed.slug, "localization", prompt, max_tokens=8000))
+    visuals = data.get("visuals") if isinstance(data.get("visuals"), list) else []
+    if len(visuals) != len(source_visuals):
+        raise RuntimeError("Localized visual plan changed the required visual count.")
+    for source_visual, localized_visual in zip(source_visuals, visuals):
+        if source_visual.get("type") != localized_visual.get("type"):
+            raise RuntimeError("Localized visual plan changed a renderer type.")
+    write_json(cache_path, {"locale": locale, "visuals": visuals})
+    return visuals
+
+
 def localize_book(course_slug: str, lesson_number: int, locale: str) -> list[str]:
     seed = parse_intake(course_slug)
     run = RUNS / seed.slug
@@ -1507,7 +1539,8 @@ def localize_book(course_slug: str, lesson_number: int, locale: str) -> list[str
         run / "localization" / folder / f"{lesson_tag}_study_guide_{locale}_r{int(pending_match.group(1)):02d}.pdf"
         if pending_match else None
     )
-    if pending_draft and pending_match and pending_pdf and not pending_pdf.exists():
+    localized_visuals_path = run / "localization" / folder / f"{lesson_tag}_visuals_{locale}.json"
+    if pending_draft and pending_match and pending_pdf and (not pending_pdf.exists() or not localized_visuals_path.exists()):
         translated = pending_draft.read_text(encoding="utf-8", errors="replace")
         revision = int(pending_match.group(1))
         draft_name = pending_draft.name
@@ -1522,6 +1555,7 @@ def localize_book(course_slug: str, lesson_number: int, locale: str) -> list[str
     translated = force_student_references(translated, references, locale)
     draft_path = run / "localization" / folder / draft_name
     write_text(draft_path, translated)
+    translated_visuals = localized_book_visuals(seed, run, lesson_tag, locale, language, translated)
     reference_heading = "# Referências" if locale == "pt_br" else "# Referencias"
     if reference_heading not in translated or len(translated.split()) < 250:
         raise RuntimeError("Localized course book failed automatic completeness QA.")
@@ -1533,7 +1567,7 @@ def localize_book(course_slug: str, lesson_number: int, locale: str) -> list[str
         "source_markdown": rel(draft_path),
         "metadata": {"course_title": localized_metadata["course"], "lesson_number": str(lesson_number), "lesson_short_title": localized_metadata["title"], "lesson_subtitle": language, "level_label": localized_level, "study_guide_label": localized_metadata["guide"], "lesson_label": localized_metadata["lesson"], "quote": f'"{cover_quote["quote"]}"', "quote_author": cover_quote["author"], "quote_verification_url": cover_quote["verification_url"], "icon": BRAND_ICON},
         "output": {"pdf": f"localization/{folder}/{pdf_name}", "render_qa": f"localization/{folder}/{lesson_tag}_{locale}_render_qa_r{revision:02d}.md", "layout_qa": f"localization/{folder}/{lesson_tag}_{locale}_layout_qa_r{revision:02d}.md", "rendered_dir": f"localization/{folder}/rendered_pages_{lesson_tag}_r{revision:02d}"},
-        "visuals": [], "qa_notes": ["Initial production is being prepared for approval.", "Localized artifact is derived from an approved English course book."]
+        "visuals": translated_visuals, "qa_notes": ["Initial production is being prepared for approval.", "Localized artifact is derived from an approved English course book and preserves its translated visuals."]
     }
     spec_path = run / "localization" / folder / f"{lesson_tag}_study_guide_{locale}_spec_r{revision:02d}.json"
     write_json(spec_path, spec)
