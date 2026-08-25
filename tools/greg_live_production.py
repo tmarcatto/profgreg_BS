@@ -1072,8 +1072,8 @@ def render_reviewed_study_guide(seed, lesson: dict[str, Any], draft_path: Path, 
     lesson_number = int(lesson["lesson_number"])
     lesson_tag = lid(lesson_number)
     pdf_name = f"{lesson_tag}_study_guide_r{revision:02d}.pdf"
-    if (run / "docx_pdf" / pdf_name).exists():
-        raise RuntimeError("The canonical study-guide revision already exists; refusing to overwrite it.")
+    pdf_path = run / "docx_pdf" / pdf_name
+    pdf_already_rendered = pdf_path.exists()
     baseline = approved_study_guide_baseline(run, lesson_tag)
     cover_quote = select_cover_quote(seed, lesson, run, lesson_tag)
     spec = {
@@ -1101,7 +1101,8 @@ def render_reviewed_study_guide(seed, lesson: dict[str, Any], draft_path: Path, 
     write_text(run / "review" / f"{lesson_tag}_cross_lesson_mece_qa.md", cross_checker.render_markdown(cross_qa))
     if not cross_qa["passed"]:
         raise RuntimeError("Cross-lesson MECE automatic QA failed; no student PDF was released.")
-    subprocess.run([production_python(), str(ROOT / "tools" / "greg_render_study_guide_from_spec.py"), str(spec_path)], cwd=ROOT, check=True)
+    if not pdf_already_rendered:
+        subprocess.run([production_python(), str(ROOT / "tools" / "greg_render_study_guide_from_spec.py"), str(spec_path)], cwd=ROOT, check=True)
     render_qa = run / spec["output"]["render_qa"]
     layout = run_pdf_layout_qa(
         run / spec["output"]["pdf"],
