@@ -135,7 +135,9 @@ def clear_session_storage(*, job_root: Path, upload_root: Path, run_root: Path =
     resolved_run_root = run_root.expanduser().resolve()
     if resolved_run_root != SESSION_RUN_ROOT.resolve():
         raise ValueError("Run root is outside the session storage area.")
-    roots = {"runs": resolved_run_root, "uploads": safe_upload_root(upload_root), "jobs": safe_job_root(job_root)}
+    # Clear uploads and queued jobs even if a legacy run contains files owned
+    # by a former administrator process. Runs are attempted last.
+    roots = {"uploads": safe_upload_root(upload_root), "jobs": safe_job_root(job_root), "runs": resolved_run_root}
     removed = {key: 0 for key in roots}
     for label, root in roots.items():
         if not root.exists():
@@ -1383,7 +1385,28 @@ def ui_shell(default_course: str) -> str:
       }}
       const state = active ? latest.state : 'needs attention';
       const detail = operatorJobMessage(latest);
-      holder.innerHTML = `<span class="state ${{esc(latest.state)}}">${{esc(state)}}</span> · ${{esc(detail)}}`;
+      const timing = active ? jobTiming(latest) : '';
+      holder.innerHTML = `<span class="state ${{esc(latest.state)}}">${{esc(state)}}</span> · ${{esc(detail)}}${{timing ? ` · ${{esc(timing)}}` : ''}}`;
+    }}
+    function jobTiming(job) {{
+      const stage = String(job?.payload?.stage || job?.request_type || '');
+      const lessonCount = Math.max(1, (job?.payload?.lessons || []).length || Number(job?.lesson || 1));
+      const minutesByStage = {{
+        course_start: 6,
+        study_guide: 15,
+        deck: 6,
+        pt_br_book: 8,
+        es_book: 8,
+        pt_br_deck: 6,
+        es_deck: 6
+      }};
+      const estimatedMinutes = (minutesByStage[stage] || (job.request_type === 'course_start' ? 6 : 10)) * lessonCount;
+      const started = Date.parse(job.updated_at || job.created_at || '');
+      if (!Number.isFinite(started)) return `Estimated completion: about ${{estimatedMinutes}} min`;
+      const elapsedMinutes = Math.max(0, (Date.now() - started) / 60000);
+      const remaining = Math.max(1, Math.ceil(estimatedMinutes - elapsedMinutes));
+      if (elapsedMinutes >= estimatedMinutes) return `Running longer than the usual ${{estimatedMinutes}} min; still processing`;
+      return `Estimated completion: about ${{remaining}} min remaining`;
     }}
     function operatorJobMessage(job) {{
       const raw = String(job?.last_error || job?.input_summary || job?.request_type || '');
