@@ -17,6 +17,15 @@ spec.loader.exec_module(production)
 
 
 class GregLiveProductionTests(unittest.TestCase):
+    def test_reviewer_ledger_keeps_all_lesson_sources_without_unrelated_bulk(self) -> None:
+        ledger = {"course_slug": "demo", "sources": [
+            {"source_id": "A", "title": "Used", "formal_reference": "Used reference", "claims_supported": [{"claim": "Supported", "lesson_numbers": [1]}], "unused_bulk": "x" * 1000},
+            {"source_id": "B", "title": "Other", "claims_supported": [{"claim": "Other", "lesson_numbers": [2]}]},
+        ]}
+        compact = production.compact_reviewer_ledger(ledger, 1)
+        self.assertEqual([item["source_id"] for item in compact["sources"]], ["A"])
+        self.assertNotIn("unused_bulk", compact["sources"][0])
+
     def test_localized_deck_removes_dash_punctuation_recursively(self) -> None:
         value = {"topics": ["planejar–acompanhar–ajustar", "Escopo — não tarefas"]}
         cleaned = production.normalize_localized_dash_punctuation(value)

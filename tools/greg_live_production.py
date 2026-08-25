@@ -768,7 +768,7 @@ def merge_lesson_sources(run: Path, ledger: dict[str, Any], refresh: dict[str, A
 def reviewer_prompt(kind: str, seed, lesson: dict[str, Any], draft: str, ledger: dict[str, Any]) -> str:
     criteria = {
         "pedagogy_review": "Check only learning progression, depth for level, MECE sections, residential examples, explanations before bullets, no activities, and no audience boilerplate. Citation style and reference formatting belong to the citation reviewer; do not fail this review merely because ordinary claims lack inline citations. Figures are planned and inserted by a separate visual pipeline after this review. Do not request ASCII diagrams, Markdown tables, fenced visual source, or final figure rendering inside the chapter Markdown.",
-        "citation_review": "Check factual support against the ledger, current applicability, clean student references, no invented claims, and no internal/local source language. Do not demand inline citations for every source or every ordinary claim. References may include materially consulted sources even when they are not named decoratively in the teaching prose. List each work only once, even when multiple chapters or claims used it; omit chapter, section, and page details from the final References section. Evaluate that bibliography rule only against the text after the final `# References` heading. A chapter, section, or direct-content hyperlink discussed in the teaching prose is not a bibliography defect and must not be reported as one. Never request or add accessed/retrieved dates. Books must be cited as books without abstract, catalog, preview, or search-result links; webpage references may include only the direct content URL actually used. The Summary and Key Takeaways section must be only 4-6 bullets, with no introductory prose; never request a summary opener.",
+        "citation_review": "Check factual support against the ledger, current applicability, clean student references, no invented claims, and no internal/local source language. Internal/local source language means file paths, ledger mechanics, reviewer rationale, or private production notes; neutral student-facing references to documented authority, organizational procedures, or project procedures are allowed. Do not demand inline citations for every source or every ordinary claim. References may include materially consulted sources even when they are not named decoratively in the teaching prose. List each work only once, even when multiple chapters or claims used it; omit chapter, section, and page details from the final References section. Evaluate that bibliography rule only against the text after the final `# References` heading. A chapter, section, or direct-content hyperlink discussed in the teaching prose is not a bibliography defect and must not be reported as one. Never request or add accessed/retrieved dates. Books must be cited as books without abstract, catalog, preview, or search-result links; webpage references may include only the direct content URL actually used. The Summary and Key Takeaways section must be only 4-6 bullets, with no introductory prose; never request a summary opener.",
         "design_review": "Check only the draft's approved structural and presentation contract: Introduction followed by Learning Objectives with no Lesson Roadmap; continuous lesson body; separate summary, glossary, and references; only the six approved callout labels; no callouts in structural sections; no H3 or deeper headings; no dash punctuation in prose; no one-line section openers. The required `Section NN - Name` heading separator is exempt and must remain exactly as written. Useful callouts inside the teaching body are allowed. Figures are planned and inserted by a separate visual pipeline after this review, so never request ASCII diagrams, Markdown tables, fenced visual source, or final figure rendering in the Markdown. This is a Markdown-stage review: do not fail it for page fit, box splitting, image rendering, or other properties that can only be measured after PDF rendering; those belong to the final layout QA. Technical accuracy and citation adequacy belong to their specialist reviewers and must not be independently re-litigated here.",
     }[kind]
     return f"""Return JSON only as an independent Prof Greg reviewer.
@@ -780,10 +780,33 @@ Draft:
 {draft[:52000]}
 
 Source ledger:
-{json.dumps(ledger, ensure_ascii=False)[:18000]}
+{json.dumps(compact_reviewer_ledger(ledger, int(lesson['lesson_number'])), ensure_ascii=False)}
 
 Return exactly:
 {{"passed":true,"verdict":"PASS or REVISE","findings":["..."],"required_changes":["..."]}}"""
+
+
+def compact_reviewer_ledger(ledger: dict[str, Any], lesson_number: int) -> dict[str, Any]:
+    sources = []
+    for source in ledger.get("sources") or []:
+        claims = [
+            str(claim.get("claim") or "")
+            for claim in source.get("claims_supported") or []
+            if lesson_number in (claim.get("lesson_numbers") or [])
+        ]
+        if not claims:
+            continue
+        sources.append({
+            "source_id": source.get("source_id"),
+            "title": source.get("title"),
+            "author_or_organization": source.get("author_or_organization"),
+            "formal_reference": source.get("formal_reference"),
+            "publication_date": source.get("publication_date"),
+            "url": source.get("url"),
+            "currency_validation": source.get("currency_validation"),
+            "claims_supported": claims,
+        })
+    return {"course_slug": ledger.get("course_slug"), "lesson_number": lesson_number, "sources": sources}
 
 
 def cover_quote_prompt(seed, lesson: dict[str, Any], prior_quotes: list[dict[str, Any]]) -> str:
