@@ -82,7 +82,15 @@ def render(spec_path: Path) -> Path:
     expected = output_pdf_from_spec(spec)
     if not RENDERER_SOURCE.exists():
         raise FileNotFoundError(f"Reusable study-guide PDF renderer not found: {RENDERER_SOURCE}")
-    subprocess.run([str(python_path()), str(RENDERER_SOURCE), str(spec_path)], cwd=ROOT, check=True)
+    result = subprocess.run(
+        [str(python_path()), str(RENDERER_SOURCE), str(spec_path)],
+        cwd=ROOT,
+        capture_output=True,
+        text=True,
+    )
+    if result.returncode:
+        detail = result.stderr.strip() or result.stdout.strip() or "PDF renderer returned no diagnostic output."
+        raise RuntimeError(f"PDF rendering failed: {detail}")
     if not expected.exists():
         raise RuntimeError(f"Renderer did not create expected output: {expected}")
     return expected
