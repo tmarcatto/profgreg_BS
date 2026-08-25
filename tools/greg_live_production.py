@@ -948,7 +948,13 @@ def visual_request_document(seed, lesson: dict[str, Any], visuals: list[dict[str
 def create_visual_assets(seed, lesson: dict[str, Any], draft: str, run: Path, lesson_tag: str) -> tuple[list[dict[str, Any]], bool]:
     prior_request = run / "review" / f"{lesson_tag}_image_requests.json"
     prior_plan = run / "review" / f"{lesson_tag}_visual_plan.json"
-    if prior_request.exists() and prior_plan.exists():
+    prior_visual_qa = run / "review" / f"{lesson_tag}_visual_qa.md"
+    prior_plan_passed = (
+        prior_plan.exists()
+        and prior_visual_qa.exists()
+        and "Visual plan QA passed: yes" in prior_visual_qa.read_text(encoding="utf-8", errors="replace")
+    )
+    if prior_plan_passed or (prior_request.exists() and prior_plan.exists()):
         plan = json.loads(prior_plan.read_text(encoding="utf-8"))
     else:
         plan = strip_json_fence(request_text(seed.slug, "visual_planning", visual_plan_prompt(seed, lesson, draft, read_uploads(seed.slug)), max_tokens=12000))
@@ -1110,7 +1116,7 @@ def render_reviewed_study_guide(seed, lesson: dict[str, Any], draft_path: Path, 
 
 def reviewed_draft_can_resume_visuals(run: Path, lesson_tag: str, revision: int) -> bool:
     visual_qa = run / "review" / f"{lesson_tag}_visual_qa.md"
-    if not visual_qa.exists() or "Visual plan QA passed: no" not in visual_qa.read_text(encoding="utf-8", errors="replace"):
+    if not visual_qa.exists() or "Visual plan QA passed:" not in visual_qa.read_text(encoding="utf-8", errors="replace"):
         return False
     snapshots = [
         run / "review" / f"{lesson_tag}_{suffix}_r{revision:02d}.md"
@@ -1143,7 +1149,7 @@ def produce_study_guide(course_slug: str, lesson_number: int) -> list[str]:
     if prior_drafts:
         draft_path = prior_drafts[-1]
         match = re.search(r"_r(\d+)\.md$", draft_path.name)
-        if match and reviewed_draft_can_resume_visuals(run, lesson_tag, int(match.group(1))):
+        if match and not feedback_for(run, lesson_tag, "study_guide") and reviewed_draft_can_resume_visuals(run, lesson_tag, int(match.group(1))):
             revision = int(match.group(1))
             draft = draft_path.read_text(encoding="utf-8", errors="replace")
             render_visuals, waiting_images = create_visual_assets(seed, lesson, draft, run, lesson_tag)
