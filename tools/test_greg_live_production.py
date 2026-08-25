@@ -149,12 +149,13 @@ class GregLiveProductionTests(unittest.TestCase):
         self.assertIn("Recommended Practices for Safety and Health Programs in Construction", normalized)
 
     def test_forced_references_replace_localized_reference_section_without_duplicate(self) -> None:
-        draft = "# Resumo e Principais Conclusões\n\n- Um.\n- Dois.\n- Três.\n- Quatro.\n\n# Referências\n\n- Saída do modelo."
+        draft = "# Resumo e Principais Conclusões\n\n* Um.\n* Dois.\n* Três.\n* Quatro.\n\n# Referências\n\n- Saída do modelo."
         normalized = production.force_student_references(draft, "# References\n\n- Fonte validada.", "pt_br")
         self.assertEqual(1, normalized.count("# Referências"))
         self.assertNotIn("# References", normalized)
         self.assertNotIn("Saída do modelo", normalized)
         self.assertIn("Fonte validada", normalized)
+        self.assertIn("* Um.", normalized)
 
     def test_visual_cards_are_lesson_specific(self) -> None:
         cards = production.visual_cards_from_lesson(

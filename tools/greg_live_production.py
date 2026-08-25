@@ -568,7 +568,7 @@ def force_student_references(draft: str, references: str, locale: str = "en") ->
     if summary_match:
         # This section is intentionally a bullet-only recap. Removing any prose here
         # makes the contract deterministic instead of asking a model to repeat it.
-        bullets = [line for line in summary_match.group(2).splitlines() if line.lstrip().startswith("- ")]
+        bullets = [line for line in summary_match.group(2).splitlines() if re.match(r"^\s*[-*+]\s+\S", line)]
         body = body[:summary_match.start()] + summary_match.group(1) + "\n\n" + "\n".join(bullets) + "\n\n" + body[summary_match.end():].lstrip()
     validated_references = references.removeprefix("# References").strip()
     validated_references = re.sub(
