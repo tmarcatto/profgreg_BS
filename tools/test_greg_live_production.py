@@ -31,6 +31,10 @@ class GregLiveProductionTests(unittest.TestCase):
         cleaned = production.normalize_localized_dash_punctuation(value)
         self.assertEqual(cleaned, {"topics": ["planejar, acompanhar, ajustar", "Escopo; não tarefas"]})
 
+    def test_localized_slide_visible_items_never_returns_empty(self) -> None:
+        self.assertEqual(production.localized_slide_visible_items({"title": "Título"}), ["Título"])
+        self.assertEqual(production.localized_slide_visible_items({"title": "T", "topics": ["Um", "Dois"]}), ["Um", "Dois"])
+
     def test_localized_retry_ignores_newer_incomplete_revision(self) -> None:
         from tempfile import TemporaryDirectory
 

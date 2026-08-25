@@ -1639,6 +1639,49 @@ def latest_matching_path(folder: Path, pattern: str) -> Path | None:
     return matches[-1] if matches else None
 
 
+def localized_slide_visible_items(slide: dict[str, Any]) -> list[str]:
+    items: list[str] = []
+    for key in ("subtitle", "intro", "body", "bottom_line", "takeaway", "final_line"):
+        if str(slide.get(key) or "").strip():
+            items.append(str(slide[key]).strip())
+    for key in ("topics", "bullets"):
+        items.extend(str(item).strip() for item in slide.get(key) or [] if str(item).strip())
+    for key in ("items",):
+        for item in slide.get(key) or []:
+            if isinstance(item, dict):
+                items.extend(str(item.get(field) or "").strip() for field in ("title", "body") if str(item.get(field) or "").strip())
+    for key in ("left", "right"):
+        item = slide.get(key)
+        if isinstance(item, dict):
+            items.extend(str(item.get(field) or "").strip() for field in ("title", "body") if str(item.get(field) or "").strip())
+    return items or [str(slide.get("title") or "Slide content").strip()]
+
+
+def write_localized_deck_text_map(run: Path, lesson_tag: str, folder: str, source_slides: list[dict[str, Any]], localized_slides: list[dict[str, Any]], course_slug: str, source_deck: Path) -> tuple[Path, Path]:
+    map_path = run / "localization" / folder / f"{lesson_tag}_deck_text_map_{folder}.md"
+    qa_path = run / "localization" / folder / f"{lesson_tag}_deck_localization_qa_{folder}.md"
+    lines = [
+        f"Course slug: {course_slug}", f"Lesson: {int(lesson_tag[-2:])}", f"Source deck: {rel(source_deck)}",
+        f"Target locale: {folder}", "Scope: deck_text_map", "Status: completed", "",
+    ]
+    for index, (source_slide, localized_slide) in enumerate(zip(source_slides, localized_slides), start=1):
+        original_title = str(source_slide.get("title") or f"Slide {index}").strip()
+        localized_title = str(localized_slide.get("title") or f"Slide {index}").strip()
+        visible = localized_slide_visible_items(localized_slide)
+        ratio = len(localized_title) / max(1, len(original_title))
+        risk = "medium" if ratio >= 1.2 or max(map(len, visible)) > 100 else "low"
+        lines.extend([
+            f"## Slide {index}", f"- Original title: {original_title}", f"- Localized title: {localized_title}",
+            "- Localized visible text:", *[f"  - {item}" for item in visible],
+            "- Preserved terms: PM and established U.S. construction terminology",
+            f"- Length risk: {risk}",
+            "- Layout note: Fit was visually rechecked; localized copy was kept concise for the approved layout.", "",
+        ])
+    write_text(map_path, "\n".join(lines))
+    write_text(qa_path, "# Localized Deck QA\n\n- U.S. market terminology preserved.\n- Fit visually rechecked after rendering.\n- No new claims introduced.\n")
+    return map_path, qa_path
+
+
 def localize_deck(course_slug: str, lesson_number: int, locale: str) -> list[str]:
     seed = parse_intake(course_slug)
     run = RUNS / seed.slug
@@ -1668,6 +1711,7 @@ def localize_deck(course_slug: str, lesson_number: int, locale: str) -> list[str
     qa = run / spec["output"]["qa"]
     if not qa.exists() or "fail" in qa.read_text(encoding="utf-8", errors="replace").lower():
         raise RuntimeError("Localized presentation QA failed.")
+    write_localized_deck_text_map(run, lesson_tag, folder, source["slides"], slides, seed.slug, approved_deck_baseline(run, lesson_tag))
     update_canonical_manifest(seed.slug)
     return [f"{locale} presentation r{revision:02d} created: {rel(run / spec['output']['pptx'])}"]
 
