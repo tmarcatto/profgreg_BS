@@ -439,6 +439,7 @@ This is not a short summary. It must feel like a real course book chapter: clear
 
 Depth target for this level:
 {target}
+Treat the upper end of that range as a hard maximum. Reserve enough response space to finish Summary and Key Takeaways, Glossary, and References. Never stop mid-section or mid-sentence.
 
 Pedagogical requirements:
 - Treat the syllabus as a starting direction, not as the final structure.
@@ -582,7 +583,15 @@ def normalize_callout_density(draft: str, maximum: int = 4) -> str:
     return "\n".join(output).rstrip() + "\n"
 
 
-def study_guide_revision_prompt(draft: str, feedback: str, references: str, *, attempt: int) -> str:
+def study_guide_revision_prompt(
+    draft: str,
+    feedback: str,
+    references: str,
+    *,
+    attempt: int,
+    level: str = "Intermediate",
+) -> str:
+    maximum_words = {"basic": 4000, "intermediate": 5400, "advanced": 6200}.get(level.lower(), 5400)
     return f"""Revise the existing Prof Greg student course-book chapter below. Return the complete revised Markdown only.
 
 Revision attempt: {attempt}. This identifier is operational context only; never include it in the chapter.
@@ -598,6 +607,7 @@ Revision contract:
 - Remove every fenced ASCII diagram, Markdown table used as a figure, and visual source block. Final figures are created separately by the visual renderer.
 - Do not add activities, audience boilerplate, access dates, decorative citations, or unsupported numerical claims.
 - The final References section is controlled separately and will be replaced with the validated references below.
+- The complete chapter must not exceed {maximum_words:,} words. Condense repetition before adding missing material, and reserve enough response space to finish Summary and Key Takeaways, Glossary, and References.
 - Before returning the chapter, verify that the revised wording itself resolves every required change. Returning the existing wording unchanged is not acceptable.
 
 Required changes:
@@ -1190,7 +1200,13 @@ def produce_study_guide(course_slug: str, lesson_number: int) -> list[str]:
                 draft = request_text(
                     seed.slug,
                     "technical_content",
-                    study_guide_revision_prompt(draft, revision_feedback, references, attempt=attempt),
+                    study_guide_revision_prompt(
+                        draft,
+                        revision_feedback,
+                        references,
+                        attempt=attempt,
+                        level=seed.level,
+                    ),
                     max_tokens=24000,
                 )
             except ModelRequestError as error:

@@ -126,6 +126,11 @@ class StudyGuideContentCheckTests(unittest.TestCase):
             self.assertFalse(result["passed"])
             self.assertTrue(any(item["check"] == "level_depth" for item in result["findings"] if item["status"] == "fail"))
 
+    def test_level_word_ceilings_match_generation_contract(self) -> None:
+        self.assertEqual(4000, checker.expected_word_ceiling("Basic"))
+        self.assertEqual(5400, checker.expected_word_ceiling("Intermediate"))
+        self.assertEqual(6200, checker.expected_word_ceiling("Advanced"))
+
 
 if __name__ == "__main__":
     unittest.main()

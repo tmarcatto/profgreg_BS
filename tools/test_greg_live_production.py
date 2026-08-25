@@ -36,6 +36,12 @@ class GregLiveProductionTests(unittest.TestCase):
         self.assertIn("# Existing\nKeep this.", prompt)
         self.assertIn("Fix one phrase.", prompt)
         self.assertIn("Revision attempt: 2", prompt)
+        self.assertIn("must not exceed 5,400 words", prompt)
+
+        advanced = production.study_guide_revision_prompt(
+            "# Existing", "Complete the ending.", "# References", attempt=1, level="Advanced"
+        )
+        self.assertIn("must not exceed 6,200 words", advanced)
 
     def test_lesson_source_refresh_requires_full_technical_authority(self) -> None:
         weak = {

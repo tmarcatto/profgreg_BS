@@ -150,6 +150,17 @@ def expected_word_floor(level: str | None) -> int | None:
     return None
 
 
+def expected_word_ceiling(level: str | None) -> int | None:
+    normalized = (level or "").strip().lower()
+    if normalized == "basic":
+        return 4000
+    if normalized == "intermediate":
+        return 5400
+    if normalized == "advanced":
+        return 6200
+    return None
+
+
 def section_heading_count(text: str) -> int:
     return len(re.findall(r"(?im)^#\s+Section\s+\d{2}\s+-\s+.+$", text))
 
@@ -317,6 +328,14 @@ def run_checks(draft_path: Path, level: str | None = None) -> dict:
             findings.append(Finding("pass", "level_depth", f"Draft has {words} words for {level} level."))
         else:
             findings.append(Finding("fail", "level_depth", f"Draft has {words} words; {level} level expects at least {floor} words before rendering."))
+
+    ceiling = expected_word_ceiling(level)
+    if ceiling is not None:
+        words = word_count(text)
+        if words <= ceiling:
+            findings.append(Finding("pass", "level_length", f"Draft stays within the {ceiling}-word maximum for {level} level."))
+        else:
+            findings.append(Finding("fail", "level_length", f"Draft has {words} words; {level} level must not exceed {ceiling} words before rendering."))
 
     fail_count = sum(1 for item in findings if item.status == "fail")
     warn_count = sum(1 for item in findings if item.status == "warn")
