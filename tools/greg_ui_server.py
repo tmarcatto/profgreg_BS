@@ -1362,7 +1362,11 @@ def ui_shell(default_course: str) -> str:
     }}
     function renderJobs() {{
       const active = currentJobs.slice().reverse().find(j => ['queued', 'running'].includes(j.state));
-      const latest = active || currentJobs[currentJobs.length - 1];
+      const completedCourseMap = Boolean(currentStatus?.course_map_ready);
+      const relevantJobs = currentJobs.filter(job => !(
+        completedCourseMap && !active && job.state === 'failed' && job.request_type === 'course_start'
+      ));
+      const latest = active || relevantJobs[relevantJobs.length - 1];
       const holder = document.getElementById('currentActivity');
       const waiting = (currentStatus?.lessons || []).filter(item => item.visual_status === 'waiting_images');
       if (!active && waiting.length) {{

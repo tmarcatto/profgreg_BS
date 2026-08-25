@@ -313,6 +313,8 @@ Lesson count rationale: this {seed.level} Course Map uses {len(normalized)} less
     write_text(run / "course_map" / "course_map_qa.md", checker.render_markdown(qa))
     if not qa["passed"]:
         raise RuntimeError("Course Map automatic QA failed.")
+    # A successful retry supersedes an earlier transient model block.
+    (run / "course_map" / "course_map_blocked.md").unlink(missing_ok=True)
     update_canonical_manifest(seed.slug)
     return [f"Course Map created: {rel(map_md)}", f"Course Map QA passed: {rel(run / 'course_map' / 'course_map_qa.md')}"]
 
