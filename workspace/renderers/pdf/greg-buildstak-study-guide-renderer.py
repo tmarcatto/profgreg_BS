@@ -445,7 +445,7 @@ class SourceToWBSMatrix(Flowable):
         self.left_header = left_header
         self.right_header = right_header
         self.rows = rows
-        self.height = 285
+        self.height = 255
 
     def wrap(self, availWidth, availHeight):
         self.width = availWidth
@@ -454,14 +454,14 @@ class SourceToWBSMatrix(Flowable):
     def draw_cell_text(self, x: float, y: float, width: float, text: str, *, bold: bool = False):
         c = self.canv
         font = FONT_BOLD if bold else FONT_REGULAR
-        size = 8.4 if bold else 8.2
+        size = 8.0 if bold else 7.8
         c.setFont(font, size)
         c.setFillColor(NAVY if bold else INK)
         lines = wrap_lines(text, font, size, width - 18)
         if len(lines) > 3:
             raise ValueError(f"Comparison-matrix cell does not fit in three visible lines: {text}")
         for index, line in enumerate(lines):
-            c.drawString(x + 9, y - 13 - index * 10, line)
+            c.drawString(x + 9, y - 11 - index * 9, line)
 
     def draw(self):
         c = self.canv
@@ -474,7 +474,7 @@ class SourceToWBSMatrix(Flowable):
         left_w = table_w * 0.42
         right_w = table_w - left_w
         header_h = 28
-        row_h = 38
+        row_h = 33
 
         c.setFillColor(NAVY)
         c.roundRect(table_x, table_y - header_h, table_w, header_h, 6, stroke=0, fill=1)
