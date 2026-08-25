@@ -856,7 +856,7 @@ Available operator visual responses:
 {json.dumps(image_inventory, ensure_ascii=False)}
 
 Lesson draft:
-{draft[:36000]}
+{draft[:24000]}
 
 For every deterministic diagram, explicitly choose the mechanism that best matches the learning job:
 - process-flow for sequence, lifecycle, workflow, or handoff;
@@ -885,7 +885,7 @@ Lesson draft:
 {draft[:36000]}
 
 Visual plan:
-{json.dumps(plan, ensure_ascii=False)[:24000]}
+{json.dumps(plan, ensure_ascii=False)[:18000]}
 
 Return exactly:
 {{"passed":true,"findings":["specific evidence"],"required_changes":[]}}"""
@@ -1015,14 +1015,16 @@ def create_visual_assets(seed, lesson: dict[str, Any], draft: str, run: Path, le
     prior_qa_text = prior_visual_qa.read_text(encoding="utf-8", errors="replace") if prior_visual_qa.exists() else ""
     semantic_review: dict[str, Any] = {"passed": True, "findings": ["Previously passed independent visual review."], "required_changes": []}
     if "Independent visual review: PASS" not in prior_qa_text:
-        for review_attempt in range(1, 4):
+        for review_attempt in range(1, 3):
             plan["visuals"] = visuals
             semantic_review = request_visual_semantic_review(seed, lesson, draft, plan)
+            write_json(run / "review" / f"{lesson_tag}_visual_plan_attempt_{review_attempt:02d}.json", plan)
+            write_json(run / "review" / f"{lesson_tag}_visual_semantic_review_attempt_{review_attempt:02d}.json", semantic_review)
             if semantic_review.get("passed") is True:
                 break
-            if review_attempt == 3:
+            if review_attempt == 2:
                 changes = semantic_review.get("required_changes") or semantic_review.get("findings") or []
-                raise RuntimeError(f"Independent visual QA still requires changes after three revision passes: {changes}")
+                raise RuntimeError(f"Independent visual QA still requires changes after two review passes: {changes}")
             revision_prompt = visual_plan_prompt(seed, lesson, draft, read_uploads(seed.slug)) + (
                 "\n\nRevise the complete plan to fix every independent QA finding. Return the complete JSON object, not a patch.\n"
                 f"Previous plan:\n{json.dumps(plan, ensure_ascii=False)[:24000]}\n"
