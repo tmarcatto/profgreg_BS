@@ -43,7 +43,8 @@ def write_refresh_stub(course_slug: str, lesson: int) -> Path:
     source_ids = sorted(ledger_sources_for_lesson(ledger, lesson))
     path = run / "sources" / f"lesson_{lesson:02d}_source_refresh.json"
     path.parent.mkdir(parents=True, exist_ok=True)
-    data = {
+    data = read_json(path)
+    data.update({
         "course_slug": course_slug,
         "lesson": lesson,
         "status": "completed",
@@ -51,12 +52,13 @@ def write_refresh_stub(course_slug: str, lesson: int) -> Path:
         "source_ids_reviewed": source_ids,
         "current_claim_validation": "completed",
         "web_research_policy": "automatic_when_available",
-        "gaps": [],
-        "notes": [
-            "Generated from the current source ledger during technical-pause consolidation.",
-            "Future production runs should create this file immediately before lesson drafting or before final source/reference QA.",
-        ],
-    }
+        "gaps": data.get("gaps") or data.get("source_gaps") or [],
+    })
+    notes = list(data.get("notes") or [])
+    completion_note = "Completed from the current source ledger after lesson-level applicability review."
+    if completion_note not in notes:
+        notes.append(completion_note)
+    data["notes"] = notes
     path.write_text(json.dumps(data, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
     return path
 
