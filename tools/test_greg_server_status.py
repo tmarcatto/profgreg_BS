@@ -21,6 +21,16 @@ spec.loader.exec_module(checker)
 
 
 class GregServerStatusTests(unittest.TestCase):
+    def test_jobs_created_in_same_second_have_unique_ids(self) -> None:
+        (ROOT / "tmp" / "jobs").mkdir(parents=True, exist_ok=True)
+        with tempfile.TemporaryDirectory(dir=ROOT / "tmp" / "jobs") as tmp:
+            root = Path(tmp)
+            with patch.object(checker, "iso_now", return_value="2026-08-25T04:16:46Z"):
+                first = checker.create_job(job_root=root, request_type="backup")
+                second = checker.create_job(job_root=root, request_type="backup")
+            self.assertNotEqual(first["job_id"], second["job_id"])
+            self.assertEqual(len(list(root.glob("job_*/job.json"))), 2)
+
     def test_qa_report_passed_detection(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             path = Path(tmp) / "deploy_qa.md"

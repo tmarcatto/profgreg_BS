@@ -193,7 +193,12 @@ def create_job(
         raise ValueError(f"Unsupported request_type: {request_type}")
     root = safe_job_root(job_root)
     now = iso_now()
-    job_id = f"job_{now.replace(':', '').replace('-', '')}_{safe_slug(request_type)}"
+    base_job_id = f"job_{now.replace(':', '').replace('-', '')}_{safe_slug(request_type)}"
+    job_id = base_job_id
+    suffix = 2
+    while (root / job_id).exists():
+        job_id = f"{base_job_id}-{suffix}"
+        suffix += 1
     job_dir = root / job_id
     data = {
         "job_id": job_id,
