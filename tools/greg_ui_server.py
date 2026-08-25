@@ -1604,6 +1604,9 @@ def ui_shell(default_course: str) -> str:
         updateUploadQueue('done', 'Uploaded', 100);
         msg.textContent = data.message || 'Uploaded.';
         await loadWorkspace();
+        document.getElementById('files').value = '';
+        uploadQueue = [];
+        renderUploadQueue();
       }} catch (error) {{
         if (uploadQueue.length) updateUploadQueue('error', error.message || 'Upload failed', 0);
         msg.textContent = error.message;

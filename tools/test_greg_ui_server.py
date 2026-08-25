@@ -65,6 +65,8 @@ class GregUiServerTests(unittest.TestCase):
         self.assertIn("function resetWorkspace", html)
         self.assertIn("function resetSession", html)
         self.assertIn("/api/reset-session", html)
+        self.assertIn("uploadQueue = [];", html)
+        self.assertIn("document.getElementById('files').value = '';", html)
         self.assertIn("function ensureCourseIntake", html)
         self.assertIn("function renderUploadQueue", html)
         self.assertIn("request.upload.onprogress", html)

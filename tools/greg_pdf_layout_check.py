@@ -69,7 +69,11 @@ def meaningful_lines(text: str) -> list[str]:
         for line in lines
         if not re.fullmatch(r"\d{1,3}", line)
         and not re.fullmatch(r"(?:The )?Complete Construction Project Manager:.+", line)
-        and line not in {"STUDY GUIDE", "BuildStak Learning Series"}
+        and line not in {
+            "STUDY GUIDE",
+            "BuildStak Learning Series",
+            "Construction Schedule Management",
+        }
     ]
 
 
