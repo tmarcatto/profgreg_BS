@@ -1507,7 +1507,7 @@ Exact target headings:
 
 English visual specs:
 {json.dumps(source_visuals, ensure_ascii=False)}"""
-    data = strip_json_fence(request_text(seed.slug, "localization", prompt, max_tokens=8000))
+    data = strip_json_fence(request_text(seed.slug, "diagram_planning", prompt, max_tokens=8000))
     visuals = data.get("visuals") if isinstance(data.get("visuals"), list) else []
     if len(visuals) != len(source_visuals):
         raise RuntimeError("Localized visual plan changed the required visual count.")
