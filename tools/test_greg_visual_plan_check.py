@@ -118,6 +118,35 @@ class VisualPlanCheckTests(unittest.TestCase):
             result = checker.run_checks(path)
             self.assertFalse(result["passed"])
 
+    def test_diagram_visible_capacity_fails_before_renderer_truncation(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "visual_plan.json"
+            path.write_text(
+                json.dumps(
+                    {
+                        "artifact_type": "study-guide",
+                        "visuals": [
+                            {
+                                "visual_id": "V1",
+                                "visual_type": "deterministic-diagram",
+                                "placement": "Section 01",
+                                "purpose": "Shows the complete residential project lifecycle.",
+                                "learning_claim": "Six visible phases carry the project from lead through warranty.",
+                                "source_status": "not-required",
+                                "context_focus": "U.S. residential construction",
+                                "diagram_type": "process-flow",
+                                "diagram_rationale": "A process flow shows the ordered lifecycle and its handoffs.",
+                                "diagram_nodes": [{"title": f"Phase {number}", "detail": "Short detail"} for number in range(1, 8)],
+                            }
+                        ],
+                    }
+                ),
+                encoding="utf-8",
+            )
+            result = checker.run_checks(path)
+            self.assertFalse(result["passed"])
+            self.assertTrue(any(item["check"] == "diagram_visible_capacity" and item["status"] == "fail" for item in result["findings"]))
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -104,6 +104,7 @@ def run_checks(plan_path: Path) -> dict[str, Any]:
     generated_positions: list[tuple[int, str]] = []
     missing_diagram_decisions = []
     unsuitable_diagram_decisions = []
+    diagram_capacity_violations = []
     diagram_mechanisms: dict[str, list[str]] = {}
 
     for index, visual in enumerate(visuals):
@@ -188,6 +189,28 @@ def run_checks(plan_path: Path) -> dict[str, Any]:
                 claim_text = normalize(" ".join([purpose, learning_claim]))
                 if mechanism == "comparison-matrix" and re.search(r"\b(sequence|lifecycle|workflow|process|handoff|phase)\b", claim_text):
                     unsuitable_diagram_decisions.append((label, mechanism, "sequential learning claim"))
+                nodes = visual.get("diagram_nodes") or []
+                rows = visual.get("diagram_rows") or []
+                if artifact_type != "study-guide":
+                    continue
+                if mechanism == "process-flow":
+                    if not 2 <= len(nodes) <= 6:
+                        diagram_capacity_violations.append((label, "process-flow requires 2-6 visible nodes"))
+                    for node in nodes:
+                        if len(str(node.get("title") or "")) > 30 or len(str(node.get("detail") or "")) > 36:
+                            diagram_capacity_violations.append((label, "process-flow title/detail exceeds 30/36 characters"))
+                            break
+                elif mechanism == "relationship-map" and not 2 <= len(nodes) <= 6:
+                    diagram_capacity_violations.append((label, "relationship-map requires 2-6 visible nodes"))
+                elif mechanism == "comparison-matrix":
+                    if not 2 <= len(rows) <= 5:
+                        diagram_capacity_violations.append((label, "comparison-matrix requires 2-5 visible rows"))
+                    for row in rows:
+                        if len(str(row.get("left") or "")) > 40 or len(str(row.get("right") or "")) > 130:
+                            diagram_capacity_violations.append((label, "comparison-matrix cell exceeds 40/130 characters"))
+                            break
+                elif mechanism == "card-sequence" and not 2 <= len(nodes) <= 8:
+                    diagram_capacity_violations.append((label, "card-sequence requires 2-8 visible cards"))
 
     if required_missing:
         findings.append(Finding("fail", "required_visual_fields", f"Missing required visual fields: {required_missing}."))
@@ -268,6 +291,11 @@ def run_checks(plan_path: Path) -> dict[str, Any]:
         findings.append(Finding("fail", "diagram_mechanism_fit", f"Diagram mechanisms do not fit their learning jobs: {unsuitable_diagram_decisions}."))
     else:
         findings.append(Finding("pass", "diagram_mechanism_fit", "Diagram mechanisms fit their stated learning jobs."))
+
+    if diagram_capacity_violations:
+        findings.append(Finding("fail", "diagram_visible_capacity", f"Diagram content would be omitted or clipped by the renderer: {diagram_capacity_violations}."))
+    else:
+        findings.append(Finding("pass", "diagram_visible_capacity", "Every deterministic diagram fits its visible renderer capacity."))
 
     diagram_count = sum(len(labels) for labels in diagram_mechanisms.values())
     if diagram_count >= 3 and len(diagram_mechanisms) == 1:

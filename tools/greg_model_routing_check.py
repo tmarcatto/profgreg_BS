@@ -22,6 +22,7 @@ REQUIRED_ROLES = [
     "citation_review",
     "design_review",
     "visual_planning",
+    "visual_review",
     "diagram_planning",
     "diagram_rendering",
     "image_generation",

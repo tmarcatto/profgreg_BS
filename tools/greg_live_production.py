@@ -865,8 +865,30 @@ For every deterministic diagram, explicitly choose the mechanism that best match
 - card-sequence for a small ordered or grouped set that does not require arrows.
 Do not choose the same mechanism repeatedly without a distinct pedagogical reason. A table is not a neutral default.
 
+Design within the renderer's visible capacity. Never rely on omitted or hidden items:
+- process-flow: 2-6 nodes; each title at most 30 characters and each visible detail at most 36 characters;
+- relationship-map: 2-6 nodes including the center;
+- comparison-matrix: 2-5 rows; each left label at most 40 characters and each right cell at most 130 characters;
+- card-sequence: 2-8 cards, and every item named by the title or caption must be one of the visible cards.
+The diagram title, learning claim, caption, visible nodes/cards/rows, and lesson prose must agree exactly. Do not promise a lifecycle endpoint, responsibility, role, comparison attribute, or item that the visible diagram omits.
+
 Return:
 {{"artifact_type":"study-guide","visual_curation_required":false,"visuals":[{{"visual_id":"L{int(lesson['lesson_number']):02d}V01","visual_type":"deterministic-diagram|generated-conceptual-image|trusted-source-image","placement":"after Section 01 - exact heading","purpose":"at least four words","learning_claim":"at least five words and unique","source_status":"not-required|verified|source-needed","source_id":"","source_url":"","attribution":"","prompt":"detailed English image prompt when generated","google_search_phrase":"English keywords only for a fidelity-sensitive technical object","diagram_type":"process-flow|relationship-map|comparison-matrix|card-sequence","diagram_rationale":"why this mechanism teaches this claim better than the alternatives","diagram_title":"short student-facing title","diagram_nodes":[{{"title":"short label","detail":"short explanation"}}],"diagram_rows":[{{"left":"specific concept","right":"specific field meaning"}}],"context_focus":"U.S. residential construction","depicts_people":false,"workforce_representation":"","core_message_depends_on_real_example":false,"technical_fidelity_required":false,"technical_object_type":"","max_area_percent":45,"highlighted":false,"highlight_reason":"exception|warning|decision-point|risk-threshold|contrast|lesson-emphasis, required only when highlighted is true","internal_text":false,"internal_text_position":"top"}}]}}"""
+
+
+def visual_semantic_review_prompt(seed, lesson: dict[str, Any], draft: str, plan: dict[str, Any]) -> str:
+    return f"""Return JSON only. Independently review this visual plan for Lesson {lesson['lesson_number']}: {lesson['title']} in {seed.title}.
+
+Check every diagram against the lesson prose and against what the deterministic renderer will visibly show. Fail the plan if any title, learning claim, caption, node, card, or row contradicts another; if a promised lifecycle endpoint, responsibility, role, comparison attribute, or item is omitted; if a visible label is ambiguous; or if content exceeds these hard capacities: process-flow 2-6 nodes with titles <=30 characters and visible details <=36 characters, relationship-map 2-6 nodes, comparison-matrix 2-5 rows with left labels <=40 characters and right cells <=130 characters, card-sequence 2-8 cards. Do not accept hidden extra nodes or rows as satisfying a claim. Confirm that each visual is placed after the section that teaches it.
+
+Lesson draft:
+{draft[:36000]}
+
+Visual plan:
+{json.dumps(plan, ensure_ascii=False)[:24000]}
+
+Return exactly:
+{{"passed":true,"findings":["specific evidence"],"required_changes":[]}}"""
 
 
 TECHNICAL_VISUAL_TERMS = re.compile(
@@ -958,19 +980,44 @@ def create_visual_assets(seed, lesson: dict[str, Any], draft: str, run: Path, le
         plan = json.loads(prior_plan.read_text(encoding="utf-8"))
     else:
         plan = strip_json_fence(request_text(seed.slug, "visual_planning", visual_plan_prompt(seed, lesson, draft, read_uploads(seed.slug)), max_tokens=12000))
-    visuals = [normalize_visual_strategy(visual) for visual in (plan.get("visuals") or [])]
     section_headings = re.findall(r"(?im)^#\s+(Section\s+\d{2}\s+-\s+[^\n]+)$", draft)
-    generated_seen = 0
-    for index, visual in enumerate(visuals):
-        placement = str(visual.get("placement") or "")
-        placement_is_valid = any(heading.lower() in placement.lower() for heading in section_headings)
-        if section_headings and not placement_is_valid:
-            visual["placement"] = f"after {section_headings[min(index, len(section_headings) - 1)]}"
-        if visual.get("visual_type") == "generated-conceptual-image":
-            generated_seen += 1
-            if generated_seen > 1:
-                visual["visual_type"] = "deterministic-diagram"
-                visual["source_status"] = "not-required"
+
+    def prepare_visuals(items: list[dict[str, Any]]) -> list[dict[str, Any]]:
+        prepared = [normalize_visual_strategy(visual) for visual in items]
+        generated_seen = 0
+        for index, visual in enumerate(prepared):
+            placement = str(visual.get("placement") or "")
+            placement_is_valid = any(heading.lower() in placement.lower() for heading in section_headings)
+            if section_headings and not placement_is_valid:
+                visual["placement"] = f"after {section_headings[min(index, len(section_headings) - 1)]}"
+            if visual.get("visual_type") == "generated-conceptual-image":
+                generated_seen += 1
+                if generated_seen > 1:
+                    visual["visual_type"] = "deterministic-diagram"
+                    visual["source_status"] = "not-required"
+        return prepared
+
+    visuals = prepare_visuals(plan.get("visuals") or [])
+    prior_qa_text = prior_visual_qa.read_text(encoding="utf-8", errors="replace") if prior_visual_qa.exists() else ""
+    semantic_review: dict[str, Any] = {"passed": True, "findings": ["Previously passed independent visual review."], "required_changes": []}
+    if "Independent visual review: PASS" not in prior_qa_text:
+        for review_attempt in range(1, 4):
+            plan["visuals"] = visuals
+            semantic_review = strip_json_fence(
+                request_text(seed.slug, "visual_review", visual_semantic_review_prompt(seed, lesson, draft, plan), max_tokens=8000)
+            )
+            if semantic_review.get("passed") is True:
+                break
+            if review_attempt == 3:
+                changes = semantic_review.get("required_changes") or semantic_review.get("findings") or []
+                raise RuntimeError(f"Independent visual QA still requires changes after three revision passes: {changes}")
+            revision_prompt = visual_plan_prompt(seed, lesson, draft, read_uploads(seed.slug)) + (
+                "\n\nRevise the complete plan to fix every independent QA finding. Return the complete JSON object, not a patch.\n"
+                f"Previous plan:\n{json.dumps(plan, ensure_ascii=False)[:24000]}\n"
+                f"Required changes:\n{json.dumps(semantic_review.get('required_changes') or semantic_review.get('findings') or [], ensure_ascii=False)}"
+            )
+            plan = strip_json_fence(request_text(seed.slug, "visual_planning", revision_prompt, max_tokens=12000))
+            visuals = prepare_visuals(plan.get("visuals") or [])
     uploads = read_uploads(seed.slug)
     visual_responses = [item for item in uploads if item.get("purpose") == "visual_response"]
     allowed_source_images = [
@@ -1016,9 +1063,9 @@ def create_visual_assets(seed, lesson: dict[str, Any], draft: str, run: Path, le
             if rendered_type == "source_to_wbs_matrix":
                 rendered.update({"left_header": visual.get("diagram_left_header") or "Concept", "right_header": visual.get("diagram_right_header") or "Field meaning", "rows": section_rows})
             elif rendered_type == "card_row":
-                rendered["cards"] = [{"title": node.get("title", ""), "lines": [node.get("detail", "")]} for node in nodes[:5]]
+                rendered["cards"] = [{"title": node.get("title", ""), "lines": [node.get("detail", "")]} for node in nodes]
             else:
-                rendered["nodes"] = nodes[:6]
+                rendered["nodes"] = nodes
             render_visuals.append(rendered)
         elif kind == "generated-conceptual-image":
             image_path = run / "review" / "visual_assets" / f"{visual['visual_id']}.png"
@@ -1054,7 +1101,11 @@ def create_visual_assets(seed, lesson: dict[str, Any], draft: str, run: Path, le
     write_json(plan_path, plan)
     checker = load_module("greg_visual_plan_check", "tools/greg_visual_plan_check.py")
     qa = checker.run_checks(plan_path)
-    write_text(run / "review" / f"{lesson_tag}_visual_qa.md", checker.render_markdown(qa))
+    semantic_notes = "\n".join(f"- {item}" for item in (semantic_review.get("findings") or ["Diagram content matches the lesson and visible renderer capacity."]))
+    write_text(
+        run / "review" / f"{lesson_tag}_visual_qa.md",
+        checker.render_markdown(qa) + f"\n\nIndependent visual review: {'PASS' if semantic_review.get('passed') is True else 'REVISE'}\n{semantic_notes}\n",
+    )
     if requests:
         request_json = run / "review" / f"{lesson_tag}_image_requests.json"
         request_md = run / "review" / f"{lesson_tag}_image_requests.md"

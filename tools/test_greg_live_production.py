@@ -82,6 +82,15 @@ class GregLiveProductionTests(unittest.TestCase):
         prompt = production.visual_plan_prompt(seed, lesson, "# Section 01 - Start", [])
         self.assertIn('"highlight_reason"', prompt)
         self.assertIn("lesson-emphasis", prompt)
+        self.assertIn("process-flow: 2-6 nodes", prompt)
+        self.assertIn("must agree exactly", prompt)
+
+    def test_visual_semantic_review_checks_visible_omissions(self) -> None:
+        seed = type("Seed", (), {"title": "Course"})()
+        lesson = {"lesson_number": 1, "title": "Lesson"}
+        prompt = production.visual_semantic_review_prompt(seed, lesson, "# Section 01 - Start", {"visuals": []})
+        self.assertIn("promised lifecycle endpoint", prompt)
+        self.assertIn("hidden extra nodes or rows", prompt)
 
     def test_citation_review_separates_prose_from_bibliography(self) -> None:
         seed = type("Seed", (), {"title": "Course"})()

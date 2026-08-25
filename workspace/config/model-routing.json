@@ -20,7 +20,7 @@
       "provider": "openai",
       "model": "gpt-5.6-luna",
       "reasoning": "max",
-      "roles": ["source_research", "pedagogy_review", "citation_review", "design_review", "localization_review"]
+      "roles": ["source_research", "pedagogy_review", "citation_review", "design_review", "visual_review", "localization_review"]
     },
     "images": {
       "provider": "openai",
@@ -258,6 +258,21 @@
         "allowed_when": "Visual pedagogy is unusually complex or human explicitly authorizes premium spend."
       },
       "quality_gate": "visual_qa"
+    },
+    "visual_review": {
+      "primary": {
+        "provider": "openai",
+        "model": "gpt-5.6-luna",
+        "reasoning": "max"
+      },
+      "fallbacks": [
+        {
+          "provider": "anthropic",
+          "model": "claude-sonnet-5",
+          "reasoning": "high"
+        }
+      ],
+      "quality_gate": "diagram_claim_accuracy_and_visible_fit"
     },
     "diagram_planning": {
       "primary": {

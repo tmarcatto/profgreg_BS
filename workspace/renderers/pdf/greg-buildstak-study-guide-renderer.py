@@ -791,13 +791,29 @@ _COUNT_WORDS = {
 
 
 def validate_visuals(visuals: list[dict[str, Any]]) -> None:
-    """Reject diagrams whose stated count disagrees with their visible items."""
+    """Reject diagrams whose stated content cannot be rendered completely."""
     for visual in visuals:
-        if visual.get("type") != "card_row":
+        visual_type = visual.get("type")
+        if visual_type in {"process_flow", "relationship_map"}:
+            nodes = visual.get("nodes")
+            if not isinstance(nodes, list) or not 2 <= len(nodes) <= 6:
+                raise ValueError(f"{visual_type} diagram must contain 2-6 visible nodes.")
+            if visual_type == "process_flow":
+                for node in nodes:
+                    if len(str(node.get("title") or "")) > 30 or len(str(node.get("detail") or "")) > 36:
+                        raise ValueError("Process-flow title/detail exceeds the visible 30/36 character limit.")
+        if visual_type == "source_to_wbs_matrix":
+            rows = visual.get("rows")
+            if not isinstance(rows, list) or not 2 <= len(rows) <= 5:
+                raise ValueError("Comparison-matrix diagram must contain 2-5 visible rows.")
+            for row in rows:
+                if len(str(row.get("left") or "")) > 40 or len(str(row.get("right") or "")) > 130:
+                    raise ValueError("Comparison-matrix cell exceeds the visible 40/130 character limit.")
+        if visual_type != "card_row":
             continue
         cards = visual.get("cards")
-        if not isinstance(cards, list) or not cards:
-            raise ValueError("Card-row diagram must contain at least one card.")
+        if not isinstance(cards, list) or not 2 <= len(cards) <= 8:
+            raise ValueError("Card-row diagram must contain 2-8 visible cards.")
         title = str(visual.get("title", "")).lower()
         declarations: list[tuple[int, int]] = []
         for word, value in _COUNT_WORDS.items():
