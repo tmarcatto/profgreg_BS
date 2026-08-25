@@ -868,7 +868,7 @@ def starts_structural_page(heading: str, locale: str = "en") -> bool:
     glossary = "Glossário" if locale == "pt_br" else "Glosario" if locale == "es" else "Glossary"
     if normalized in {normalized_heading(labels["introduction"]), normalized_heading(labels["summary"]), normalized_heading(glossary), normalized_heading(labels["references"])}:
         return True
-    return bool(re.match(rf"{re.escape(labels['section'])}\s+\d{{2}}\s*[:-]\s+", heading, flags=re.IGNORECASE))
+    return bool(re.match(rf"{re.escape(labels['section'])}\s+01\s*[:-]\s+", heading, flags=re.IGNORECASE))
 
 
 def visual_matches_heading(visual_heading: str, rendered_heading: str) -> bool:
@@ -883,6 +883,7 @@ def build_story(blocks: list[dict[str, Any]], visuals: list[dict[str, Any]], loc
     content_blocks = front_matter_blocks(blocks)
     current_heading = ""
     inserted_visuals: set[int] = set()
+    pending_section_header: list[Any] = []
     for block in content_blocks:
         block_type = block["type"]
         if block_type == "page_break":
@@ -896,7 +897,7 @@ def build_story(blocks: list[dict[str, Any]], visuals: list[dict[str, Any]], loc
             if match:
                 spacer = Spacer(1, 2)
                 spacer.keepWithNext = 1
-                story.extend([SectionHeader(int(match.group(1)), match.group(2), section_label), spacer])
+                pending_section_header = [SectionHeader(int(match.group(1)), match.group(2), section_label), spacer]
             else:
                 story.append(Paragraph(inline(block["text"]), styles["H1Greg"]))
         elif block_type == "h2":
@@ -914,11 +915,16 @@ def build_story(blocks: list[dict[str, Any]], visuals: list[dict[str, Any]], loc
             # Do not begin a fresh page with a short tail of the preceding
             # paragraph.  ReportLab will still split a paragraph that is taller
             # than a full page, but ordinary teaching paragraphs stay intact.
-            story.append(KeepTogether([paragraph]))
+            if pending_section_header:
+                story.append(KeepTogether([*pending_section_header, paragraph]))
+                pending_section_header = []
+            else:
+                story.append(KeepTogether([paragraph]))
             for index, visual in enumerate(visual_after_heading):
                 if index not in inserted_visuals and visual_matches_heading(str(visual["after_heading"]), current_heading):
                     story.extend(visual_flowables(visual))
                     inserted_visuals.add(index)
+    story.extend(pending_section_header)
     return story
 
 

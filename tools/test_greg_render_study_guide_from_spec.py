@@ -139,9 +139,9 @@ class RenderStudyGuideFromSpecTests(unittest.TestCase):
         self.assertTrue(pdf_renderer.starts_structural_page("Introduction"))
         self.assertTrue(pdf_renderer.starts_structural_page("Section 01 - The First Decision"))
         self.assertTrue(pdf_renderer.starts_structural_page("Summary and Key Takeaways"))
-        self.assertTrue(pdf_renderer.starts_structural_page("Section 02 - The Next Decision"))
-        self.assertTrue(pdf_renderer.starts_structural_page("Seção 02: A Próxima Decisão", "pt_br"))
-        self.assertTrue(pdf_renderer.starts_structural_page("Sección 02: La Próxima Decisión", "es"))
+        self.assertFalse(pdf_renderer.starts_structural_page("Section 02 - The Next Decision"))
+        self.assertFalse(pdf_renderer.starts_structural_page("Seção 02: A Próxima Decisão", "pt_br"))
+        self.assertFalse(pdf_renderer.starts_structural_page("Sección 02: La Próxima Decisión", "es"))
 
     def test_visual_heading_matches_section_prefix(self) -> None:
         if pdf_renderer is None:
