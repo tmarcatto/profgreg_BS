@@ -213,7 +213,9 @@ Initial syllabus:\n{(RUNS / seed.slug / 'input' / 'intake.md').read_text(encodin
 
 Attached source inventory:\n{source_list}
 
-Bounded excerpts from materials supplied by the operator:\n{source_excerpts(seed.slug)}
+Use the syllabus and source inventory to design the learning sequence. Detailed
+source excerpts are intentionally deferred to lesson research so Course Map
+generation stays focused and does not spend its output budget re-analyzing books.
 
 Required JSON schema:
 {{
