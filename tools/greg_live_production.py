@@ -25,6 +25,7 @@ from greg_v0_production import BRAND_ICON, NEGATIVE_WORDMARK, RUNS, lid, parse_i
 
 
 ROOT = Path(__file__).resolve().parents[1]
+STUDY_GUIDE_RENDERER = ROOT / "workspace" / "renderers" / "pdf" / "greg-buildstak-study-guide-renderer.py"
 
 
 def production_python() -> str:
@@ -117,8 +118,26 @@ def strip_json_fence(value: str) -> dict[str, Any]:
 
 
 def render_spec_fingerprint(spec: dict[str, Any]) -> str:
-    payload = json.dumps(spec, ensure_ascii=False, sort_keys=True, separators=(",", ":"))
+    renderer_hash = hashlib.sha256(STUDY_GUIDE_RENDERER.read_bytes()).hexdigest()
+    payload = json.dumps(
+        {"render_spec": spec, "renderer_sha256": renderer_hash},
+        ensure_ascii=False,
+        sort_keys=True,
+        separators=(",", ":"),
+    )
     return hashlib.sha256(payload.encode("utf-8")).hexdigest()
+
+
+def render_study_guide(spec_path: Path) -> None:
+    result = subprocess.run(
+        [production_python(), str(ROOT / "tools" / "greg_render_study_guide_from_spec.py"), str(spec_path)],
+        cwd=ROOT,
+        capture_output=True,
+        text=True,
+    )
+    if result.returncode:
+        detail = result.stderr.strip() or result.stdout.strip() or "Study guide renderer returned no diagnostic output."
+        raise RuntimeError(f"Study guide rendering failed: {detail}")
 
 
 def adaptation_entries_for_course_map(data: dict[str, Any], seed, lesson_count: int) -> list[dict[str, str]]:
@@ -1181,7 +1200,7 @@ def render_reviewed_study_guide(seed, lesson: dict[str, Any], draft_path: Path, 
     if not cross_qa["passed"]:
         raise RuntimeError("Cross-lesson MECE automatic QA failed; no student PDF was released.")
     if not pdf_already_rendered:
-        subprocess.run([production_python(), str(ROOT / "tools" / "greg_render_study_guide_from_spec.py"), str(spec_path)], cwd=ROOT, check=True)
+        render_study_guide(spec_path)
         write_text(fingerprint_path, fingerprint)
     render_qa = run / spec["output"]["render_qa"]
     layout = run_pdf_layout_qa(

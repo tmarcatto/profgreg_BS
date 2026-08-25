@@ -93,6 +93,26 @@ def figure_numbers(text: str) -> list[str]:
     return re.findall(r"\bFigure\s+(\d+\.\d+)\b", text)
 
 
+def expected_visible_visual_text(spec: dict) -> list[str]:
+    expected: list[str] = []
+    for visual in spec.get("visuals", []):
+        visual_type = str(visual.get("type") or "")
+        if visual.get("title"):
+            expected.append(str(visual["title"]))
+        if visual_type == "process_flow":
+            for node in visual.get("nodes") or []:
+                expected.extend([str(node.get("title") or ""), str(node.get("detail") or "")])
+        elif visual_type == "relationship_map":
+            expected.extend(str(node.get("title") or "") for node in visual.get("nodes") or [])
+        elif visual_type == "card_row":
+            expected.extend(str(card.get("title") or "") for card in visual.get("cards") or [])
+        elif visual_type == "source_to_wbs_matrix":
+            expected.extend([str(visual.get("left_header") or ""), str(visual.get("right_header") or "")])
+            for row in visual.get("rows") or []:
+                expected.extend([str(row.get("left") or ""), str(row.get("right") or "")])
+    return [text for text in expected if text.strip()]
+
+
 def content_page_range(sequence: dict[str, int | None], page_count: int) -> range:
     start = sequence.get("section_01") or 4
     end = (sequence.get("summary") or page_count + 1) - 1
@@ -303,6 +323,7 @@ def run_checks(pdf_path: Path, qa_path: Path | None = None) -> dict:
             findings.append(Finding("pass", "figure_cadence", "Body figures appear at a reasonable cadence."))
 
     expected_figures = []
+    expected_visual_text = []
     lesson_match_for_figures = re.search(r"lesson_(\d{2})_", pdf_path.name)
     if lesson_match_for_figures:
         revision_for_figures = re.search(r"_(r\d+)\.pdf$", pdf_path.name)
@@ -317,8 +338,10 @@ def run_checks(pdf_path: Path, qa_path: Path | None = None) -> dict:
                     for match in [re.search(r"Figure\s+(\d+\.\d+)", str(visual.get("caption") or ""))]
                     if match
                 ]
+                expected_visual_text = expected_visible_visual_text(spec)
             except json.JSONDecodeError:
                 expected_figures = []
+                expected_visual_text = []
     actual_figures = sorted({figure for figures in figures_by_page.values() for figure in figures})
     if expected_figures:
         missing_figures = sorted(set(expected_figures) - set(actual_figures))
@@ -327,6 +350,13 @@ def run_checks(pdf_path: Path, qa_path: Path | None = None) -> dict:
             findings.append(Finding("fail", "figure_caption_alignment", f"Figure captions mismatch spec. Missing: {missing_figures}; extra: {extra_figures}."))
         else:
             findings.append(Finding("pass", "figure_caption_alignment", "Rendered figure captions match the study-guide spec."))
+
+    if expected_visual_text:
+        missing_visual_text = [text for text in expected_visual_text if norm(text) not in all_norm]
+        if missing_visual_text:
+            findings.append(Finding("fail", "figure_visible_text_alignment", f"Diagram text is missing or clipped in the rendered PDF: {missing_visual_text[:10]}."))
+        else:
+            findings.append(Finding("pass", "figure_visible_text_alignment", "Every required diagram label and cell from the spec is visible in the rendered PDF."))
 
     revision_match = re.search(r"_(r\d+)\.pdf$", pdf_path.name)
     lesson_match = re.search(r"lesson_(\d{2})_", pdf_path.name)

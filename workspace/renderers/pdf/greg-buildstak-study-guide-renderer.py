@@ -323,7 +323,10 @@ class ProcessFlowDiagram(Flowable):
                 c.drawString(x + 9, y + 45 - line_index * 10, line)
             c.setFillColor(INK)
             c.setFont(FONT_REGULAR, 7.2)
-            for line_index, line in enumerate(wrap_lines(str(node.get("detail", "")), FONT_REGULAR, 7.2, box_w - 20)[:2]):
+            detail_lines = wrap_lines(str(node.get("detail", "")), FONT_REGULAR, 7.2, box_w - 20)
+            if len(detail_lines) > 3:
+                raise ValueError(f"Process-flow detail does not fit in three visible lines: {node.get('detail', '')}")
+            for line_index, line in enumerate(detail_lines):
                 c.drawString(x + 9, y + 20 - line_index * 9, line)
             if index < count - 1:
                 start = x + box_w + 3
@@ -439,7 +442,7 @@ class SourceToWBSMatrix(Flowable):
         self.left_header = left_header
         self.right_header = right_header
         self.rows = rows
-        self.height = 245
+        self.height = 285
 
     def wrap(self, availWidth, availHeight):
         self.width = availWidth
@@ -451,7 +454,10 @@ class SourceToWBSMatrix(Flowable):
         size = 8.4 if bold else 8.2
         c.setFont(font, size)
         c.setFillColor(NAVY if bold else INK)
-        for index, line in enumerate(wrap_lines(text, font, size, width - 18)[:2]):
+        lines = wrap_lines(text, font, size, width - 18)
+        if len(lines) > 3:
+            raise ValueError(f"Comparison-matrix cell does not fit in three visible lines: {text}")
+        for index, line in enumerate(lines):
             c.drawString(x + 9, y - 13 - index * 10, line)
 
     def draw(self):
@@ -465,7 +471,7 @@ class SourceToWBSMatrix(Flowable):
         left_w = table_w * 0.42
         right_w = table_w - left_w
         header_h = 28
-        row_h = 29
+        row_h = 38
 
         c.setFillColor(NAVY)
         c.roundRect(table_x, table_y - header_h, table_w, header_h, 6, stroke=0, fill=1)

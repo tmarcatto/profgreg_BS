@@ -52,6 +52,20 @@ class PdfLayoutCheckUnitTests(unittest.TestCase):
     def test_figure_numbers(self) -> None:
         self.assertEqual(pdf_qa.figure_numbers("Figure 2.1. Text\nFigure 2.3. More"), ["2.1", "2.3"])
 
+    def test_expected_visible_visual_text_tracks_renderer_content(self) -> None:
+        spec = {
+            "visuals": [
+                {"type": "process_flow", "title": "Flow", "nodes": [{"title": "Gate", "detail": "Decision evidence"}]},
+                {"type": "source_to_wbs_matrix", "title": "Matrix", "left_header": "Concept", "right_header": "Meaning", "rows": [{"left": "Daily", "right": "Facts recorded"}]},
+                {"type": "relationship_map", "title": "Map", "nodes": [{"title": "Owner", "detail": "Not visibly rendered"}]},
+            ]
+        }
+        visible = pdf_qa.expected_visible_visual_text(spec)
+        self.assertIn("Decision evidence", visible)
+        self.assertIn("Facts recorded", visible)
+        self.assertIn("Owner", visible)
+        self.assertNotIn("Not visibly rendered", visible)
+
     def test_content_page_range(self) -> None:
         sequence = {"section_01": 4, "summary": 10}
         self.assertEqual(list(pdf_qa.content_page_range(sequence, 12)), [4, 5, 6, 7, 8, 9])
