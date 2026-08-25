@@ -877,7 +877,7 @@ Return:
 
 
 def visual_semantic_review_prompt(seed, lesson: dict[str, Any], draft: str, plan: dict[str, Any]) -> str:
-    return f"""Return JSON only. Independently review this visual plan for Lesson {lesson['lesson_number']}: {lesson['title']} in {seed.title}.
+    return f"""Your entire response must be one compact JSON object that starts with `{{` and ends with `}}`. Do not include analysis, Markdown, code fences, or introductory text. Independently review this visual plan for Lesson {lesson['lesson_number']}: {lesson['title']} in {seed.title}.
 
 Check every diagram against the lesson prose and against what the deterministic renderer will visibly show. Fail the plan if any title, learning claim, caption, node, card, or row contradicts another; if a promised lifecycle endpoint, responsibility, role, comparison attribute, or item is omitted; if a visible label is ambiguous; or if content exceeds these hard capacities: process-flow 2-6 nodes with titles <=30 characters and visible details <=36 characters, relationship-map 2-6 nodes, comparison-matrix 2-5 rows with left labels <=40 characters and right cells <=130 characters, card-sequence 2-8 cards. Do not accept hidden extra nodes or rows as satisfying a claim. Confirm that each visual is placed after the section that teaches it.
 
@@ -889,6 +889,20 @@ Visual plan:
 
 Return exactly:
 {{"passed":true,"findings":["specific evidence"],"required_changes":[]}}"""
+
+
+def request_visual_semantic_review(seed, lesson: dict[str, Any], draft: str, plan: dict[str, Any]) -> dict[str, Any]:
+    prompt = visual_semantic_review_prompt(seed, lesson, draft, plan)
+    raw = request_text(seed.slug, "visual_review", prompt, max_tokens=12000)
+    try:
+        return strip_json_fence(raw)
+    except ModelRequestError:
+        repair_prompt = f"""Return one JSON object only, under 500 words. Convert the following independent visual review into this exact schema without adding new findings:
+{{"passed":true,"findings":["specific evidence"],"required_changes":[]}}
+
+Reviewer response:
+{raw[:6000]}"""
+        return strip_json_fence(request_text(seed.slug, "visual_review", repair_prompt, max_tokens=8000))
 
 
 TECHNICAL_VISUAL_TERMS = re.compile(
@@ -1003,9 +1017,7 @@ def create_visual_assets(seed, lesson: dict[str, Any], draft: str, run: Path, le
     if "Independent visual review: PASS" not in prior_qa_text:
         for review_attempt in range(1, 4):
             plan["visuals"] = visuals
-            semantic_review = strip_json_fence(
-                request_text(seed.slug, "visual_review", visual_semantic_review_prompt(seed, lesson, draft, plan), max_tokens=8000)
-            )
+            semantic_review = request_visual_semantic_review(seed, lesson, draft, plan)
             if semantic_review.get("passed") is True:
                 break
             if review_attempt == 3:
