@@ -17,6 +17,21 @@ spec.loader.exec_module(production)
 
 
 class GregLiveProductionTests(unittest.TestCase):
+    def test_localized_retry_ignores_newer_incomplete_revision(self) -> None:
+        from tempfile import TemporaryDirectory
+
+        with TemporaryDirectory() as directory:
+            folder = Path(directory)
+            complete = folder / "lesson_01_study_guide_es_r01.md"
+            incomplete = folder / "lesson_01_study_guide_es_r02.md"
+            complete.write_text(
+                "\n".join([f"# Sección {number:02d}: Título" for number in range(1, 5)])
+                + "\n# Resumen y Conclusiones Clave\n- Uno\n- Dos\n- Tres\n- Cuatro\n",
+                encoding="utf-8",
+            )
+            incomplete.write_text("## Sección 01: Incompleta\n# Resumen y Conclusiones Clave\n", encoding="utf-8")
+            self.assertEqual(complete, production.latest_complete_localized_draft(folder, "lesson_01", "es"))
+
     def test_study_guide_revision_is_shared_across_draft_and_pdf(self) -> None:
         from tempfile import TemporaryDirectory
 

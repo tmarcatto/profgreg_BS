@@ -1536,6 +1536,18 @@ English visual specification:
     return visuals
 
 
+def latest_complete_localized_draft(folder: Path, lesson_tag: str, locale: str) -> Path | None:
+    section_label = "Seção" if locale == "pt_br" else "Sección"
+    summary_label = "Resumo e Principais Conclusões" if locale == "pt_br" else "Resumen y Conclusiones Clave"
+    candidates = sorted(folder.glob(f"{lesson_tag}_study_guide_{locale}_r*.md"), key=lambda item: (item.stat().st_mtime, item.name), reverse=True)
+    for candidate in candidates:
+        text = candidate.read_text(encoding="utf-8", errors="replace")
+        numbered_sections = re.findall(rf"(?im)^#\s+{re.escape(section_label)}\s+\d{{2}}\s*[:-]\s+.+$", text)
+        if len(numbered_sections) >= 4 and re.search(rf"(?im)^#\s+{re.escape(summary_label)}\s*$", text):
+            return candidate
+    return None
+
+
 def localize_book(course_slug: str, lesson_number: int, locale: str) -> list[str]:
     seed = parse_intake(course_slug)
     run = RUNS / seed.slug
@@ -1551,7 +1563,7 @@ def localize_book(course_slug: str, lesson_number: int, locale: str) -> list[str
     }[locale]
     localized_level = localized_metadata["levels"].get(str(seed.level).lower(), str(seed.level))
     references = (run / "sources" / "student_references.md").read_text(encoding="utf-8")
-    pending_draft = latest_matching_path(run / "localization" / folder, f"{lesson_tag}_study_guide_{locale}_r*.md")
+    pending_draft = latest_complete_localized_draft(run / "localization" / folder, lesson_tag, locale)
     pending_match = re.search(r"_r(\d+)\.md$", pending_draft.name) if pending_draft else None
     prior_translated = ""
     if pending_draft and pending_match:
