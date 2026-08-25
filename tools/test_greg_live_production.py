@@ -76,6 +76,13 @@ class GregLiveProductionTests(unittest.TestCase):
             reference,
         )
 
+    def test_visual_plan_prompt_requires_highlight_reason(self) -> None:
+        seed = type("Seed", (), {"title": "Course"})()
+        lesson = {"lesson_number": 1, "title": "Lesson"}
+        prompt = production.visual_plan_prompt(seed, lesson, "# Section 01 - Start", [])
+        self.assertIn('"highlight_reason"', prompt)
+        self.assertIn("lesson-emphasis", prompt)
+
     def test_student_reference_text_removes_access_dates(self) -> None:
         text = production.student_reference_text(
             "Occupational Safety and Health Administration. Safety and Health Regulations for Construction. Current online edition accessed August 16, 2026."

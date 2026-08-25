@@ -866,7 +866,7 @@ For every deterministic diagram, explicitly choose the mechanism that best match
 Do not choose the same mechanism repeatedly without a distinct pedagogical reason. A table is not a neutral default.
 
 Return:
-{{"artifact_type":"study-guide","visual_curation_required":false,"visuals":[{{"visual_id":"L{int(lesson['lesson_number']):02d}V01","visual_type":"deterministic-diagram|generated-conceptual-image|trusted-source-image","placement":"after Section 01 - exact heading","purpose":"at least four words","learning_claim":"at least five words and unique","source_status":"not-required|verified|source-needed","source_id":"","source_url":"","attribution":"","prompt":"detailed English image prompt when generated","google_search_phrase":"English keywords only for a fidelity-sensitive technical object","diagram_type":"process-flow|relationship-map|comparison-matrix|card-sequence","diagram_rationale":"why this mechanism teaches this claim better than the alternatives","diagram_title":"short student-facing title","diagram_nodes":[{{"title":"short label","detail":"short explanation"}}],"diagram_rows":[{{"left":"specific concept","right":"specific field meaning"}}],"context_focus":"U.S. residential construction","depicts_people":false,"workforce_representation":"","core_message_depends_on_real_example":false,"technical_fidelity_required":false,"technical_object_type":"","max_area_percent":45,"highlighted":false,"internal_text":false,"internal_text_position":"top"}}]}}"""
+{{"artifact_type":"study-guide","visual_curation_required":false,"visuals":[{{"visual_id":"L{int(lesson['lesson_number']):02d}V01","visual_type":"deterministic-diagram|generated-conceptual-image|trusted-source-image","placement":"after Section 01 - exact heading","purpose":"at least four words","learning_claim":"at least five words and unique","source_status":"not-required|verified|source-needed","source_id":"","source_url":"","attribution":"","prompt":"detailed English image prompt when generated","google_search_phrase":"English keywords only for a fidelity-sensitive technical object","diagram_type":"process-flow|relationship-map|comparison-matrix|card-sequence","diagram_rationale":"why this mechanism teaches this claim better than the alternatives","diagram_title":"short student-facing title","diagram_nodes":[{{"title":"short label","detail":"short explanation"}}],"diagram_rows":[{{"left":"specific concept","right":"specific field meaning"}}],"context_focus":"U.S. residential construction","depicts_people":false,"workforce_representation":"","core_message_depends_on_real_example":false,"technical_fidelity_required":false,"technical_object_type":"","max_area_percent":45,"highlighted":false,"highlight_reason":"exception|warning|decision-point|risk-threshold|contrast|lesson-emphasis, required only when highlighted is true","internal_text":false,"internal_text_position":"top"}}]}}"""
 
 
 TECHNICAL_VISUAL_TERMS = re.compile(
@@ -977,6 +977,8 @@ def create_visual_assets(seed, lesson: dict[str, Any], draft: str, run: Path, le
         visual.setdefault("context_focus", "U.S. residential construction")
         visual.setdefault("max_area_percent", 45)
         visual.setdefault("highlighted", False)
+        if visual.get("highlighted") is True and not str(visual.get("highlight_reason") or "").strip():
+            visual["highlight_reason"] = "lesson-emphasis"
         kind = str(visual.get("visual_type") or "")
         if kind == "deterministic-diagram":
             visual["source_status"] = "not-required"
