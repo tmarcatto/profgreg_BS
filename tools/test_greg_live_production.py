@@ -94,6 +94,12 @@ class GregLiveProductionTests(unittest.TestCase):
         self.assertIn("material learner-visible error", prompt)
         self.assertIn("minor editorial preferences are non-blocking", prompt)
 
+    def test_render_spec_fingerprint_changes_with_visuals(self) -> None:
+        base = {"source_markdown": "lesson.md", "visuals": [{"title": "One"}]}
+        changed = {"source_markdown": "lesson.md", "visuals": [{"title": "Two"}]}
+        self.assertEqual(production.render_spec_fingerprint(base), production.render_spec_fingerprint(dict(base)))
+        self.assertNotEqual(production.render_spec_fingerprint(base), production.render_spec_fingerprint(changed))
+
     def test_citation_review_separates_prose_from_bibliography(self) -> None:
         seed = type("Seed", (), {"title": "Course"})()
         lesson = {"lesson_number": 1, "title": "Lesson"}

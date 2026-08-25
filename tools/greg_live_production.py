@@ -9,6 +9,7 @@ approval gate when an automatic QA gate fails.
 from __future__ import annotations
 
 import argparse
+import hashlib
 import importlib.util
 import json
 import re
@@ -113,6 +114,11 @@ def update_canonical_manifest(course_slug: str) -> None:
 
 def strip_json_fence(value: str) -> dict[str, Any]:
     return json_from_text(value)
+
+
+def render_spec_fingerprint(spec: dict[str, Any]) -> str:
+    payload = json.dumps(spec, ensure_ascii=False, sort_keys=True, separators=(",", ":"))
+    return hashlib.sha256(payload.encode("utf-8")).hexdigest()
 
 
 def adaptation_entries_for_course_map(data: dict[str, Any], seed, lesson_count: int) -> list[dict[str, str]]:
@@ -1140,7 +1146,6 @@ def render_reviewed_study_guide(seed, lesson: dict[str, Any], draft_path: Path, 
     lesson_tag = lid(lesson_number)
     pdf_name = f"{lesson_tag}_study_guide_r{revision:02d}.pdf"
     pdf_path = run / "docx_pdf" / pdf_name
-    pdf_already_rendered = pdf_path.exists()
     baseline = approved_study_guide_baseline(run, lesson_tag)
     cover_quote = select_cover_quote(seed, lesson, run, lesson_tag)
     spec = {
@@ -1163,6 +1168,13 @@ def render_reviewed_study_guide(seed, lesson: dict[str, Any], draft_path: Path, 
         spec["qa_notes"].append("Initial production is being prepared for approval.")
     spec_path = run / "docx_pdf" / f"{lesson_tag}_study_guide_spec_r{revision:02d}.json"
     write_json(spec_path, spec)
+    fingerprint = render_spec_fingerprint(spec)
+    fingerprint_path = pdf_path.with_suffix(".render.sha256")
+    pdf_already_rendered = (
+        pdf_path.exists()
+        and fingerprint_path.exists()
+        and fingerprint_path.read_text(encoding="utf-8", errors="replace").strip() == fingerprint
+    )
     cross_checker = load_module("greg_cross_lesson_mece_check", "tools/greg_cross_lesson_mece_check.py")
     cross_qa = cross_checker.run_checks(seed.slug, lesson_number)
     write_text(run / "review" / f"{lesson_tag}_cross_lesson_mece_qa.md", cross_checker.render_markdown(cross_qa))
@@ -1170,6 +1182,7 @@ def render_reviewed_study_guide(seed, lesson: dict[str, Any], draft_path: Path, 
         raise RuntimeError("Cross-lesson MECE automatic QA failed; no student PDF was released.")
     if not pdf_already_rendered:
         subprocess.run([production_python(), str(ROOT / "tools" / "greg_render_study_guide_from_spec.py"), str(spec_path)], cwd=ROOT, check=True)
+        write_text(fingerprint_path, fingerprint)
     render_qa = run / spec["output"]["render_qa"]
     layout = run_pdf_layout_qa(
         run / spec["output"]["pdf"],
