@@ -4,6 +4,7 @@ from __future__ import annotations
 import argparse
 import importlib.util
 import json
+import re
 import subprocess
 import sys
 from pathlib import Path
@@ -42,6 +43,10 @@ def validate_source_markdown(spec: dict[str, Any]) -> None:
     if not isinstance(source, str) or not source.strip():
         raise ValueError("Study-guide PDF spec is missing `source_markdown`.")
     source_path = resolve_under_root(source)
+    locale = str(spec.get("locale") or "en")
+    if locale in {"pt_br", "es"}:
+        validate_localized_source(source_path, locale)
+        return
     content_spec = importlib.util.spec_from_file_location("greg_study_guide_content_check_render", CONTENT_CHECK_SOURCE)
     if not content_spec or not content_spec.loader:
         raise RuntimeError(f"Could not load study-guide content checker: {CONTENT_CHECK_SOURCE}")
@@ -52,6 +57,36 @@ def validate_source_markdown(spec: dict[str, Any]) -> None:
     if not data["passed"]:
         failures = [item["note"] for item in data["findings"] if item["status"] == "fail"]
         raise RuntimeError("Study-guide source failed content validation; PDF was not rendered: " + " | ".join(failures))
+
+
+def validate_localized_source(source_path: Path, locale: str) -> None:
+    text = source_path.read_text(encoding="utf-8", errors="replace")
+    rules = {
+        "pt_br": {
+            "summary": "Resumo e Principais Conclusões", "references": "Referências", "section": "Seção",
+            "callouts": {"TERMO-CHAVE", "APLIQUE", "EXEMPLO PRÁTICO", "CENÁRIO", "RETOMADA", "PONTE"},
+        },
+        "es": {
+            "summary": "Resumen y Conclusiones Clave", "references": "Referencias", "section": "Sección",
+            "callouts": {"TÉRMINO CLAVE", "APLICACIÓN", "EJEMPLO PRÁCTICO", "ESCENARIO", "RETOMAR", "PUENTE"},
+        },
+    }[locale]
+    summary = re.search(rf"(?ims)^#\s+{re.escape(rules['summary'])}\s*$\n(.*?)(?=^#\s+|\Z)", text)
+    if not summary:
+        raise RuntimeError(f"Localized source is missing `{rules['summary']}`.")
+    summary_lines = [line.strip() for line in summary.group(1).splitlines() if line.strip()]
+    if not 4 <= len(summary_lines) <= 6 or not all(re.match(r"^[-*+]\s+\S", line) for line in summary_lines):
+        raise RuntimeError("Localized summary must contain only 4 to 6 bullet points.")
+    if len(re.findall(rf"(?im)^#\s+{re.escape(rules['section'])}\s+\d{{2}}\s*[:-]\s+.+$", text)) < 4:
+        raise RuntimeError("Localized source must contain at least four numbered sections.")
+    if not re.search(rf"(?im)^#\s+{re.escape(rules['references'])}\s*$", text):
+        raise RuntimeError(f"Localized source is missing `{rules['references']}`.")
+    labels = re.findall(r"(?im)^>\s*\*\*([^*]+)\*\*\s*$", text)
+    if not 2 <= len(labels) <= 4:
+        raise RuntimeError("Localized source must contain 2 to 4 callout blocks.")
+    invalid = [label for label in labels if label.strip().upper() not in rules["callouts"]]
+    if invalid:
+        raise RuntimeError(f"Localized source contains unsupported callout labels: {invalid}.")
 
 
 def run_folder_from_spec(spec: dict[str, Any]) -> Path:

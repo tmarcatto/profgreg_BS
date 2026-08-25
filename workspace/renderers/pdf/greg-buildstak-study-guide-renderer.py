@@ -92,10 +92,22 @@ def read_json(path: Path) -> dict[str, Any]:
     return json.loads(path.read_text(encoding="utf-8"))
 
 
-def validate_render_source(markdown: str) -> None:
+LOCALE_LABELS = {
+    "en": {"summary": "Summary and Key Takeaways", "references": "References", "introduction": "Introduction", "section": "Section", "callouts": ["KEY TERM", "APPLY IT", "HANDS-ON EXAMPLE", "SCENARIO", "CALLBACK", "BRIDGE"]},
+    "pt_br": {"summary": "Resumo e Principais Conclusões", "references": "Referências", "introduction": "Introdução", "section": "Seção", "callouts": ["TERMO-CHAVE", "APLIQUE", "EXEMPLO PRÁTICO", "CENÁRIO", "RETOMADA", "PONTE"]},
+    "es": {"summary": "Resumen y Conclusiones Clave", "references": "Referencias", "introduction": "Introducción", "section": "Sección", "callouts": ["TÉRMINO CLAVE", "APLICACIÓN", "EJEMPLO PRÁCTICO", "ESCENARIO", "RETOMAR", "PUENTE"]},
+}
+
+
+def locale_labels(locale: str) -> dict[str, Any]:
+    return LOCALE_LABELS.get(locale, LOCALE_LABELS["en"])
+
+
+def validate_render_source(markdown: str, locale: str = "en") -> None:
     """Keep direct renderer use from bypassing the summary and dash rules."""
+    labels = locale_labels(locale)
     match = re.search(
-        r"(?ims)^#\s+Summary and Key Takeaways\s*$\n(.*?)(?=^#\s+|\Z)",
+        rf"(?ims)^#\s+{re.escape(labels['summary'])}\s*$\n(.*?)(?=^#\s+|\Z)",
         markdown,
     )
     if not match:
@@ -104,9 +116,9 @@ def validate_render_source(markdown: str) -> None:
     bullets_only = all(re.match(r"^[-*+]\s+\S", line) for line in lines)
     if not bullets_only or not 4 <= len(lines) <= 6:
         raise ValueError("Summary and Key Takeaways must contain only 4 to 6 concise bullet points; PDF was not rendered.")
-    teaching_text = markdown.split("# References", 1)[0]
+    teaching_text = re.split(rf"(?im)^#\s+{re.escape(labels['references'])}\s*$", markdown, maxsplit=1)[0]
     for line in teaching_text.splitlines():
-        if re.match(r"^#\s+Section\s+\d{2}\s+-\s+", line):
+        if re.match(rf"^#\s+{re.escape(labels['section'])}\s+\d{{2}}\s*[:-]\s+", line):
             continue
         if "—" in line or "–" in line or re.search(r"\s-{1,2}\s", line):
             raise ValueError("Dash punctuation found in study-guide source; PDF was not rendered.")
@@ -185,10 +197,11 @@ def draw_visual_title(canvas, title: str, width: float, height: float) -> int:
 
 
 class SectionHeader(Flowable):
-    def __init__(self, number: int, title: str):
+    def __init__(self, number: int, title: str, label: str = "Section"):
         super().__init__()
         self.number = number
         self.title = title
+        self.label = label
         self.height = 58
         self.keepWithNext = 1
 
@@ -202,7 +215,7 @@ class SectionHeader(Flowable):
         c.setStrokeColor(ORANGE)
         c.setLineWidth(2)
         c.line(0, self.height - 4, w, self.height - 4)
-        heading = f"Section {self.number:02d} - {self.title}"
+        heading = f"{self.label} {self.number:02d} - {self.title}"
         c.setFillColor(NAVY)
         c.setFont(FONT_BOLD, 18)
         if stringWidth(heading, FONT_BOLD, 18) <= w - 4:
@@ -597,7 +610,7 @@ def bullets(items: list[str], style: str = "BodyGreg"):
     return table
 
 
-def parse_markdown(markdown: str) -> list[dict[str, Any]]:
+def parse_markdown(markdown: str, locale: str = "en") -> list[dict[str, Any]]:
     blocks: list[dict[str, Any]] = []
     lines = markdown.splitlines()
     index = 0
@@ -644,8 +657,9 @@ def parse_markdown(markdown: str) -> list[dict[str, Any]]:
                     quote_lines.append(stripped)
                 index += 1
             first_line = quote_lines[0] if quote_lines else ""
+            callout_names = "|".join(re.escape(value) for value in locale_labels(locale)["callouts"])
             known_label = re.match(
-                r"^(?:\*\*)?(KEY TERM|APPLY IT|HANDS-ON EXAMPLE|SCENARIO|CALLBACK|BRIDGE)(?:\*\*)?\s*:\s*(.*)$|^\*\*(KEY TERM|APPLY IT|HANDS-ON EXAMPLE|SCENARIO|CALLBACK|BRIDGE)\*\*$",
+                rf"^(?:\*\*)?({callout_names})(?:\*\*)?\s*:\s*(.*)$|^\*\*({callout_names})\*\*$",
                 first_line,
                 flags=re.IGNORECASE,
             )
@@ -848,11 +862,13 @@ def normalized_heading(text: str) -> str:
     return re.sub(r"\s+", " ", text.strip()).lower()
 
 
-def starts_structural_page(heading: str) -> bool:
+def starts_structural_page(heading: str, locale: str = "en") -> bool:
     normalized = normalized_heading(heading)
-    if normalized in {"introduction", "summary and key takeaways", "glossary", "references"}:
+    labels = locale_labels(locale)
+    glossary = "Glossário" if locale == "pt_br" else "Glosario" if locale == "es" else "Glossary"
+    if normalized in {normalized_heading(labels["introduction"]), normalized_heading(labels["summary"]), normalized_heading(glossary), normalized_heading(labels["references"])}:
         return True
-    return bool(re.match(r"section\s+01\s+-\s+", heading, flags=re.IGNORECASE))
+    return bool(re.match(rf"{re.escape(labels['section'])}\s+01\s*[:-]\s+", heading, flags=re.IGNORECASE))
 
 
 def visual_matches_heading(visual_heading: str, rendered_heading: str) -> bool:
@@ -861,7 +877,7 @@ def visual_matches_heading(visual_heading: str, rendered_heading: str) -> bool:
     return actual == expected or actual.startswith(f"{expected} -")
 
 
-def build_story(blocks: list[dict[str, Any]], visuals: list[dict[str, Any]]) -> list[Any]:
+def build_story(blocks: list[dict[str, Any]], visuals: list[dict[str, Any]], locale: str = "en") -> list[Any]:
     story: list[Any] = [Spacer(1, 1), NextPageTemplate("normal"), PageBreak()]
     visual_after_heading = [item for item in visuals if item.get("after_heading")]
     content_blocks = front_matter_blocks(blocks)
@@ -873,22 +889,23 @@ def build_story(blocks: list[dict[str, Any]], visuals: list[dict[str, Any]]) -> 
             add_page_break(story)
         elif block_type == "h1":
             current_heading = block["text"]
-            if starts_structural_page(current_heading):
+            if starts_structural_page(current_heading, locale):
                 add_page_break(story)
-            match = re.match(r"Section\s+(\d{2})\s+-\s+(.+)", block["text"], flags=re.IGNORECASE)
+            section_label = locale_labels(locale)["section"]
+            match = re.match(rf"{re.escape(section_label)}\s+(\d{{2}})\s*[:-]\s+(.+)", block["text"], flags=re.IGNORECASE)
             if match:
                 spacer = Spacer(1, 2)
                 spacer.keepWithNext = 1
-                story.extend([SectionHeader(int(match.group(1)), match.group(2)), spacer])
+                story.extend([SectionHeader(int(match.group(1)), match.group(2), section_label), spacer])
             else:
                 story.append(Paragraph(inline(block["text"]), styles["H1Greg"]))
         elif block_type == "h2":
             current_heading = block["text"]
-            if normalized_heading(current_heading) == "introduction":
+            if normalized_heading(current_heading) == normalized_heading(locale_labels(locale)["introduction"]):
                 add_page_break(story)
             story.append(Paragraph(inline(block["text"]), styles["H2Keep"]))
         elif block_type == "bullets":
-            style = "RefGreg" if current_heading == "References" else "BodyGreg"
+            style = "RefGreg" if normalized_heading(current_heading) == normalized_heading(locale_labels(locale)["references"]) else "BodyGreg"
             story.append(bullets(block["items"], style=style))
         elif block_type == "callout":
             story.append(Callout(block["label"], block["body"]).flowable())
@@ -944,15 +961,16 @@ def render_pages(pdf_path: Path, rendered_dir: Path) -> None:
 
 def render(spec_path: Path) -> Path:
     spec = read_json(spec_path)
+    locale = str(spec.get("locale") or "en")
     run_folder = resolve_path(spec["run_folder"])
     markdown = resolve_path(spec["source_markdown"]).read_text(encoding="utf-8")
-    validate_render_source(markdown)
+    validate_render_source(markdown, locale)
     validate_visuals(spec.get("visuals", []))
     output = run_folder / spec["output"]["pdf"]
     output.parent.mkdir(parents=True, exist_ok=True)
-    blocks = parse_markdown(markdown)
+    blocks = parse_markdown(markdown, locale)
     doc = make_doc(output, spec["metadata"])
-    doc.build(build_story(blocks, spec.get("visuals", [])))
+    doc.build(build_story(blocks, spec.get("visuals", []), locale))
     rendered_dir = run_folder / spec["output"].get("rendered_dir", "docx_pdf/rendered_pages")
     render_pages(output, rendered_dir)
     return output

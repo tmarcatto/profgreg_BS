@@ -553,10 +553,16 @@ def visual_cards_from_lesson(lesson: dict[str, Any]) -> list[dict[str, Any]]:
     return cards
 
 
-def force_student_references(draft: str, references: str) -> str:
+def force_student_references(draft: str, references: str, locale: str = "en") -> str:
     """The validated ledger, rather than model output, owns the references list."""
-    body = re.split(r"(?im)^#\s+References\s*$", draft, maxsplit=1)[0].rstrip()
-    summary_match = re.search(r"(?ims)(^#\s+Summary and Key Takeaways\s*$)(.*?)(?=^#\s+|\Z)", body)
+    labels = {
+        "en": ("Summary and Key Takeaways", "References"),
+        "pt_br": ("Resumo e Principais Conclusões", "Referências"),
+        "es": ("Resumen y Conclusiones Clave", "Referencias"),
+    }
+    summary_heading, references_heading = labels.get(locale, labels["en"])
+    body = re.split(rf"(?im)^#\s+{re.escape(references_heading)}\s*$", draft, maxsplit=1)[0].rstrip()
+    summary_match = re.search(rf"(?ims)(^#\s+{re.escape(summary_heading)}\s*$)(.*?)(?=^#\s+|\Z)", body)
     if summary_match:
         # This section is intentionally a bullet-only recap. Removing any prose here
         # makes the contract deterministic instead of asking a model to repeat it.
@@ -569,7 +575,7 @@ def force_student_references(draft: str, references: str) -> str:
         validated_references,
         flags=re.I,
     )
-    return f"{body}\n\n# References\n\n{validated_references}\n"
+    return f"{body}\n\n# {references_heading}\n\n{validated_references}\n"
 
 
 def normalize_callout_density(draft: str, maximum: int = 4) -> str:
@@ -1494,16 +1500,17 @@ def localize_book(course_slug: str, lesson_number: int, locale: str) -> list[str
     except ModelRequestError as error:
         block(run, "localization", f"Localization model could not produce Lesson {lesson_number} {locale} course book.\n\nReason: {error}")
         raise RuntimeError(str(error)) from error
-    translated = force_student_references(translated, references)
+    translated = force_student_references(translated, references, locale)
     revision, draft_name = revisioned(run, f"localization/{folder}", f"{lesson_tag}_study_guide_{locale}", ".md")
     draft_path = run / "localization" / folder / draft_name
     write_text(draft_path, translated)
-    if "# References" not in translated or len(translated.split()) < 250:
+    reference_heading = "# Referências" if locale == "pt_br" else "# Referencias"
+    if reference_heading not in translated or len(translated.split()) < 250:
         raise RuntimeError("Localized course book failed automatic completeness QA.")
     pdf_name = f"{lesson_tag}_study_guide_{locale}_r{revision:02d}.pdf"
     cover_quote = select_cover_quote(seed, lesson_by_number(json.loads((run / "course_map" / "course_map.json").read_text(encoding="utf-8")), lesson_number), run, lesson_tag)
     spec = {
-        "course_slug": seed.slug, "course_title": seed.title, "lesson_number": str(lesson_number),
+        "course_slug": seed.slug, "course_title": seed.title, "lesson_number": str(lesson_number), "locale": locale,
         "production_mode": "initial", "revision": f"r{revision:02d}", "run_folder": f"runs/{seed.slug}",
         "source_markdown": rel(draft_path),
         "metadata": {"course_title": seed.title, "lesson_number": str(lesson_number), "lesson_short_title": f"{locale.upper()} Lesson {lesson_number}", "lesson_subtitle": language, "level_label": f"{seed.level} Level", "quote": f'"{cover_quote["quote"]}"', "quote_author": cover_quote["author"], "quote_verification_url": cover_quote["verification_url"], "icon": BRAND_ICON},
@@ -1512,7 +1519,7 @@ def localize_book(course_slug: str, lesson_number: int, locale: str) -> list[str
     }
     spec_path = run / "localization" / folder / f"{lesson_tag}_study_guide_{locale}_spec_r{revision:02d}.json"
     write_json(spec_path, spec)
-    subprocess.run([production_python(), str(ROOT / "tools" / "greg_render_study_guide_from_spec.py"), str(spec_path)], cwd=ROOT, check=True)
+    render_study_guide(spec_path)
     layout = run_pdf_layout_qa(
         run / spec["output"]["pdf"],
         run / spec["output"]["render_qa"],

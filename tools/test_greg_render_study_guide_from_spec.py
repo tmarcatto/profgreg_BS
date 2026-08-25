@@ -107,6 +107,19 @@ class RenderStudyGuideFromSpecTests(unittest.TestCase):
             with self.assertRaisesRegex(RuntimeError, "Summary must contain only 4 to 6 bullet points"):
                 renderer.validate_source_markdown({"source_markdown": relative})
 
+    def test_portuguese_localized_structure_passes_content_validation(self) -> None:
+        with tempfile.TemporaryDirectory(dir=ROOT / "tmp") as tmp:
+            draft = Path(tmp) / "draft.md"
+            sections = "\n\n".join(f"# Seção {number:02d}: Título\n\nTexto." for number in range(1, 5))
+            draft.write_text(
+                "# Introdução\n\nOrientação.\n\n" + sections
+                + "\n\n> **TERMO-CHAVE**\n>\n> Definição.\n\nTexto.\n\n> **CENÁRIO**\n>\n> Situação.\n\n"
+                + "# Resumo e Principais Conclusões\n\n- Um.\n- Dois.\n- Três.\n- Quatro.\n\n"
+                + "# Glossário\n\nTermo.\n\n# Referências\n\n- Fonte formal.\n",
+                encoding="utf-8",
+            )
+            renderer.validate_source_markdown({"source_markdown": str(draft.relative_to(ROOT)), "locale": "pt_br"})
+
     def test_run_folder_from_relative_spec(self) -> None:
         path = renderer.run_folder_from_spec({"run_folder": "runs/demo"})
         self.assertEqual(path, ROOT / "runs" / "demo")
