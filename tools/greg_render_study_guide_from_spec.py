@@ -7,6 +7,7 @@ import json
 import re
 import subprocess
 import sys
+import unicodedata
 from pathlib import Path
 from typing import Any
 
@@ -60,7 +61,7 @@ def validate_source_markdown(spec: dict[str, Any]) -> None:
 
 
 def validate_localized_source(source_path: Path, locale: str) -> None:
-    text = source_path.read_text(encoding="utf-8", errors="replace")
+    text = unicodedata.normalize("NFC", source_path.read_text(encoding="utf-8", errors="replace"))
     rules = {
         "pt_br": {
             "summary": "Resumo e Principais Conclusões", "references": "Referências", "section": "Seção",

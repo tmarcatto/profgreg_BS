@@ -1553,8 +1553,10 @@ def localize_book(course_slug: str, lesson_number: int, locale: str) -> list[str
     references = (run / "sources" / "student_references.md").read_text(encoding="utf-8")
     pending_draft = latest_matching_path(run / "localization" / folder, f"{lesson_tag}_study_guide_{locale}_r*.md")
     pending_match = re.search(r"_r(\d+)\.md$", pending_draft.name) if pending_draft else None
+    prior_translated = ""
     if pending_draft and pending_match:
         translated = pending_draft.read_text(encoding="utf-8", errors="replace")
+        prior_translated = translated
         revision = int(pending_match.group(1))
         draft_name = pending_draft.name
     else:
@@ -1567,7 +1569,8 @@ def localize_book(course_slug: str, lesson_number: int, locale: str) -> list[str
         revision, draft_name = revisioned(run, f"localization/{folder}", f"{lesson_tag}_study_guide_{locale}", ".md")
     translated = force_student_references(translated, references, locale)
     draft_path = run / "localization" / folder / draft_name
-    write_text(draft_path, translated)
+    if not pending_draft or translated.rstrip() != prior_translated.rstrip():
+        write_text(draft_path, translated)
     translated_visuals = localized_book_visuals(seed, run, lesson_tag, locale, language, translated)
     reference_heading = "# Referências" if locale == "pt_br" else "# Referencias"
     if reference_heading not in translated or len(translated.split()) < 250:
