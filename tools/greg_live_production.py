@@ -561,6 +561,8 @@ def force_student_references(draft: str, references: str, locale: str = "en") ->
         "es": ("Resumen y Conclusiones Clave", "Referencias"),
     }
     summary_heading, references_heading = labels.get(locale, labels["en"])
+    if locale == "es":
+        draft = re.sub(r"(?im)^#\s+Resumen y puntos clave\s*$", f"# {summary_heading}", draft)
     body = re.split(rf"(?im)^#\s+{re.escape(references_heading)}\s*$", draft, maxsplit=1)[0].rstrip()
     summary_match = re.search(rf"(?ims)(^#\s+{re.escape(summary_heading)}\s*$)(.*?)(?=^#\s+|\Z)", body)
     if summary_match:
