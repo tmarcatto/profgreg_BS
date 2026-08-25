@@ -1632,6 +1632,7 @@ def localize_deck(course_slug: str, lesson_number: int, locale: str) -> list[str
     except ModelRequestError as error:
         raise RuntimeError(str(error)) from error
     slides = normalize_deck_slides(data, {"title": f"Lesson {lesson_number}", "learning_goal": ""})
+    slides = normalize_localized_dash_punctuation(slides)
     revision, filename = revisioned(run, f"localization/{folder}", f"{lesson_tag}_deck_{locale}", ".pptx")
     localized_course_title = {
         "pt_br": "O Gerente Completo de Projetos de Construção: da Pré-Construção ao Encerramento",
@@ -1646,6 +1647,16 @@ def localize_deck(course_slug: str, lesson_number: int, locale: str) -> list[str
         raise RuntimeError("Localized presentation QA failed.")
     update_canonical_manifest(seed.slug)
     return [f"{locale} presentation r{revision:02d} created: {rel(run / spec['output']['pptx'])}"]
+
+
+def normalize_localized_dash_punctuation(value: Any) -> Any:
+    if isinstance(value, str):
+        return value.replace(" — ", "; ").replace(" – ", "; ").replace("—", ", ").replace("–", ", ")
+    if isinstance(value, list):
+        return [normalize_localized_dash_punctuation(item) for item in value]
+    if isinstance(value, dict):
+        return {key: normalize_localized_dash_punctuation(item) for key, item in value.items()}
+    return value
 
 
 def run_stage(course_slug: str, stage: str, lessons: list[int] | None = None) -> list[str]:

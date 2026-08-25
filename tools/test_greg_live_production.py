@@ -17,6 +17,11 @@ spec.loader.exec_module(production)
 
 
 class GregLiveProductionTests(unittest.TestCase):
+    def test_localized_deck_removes_dash_punctuation_recursively(self) -> None:
+        value = {"topics": ["planejar–acompanhar–ajustar", "Escopo — não tarefas"]}
+        cleaned = production.normalize_localized_dash_punctuation(value)
+        self.assertEqual(cleaned, {"topics": ["planejar, acompanhar, ajustar", "Escopo; não tarefas"]})
+
     def test_localized_retry_ignores_newer_incomplete_revision(self) -> None:
         from tempfile import TemporaryDirectory
 
