@@ -131,8 +131,27 @@ def inline(text: str) -> str:
     return escaped
 
 
-def wrap_lines(text: str, font: str, size: int, max_width: float) -> list[str]:
-    words = text.split()
+def wrap_lines(text: str, font: str, size: int, max_width: float, *, break_long_words: bool = True) -> list[str]:
+    words: list[str] = []
+    for raw_word in text.split():
+        if stringWidth(raw_word, font, size) <= max_width or not break_long_words:
+            words.append(raw_word)
+            continue
+        # A narrow process box can be smaller than a legitimate compound word
+        # such as "Pre-Construction". Split first at hyphens, then at the
+        # character boundary as a last resort. No rendered line may exceed its
+        # declared box merely because the token itself is long.
+        pieces = re.findall(r"[^-]+-?", raw_word) or [raw_word]
+        for piece in pieces:
+            pending = piece
+            while pending and stringWidth(pending, font, size) > max_width:
+                cut = 1
+                while cut < len(pending) and stringWidth(pending[: cut + 1], font, size) <= max_width:
+                    cut += 1
+                words.append(pending[:cut])
+                pending = pending[cut:]
+            if pending:
+                words.append(pending)
     lines: list[str] = []
     current = ""
     for word in words:
@@ -306,7 +325,7 @@ class ProcessFlowDiagram(Flowable):
         super().__init__()
         self.title = title
         self.nodes = nodes[:6]
-        self.height = 210
+        self.height = 235
 
     def wrap(self, availWidth, availHeight):
         self.width = availWidth
@@ -317,37 +336,76 @@ class ProcessFlowDiagram(Flowable):
         w = self.width
         draw_visual_title(c, self.title, w, self.height)
         count = max(len(self.nodes), 1)
-        gap = 20
+        # Six-stage flows need slightly wider cards than the original layout.
+        # Ten points still leaves a clear arrow lane while preventing
+        # legitimate labels such as "Procurement & Mobilization" from being
+        # squeezed into unreadable fragments.
+        gap = 10
         box_w = min(108, (w - gap * (count - 1)) / count)
         total_w = box_w * count + gap * (count - 1)
         x0 = (w - total_w) / 2
-        y = 45
+        y = 42
+        box_h = 120
         for index, node in enumerate(self.nodes):
             x = x0 + index * (box_w + gap)
             c.setFillColor(LIGHT)
             c.setStrokeColor(NAVY)
-            c.roundRect(x, y, box_w, 96, 5, stroke=1, fill=1)
+            c.roundRect(x, y, box_w, box_h, 5, stroke=1, fill=1)
             c.setFillColor(ORANGE)
             c.setFont(FONT_BOLD, 9)
-            c.drawString(x + 9, y + 75, str(index + 1))
+            c.drawString(x + 9, y + 98, str(index + 1))
             c.setFillColor(NAVY)
-            c.setFont(FONT_BOLD, 8.5)
-            title_lines = wrap_lines(str(node.get("title", "")), FONT_BOLD, 8.5, box_w - 20)
-            if len(title_lines) > 3:
+            title_size = 8.5
+            title_text = str(node.get("title", ""))
+            for candidate in (8.5, 8.0, 7.5, 7.0):
+                title_lines = wrap_lines(title_text, FONT_BOLD, candidate, box_w - 18, break_long_words=False)
+                title_size = candidate
+                if len(title_lines) <= 3 and all(stringWidth(line, FONT_BOLD, candidate) <= box_w - 18 for line in title_lines):
+                    break
+                # A compound may break after its visible hyphen, but ordinary
+                # words must never be split at arbitrary character positions.
+                title_lines = wrap_lines(
+                    re.sub(r"-(?=\S)", "- ", title_text),
+                    FONT_BOLD,
+                    candidate,
+                    box_w - 18,
+                    break_long_words=False,
+                )
+                if len(title_lines) <= 3 and all(stringWidth(line, FONT_BOLD, candidate) <= box_w - 18 for line in title_lines):
+                    break
+            if len(title_lines) > 3 or any(stringWidth(line, FONT_BOLD, title_size) > box_w - 18 for line in title_lines):
                 raise ValueError(f"Process-flow title does not fit in three visible lines: {node.get('title', '')}")
+            c.setFont(FONT_BOLD, title_size)
+            title_gap = title_size + 1.5
+            title_top = y + 80
             for line_index, line in enumerate(title_lines):
-                c.drawString(x + 9, y + 59 - line_index * 10, line)
+                c.drawString(x + 9, title_top - line_index * title_gap, line)
             c.setFillColor(INK)
-            c.setFont(FONT_REGULAR, 7.2)
-            detail_lines = wrap_lines(str(node.get("detail", "")), FONT_REGULAR, 7.2, box_w - 20)
-            if len(detail_lines) > 4:
+            detail_lines: list[str] = []
+            detail_size = 7.2
+            detail_top = title_top - (len(title_lines) - 1) * title_gap - 15
+            for candidate in (7.2, 6.8, 6.4):
+                candidate_lines = wrap_lines(
+                    str(node.get("detail", "")), FONT_REGULAR, candidate, box_w - 18, break_long_words=False
+                )
+                candidate_gap = candidate + 1.8
+                last_baseline = detail_top - max(0, len(candidate_lines) - 1) * candidate_gap
+                if len(candidate_lines) <= 4 and last_baseline >= y + 10 and all(
+                    stringWidth(line, FONT_REGULAR, candidate) <= box_w - 18 for line in candidate_lines
+                ):
+                    detail_lines = candidate_lines
+                    detail_size = candidate
+                    break
+            if not detail_lines and str(node.get("detail", "")).strip():
                 raise ValueError(f"Process-flow detail does not fit in four visible lines: {node.get('detail', '')}")
+            c.setFont(FONT_REGULAR, detail_size)
+            detail_gap = detail_size + 1.8
             for line_index, line in enumerate(detail_lines):
-                c.drawString(x + 9, y + 30 - line_index * 9, line)
+                c.drawString(x + 9, detail_top - line_index * detail_gap, line)
             if index < count - 1:
                 start = x + box_w + 3
                 end = x + box_w + gap - 3
-                mid_y = y + 48
+                mid_y = y + box_h / 2
                 c.setStrokeColor(ORANGE)
                 c.setFillColor(ORANGE)
                 c.setLineWidth(1.8)
@@ -825,6 +883,28 @@ def validate_visuals(visuals: list[dict[str, Any]]) -> None:
                 for node in nodes:
                     if len(str(node.get("title") or "")) > 30 or len(str(node.get("detail") or "")) > 36:
                         raise ValueError("Process-flow title/detail exceeds the visible 30/36 character limit.")
+                # Run the exact renderer against the standard content width so
+                # QA cannot approve title/detail combinations that only fit in
+                # isolation but collide or leave the bottom of a box together.
+                probe = ProcessFlowDiagram(str(visual.get("title") or ""), nodes)
+                probe.width = 6.5 * inch
+                class _FitCanvas:
+                    def setFillColor(self, *_): pass
+                    def setStrokeColor(self, *_): pass
+                    def setLineWidth(self, *_): pass
+                    def setFont(self, *_): pass
+                    def drawString(self, *_): pass
+                    def roundRect(self, *_, **__): pass
+                    def line(self, *_): pass
+                    def beginPath(self):
+                        class _Path:
+                            def moveTo(self, *_): pass
+                            def lineTo(self, *_): pass
+                            def close(self): pass
+                        return _Path()
+                    def drawPath(self, *_, **__): pass
+                probe.canv = _FitCanvas()
+                probe.draw()
         if visual_type == "source_to_wbs_matrix":
             rows = visual.get("rows")
             if not isinstance(rows, list) or not 2 <= len(rows) <= 5:

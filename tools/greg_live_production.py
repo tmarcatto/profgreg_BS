@@ -204,6 +204,13 @@ def source_excerpts(course_slug: str, limit_per_file: int = 9000) -> str:
     """Return bounded, untrusted excerpts from operator-uploaded PDFs."""
     excerpts: list[str] = []
     for item in read_uploads(course_slug):
+        # Apply the operator's policy before reading any textual payload. An
+        # image-only attachment may supply visual assets, but its text must not
+        # influence drafting, research, or citations.
+        if item.get("purpose", "source_material") != "source_material":
+            continue
+        if item.get("reference_policy") == "image_only":
+            continue
         stored = Path(str(item.get("stored_path") or ""))
         if stored.suffix.lower() != ".pdf" or not stored.exists():
             continue
@@ -224,6 +231,91 @@ def source_excerpts(course_slug: str, limit_per_file: int = 9000) -> str:
                 f"File: {item.get('filename')}\nPolicy: {item.get('reference_policy')}\n{text}"
             )
     return "\n\n".join(excerpts)[:32000] or "No readable uploaded excerpts were available."
+
+
+_CITABLE_UPLOAD_POLICIES = {"reference_only", "reference_and_images"}
+
+
+def required_citable_uploads(course_slug: str) -> list[dict[str, Any]]:
+    """Return operator attachments that must be used as formal references."""
+    return [
+        item for item in read_uploads(course_slug)
+        if item.get("purpose", "source_material") == "source_material"
+        and item.get("reference_policy") in _CITABLE_UPLOAD_POLICIES
+    ]
+
+
+def _source_identity(value: str) -> str:
+    value = Path(str(value or "")).stem
+    value = re.sub(r"^\d+[-_ ]*", "", value)
+    return re.sub(r"[^a-z0-9]+", " ", value.lower()).strip()
+
+
+def bind_required_upload_sources(sources: list[dict[str, Any]], uploads: list[dict[str, Any]]) -> list[str]:
+    """Bind ledger entries to mandatory uploads and return any missing files.
+
+    The explicit uploaded_filename field is preferred. Title matching supports
+    older model output, but every match is normalized into auditable metadata.
+    """
+    unmatched: list[str] = []
+    used_source_indexes: set[int] = set()
+    for upload in uploads:
+        filename = str(upload.get("filename") or "")
+        upload_key = _source_identity(filename)
+        match_index: int | None = None
+        for index, source in enumerate(sources):
+            if index in used_source_indexes:
+                continue
+            explicit = str(source.get("uploaded_filename") or "")
+            title_key = _source_identity(str(source.get("title") or ""))
+            if explicit.casefold() == filename.casefold() or (
+                upload_key and title_key and (upload_key in title_key or title_key in upload_key)
+            ):
+                match_index = index
+                break
+        if match_index is None:
+            unmatched.append(filename)
+            continue
+        used_source_indexes.add(match_index)
+        source = sources[match_index]
+        source["origin"] = "operator_upload"
+        source["uploaded_filename"] = filename
+        source["upload_id"] = str(upload.get("upload_id") or "")
+        source["reference_policy"] = str(upload.get("reference_policy") or "")
+        source["mandatory_use"] = True
+    return unmatched
+
+
+def mandatory_upload_inventory(course_slug: str) -> str:
+    uploads = required_citable_uploads(course_slug)
+    if not uploads:
+        return "- None."
+    return "\n".join(
+        f"- EXACT uploaded_filename={item.get('filename')}; policy={item.get('reference_policy')}; scope={item.get('scope')}"
+        for item in uploads
+    )
+
+
+def draft_has_all_mandatory_upload_references(draft: str, ledger: dict[str, Any]) -> bool:
+    mandatory_sources = [
+        source for source in ledger.get("sources") or []
+        if source.get("origin") == "operator_upload" and source.get("mandatory_use") is True
+    ]
+    if not mandatory_sources:
+        return True
+    references = re.split(r"(?im)^#\s+References\s*$", draft, maxsplit=1)
+    if len(references) < 2:
+        return False
+    normalized_refs = re.sub(r"[^a-z0-9]+", " ", references[1].lower()).strip()
+    for source in mandatory_sources:
+        formal = re.sub(r"[^a-z0-9]+", " ", str(source.get("formal_reference") or "").lower()).strip()
+        title = re.sub(r"[^a-z0-9]+", " ", str(source.get("title") or "").lower()).strip()
+        if formal and formal in normalized_refs:
+            continue
+        if title and title in normalized_refs:
+            continue
+        return False
+    return True
 
 
 def course_map_prompt(seed, uploads: list[dict[str, Any]]) -> str:
@@ -357,19 +449,45 @@ def source_research_prompt(seed, course_map: dict[str, Any], uploads: list[dict[
 
 Course: {seed.title}\nLevel: {seed.level}\nLessons:\n{lessons}\nUploaded inventory:\n{inventories}
 
+Mandatory attached references:
+{mandatory_upload_inventory(seed.slug)}
+
+Every item above marked as a mandatory attached reference must appear as its
+own source entry, must be materially mapped to supported course claims, and
+must preserve its filename verbatim in an `uploaded_filename` field. Validate
+older publications against current authorities, but never replace or silently
+omit the attached publication. Add current researched sources in addition to
+the attached references. The required source mix is attachments plus external
+research, never one or the other.
+
 Bounded excerpts from materials supplied by the operator:\n{source_excerpts(seed.slug)}
 
 Return exactly:
-{{"sources":[{{"source_id":"S01","title":"...","author_or_organization":"...","source_type":"government|industry-body|webpage|book|standard","authority_tier":"primary|supporting","url":"https://... or empty for book/standard","publication_date":"YYYY or YYYY-MM-DD","formal_reference":"student-ready reference line","currency_validation":{{"required":true,"status":"validated-current","note":"short currency note"}},"claims_supported":[{{"claim":"...","lesson_numbers":[1]}}]}}],"research_log":["..."]}}
-Return 5 to 10 sources. Webpage sources must have a direct content URL. Books and standards must have no URL unless that exact webpage was read as the content source."""
+{{"sources":[{{"source_id":"S01","title":"...","uploaded_filename":"exact filename when this is an attached reference, otherwise empty","author_or_organization":"...","source_type":"government|industry-body|webpage|book|standard","authority_tier":"primary|supporting","url":"https://... or empty for book/standard","publication_date":"YYYY or YYYY-MM-DD","formal_reference":"student-ready reference line","currency_validation":{{"required":true,"status":"validated-current","note":"short currency note"}},"claims_supported":[{{"claim":"...","lesson_numbers":[1]}}]}}],"research_log":["..."]}}
+Return 5 to 12 sources, including every mandatory attached reference and additional current sources. Webpage sources must have a direct content URL. Books and standards must have no URL unless that exact webpage was read as the content source."""
 
 
 def produce_source_ledger(course_slug: str) -> list[str]:
     seed = parse_intake(course_slug)
     run = RUNS / seed.slug
     course_map = json.loads((run / "course_map" / "course_map.json").read_text(encoding="utf-8"))
+    prompt = source_research_prompt(seed, course_map, read_uploads(seed.slug))
+    mandatory_uploads = required_citable_uploads(seed.slug)
     try:
-        data = strip_json_fence(request_text(seed.slug, "source_research", source_research_prompt(seed, course_map, read_uploads(seed.slug)), max_tokens=12000, web_search=True))
+        data = strip_json_fence(request_text(seed.slug, "source_research", prompt, max_tokens=12000, web_search=True))
+        missing_uploads = bind_required_upload_sources(data.get("sources") or [], mandatory_uploads)
+        if missing_uploads:
+            repair_prompt = (
+                prompt
+                + "\n\nYour previous result omitted mandatory attached references. Return the complete corrected JSON, preserving all valid external sources and adding each missing attachment with exact uploaded_filename metadata and material claim mappings. Missing files:\n- "
+                + "\n- ".join(missing_uploads)
+                + "\n\nPrevious result:\n"
+                + json.dumps(data, ensure_ascii=False)[:22000]
+            )
+            data = strip_json_fence(request_text(seed.slug, "source_research", repair_prompt, max_tokens=14000, web_search=True))
+            missing_uploads = bind_required_upload_sources(data.get("sources") or [], mandatory_uploads)
+        if missing_uploads:
+            raise ModelRequestError("Source research omitted mandatory attached references: " + ", ".join(missing_uploads))
     except ModelRequestError as error:
         block(run, "sources", f"Configured source research could not produce a validated ledger.\n\nReason: {error}")
         raise RuntimeError(str(error)) from error
@@ -734,6 +852,29 @@ Return 3-6 sources that materially improve this lesson. A source may repeat the 
     return data
 
 
+def normalize_lesson_source_refresh(
+    refresh: dict[str, Any], ledger: dict[str, Any], lesson_number: int
+) -> dict[str, Any]:
+    """Complete the deterministic audit fields after researched sources enter the ledger."""
+    reviewed_ids = {
+        str(source.get("source_id"))
+        for source in ledger.get("sources") or []
+        if source.get("source_id")
+        and any(
+            lesson_number in (claim.get("lesson_numbers") or [])
+            for claim in source.get("claims_supported") or []
+        )
+    }
+    refresh["lesson_number"] = lesson_number
+    refresh["status"] = "completed"
+    refresh["refresh_type"] = "lesson-level-applicability-review"
+    refresh["source_ids_reviewed"] = sorted(reviewed_ids)
+    refresh["current_claim_validation"] = "completed"
+    refresh["web_research_policy"] = "automatic_when_available"
+    refresh["gaps"] = refresh.get("source_gaps") or refresh.get("gaps") or []
+    return refresh
+
+
 def merge_lesson_sources(run: Path, ledger: dict[str, Any], refresh: dict[str, Any], lesson_number: int) -> tuple[dict[str, Any], str]:
     existing = {(str(item.get("title") or "").lower(), str(item.get("url") or "")) for item in ledger.get("sources") or []}
     for item in refresh.get("sources") or []:
@@ -748,8 +889,12 @@ def merge_lesson_sources(run: Path, ledger: dict[str, Any], refresh: dict[str, A
     ledger["validation"] = {"weak_sources_to_replace": [], "unsupported_claims": [], "all_sources_verified": True}
     ledger_path = run / "sources" / "source_ledger.json"
     write_json(ledger_path, ledger)
+    mandatory_sources = [
+        item for item in ledger.get("sources") or []
+        if item.get("origin") == "operator_upload" and item.get("mandatory_use") is True
+    ]
     lesson_sources = [
-        item for item in refresh.get("sources") or []
+        item for item in [*mandatory_sources, *(refresh.get("sources") or [])]
         if item.get("formal_reference") and (item.get("currency_validation") or {}).get("status") != "unresolved"
     ]
     reference_lines: list[str] = []
@@ -1264,9 +1409,16 @@ def produce_study_guide(course_slug: str, lesson_number: int) -> list[str]:
     lesson = lesson_by_number(course_map, lesson_number)
     lesson_tag = lid(lesson_number)
     ledger = json.loads((run / "sources" / "source_ledger.json").read_text(encoding="utf-8"))
+    refresh_path = run / "sources" / f"{lesson_tag}_source_refresh.json"
+    cached_refresh = json.loads(refresh_path.read_text(encoding="utf-8")) if refresh_path.exists() else {}
+    if lesson_sources_are_adequate(cached_refresh):
+        cached_refresh = normalize_lesson_source_refresh(cached_refresh, ledger, lesson_number)
+        write_json(refresh_path, cached_refresh)
     pending_images = run / "review" / f"{lesson_tag}_image_requests.json"
     prior_drafts = sorted((run / "lesson_draft").glob(f"{lesson_tag}_draft_r*.md"))
-    if pending_images.exists() and prior_drafts:
+    latest_prior_text = prior_drafts[-1].read_text(encoding="utf-8", errors="replace") if prior_drafts else ""
+    reusable_sources_current = draft_has_all_mandatory_upload_references(latest_prior_text, ledger)
+    if pending_images.exists() and prior_drafts and reusable_sources_current:
         draft_path = prior_drafts[-1]
         match = re.search(r"_r(\d+)\.md$", draft_path.name)
         if not match:
@@ -1278,7 +1430,7 @@ def produce_study_guide(course_slug: str, lesson_number: int) -> list[str]:
             update_canonical_manifest(seed.slug)
             return [f"Lesson {lesson_number} is still waiting for one or more requested images."]
         return render_reviewed_study_guide(seed, lesson, draft_path, revision, render_visuals)
-    if prior_drafts:
+    if prior_drafts and reusable_sources_current:
         draft_path = prior_drafts[-1]
         match = re.search(r"_r(\d+)\.md$", draft_path.name)
         if match and not feedback_for(run, lesson_tag, "study_guide") and reviewed_draft_can_resume_visuals(run, lesson_tag, int(match.group(1))):
@@ -1290,9 +1442,9 @@ def produce_study_guide(course_slug: str, lesson_number: int) -> list[str]:
                 return [f"Lesson {lesson_number} is waiting for one or more requested images."]
             return render_reviewed_study_guide(seed, lesson, draft_path, revision, render_visuals)
     try:
-        refresh_path = run / "sources" / f"{lesson_tag}_source_refresh.json"
-        cached_refresh = json.loads(refresh_path.read_text(encoding="utf-8")) if refresh_path.exists() else {}
         refresh = cached_refresh if lesson_sources_are_adequate(cached_refresh) else lesson_source_refresh(seed, lesson, ledger)
+        ledger, references = merge_lesson_sources(run, ledger, refresh, lesson_number)
+        refresh = normalize_lesson_source_refresh(refresh, ledger, lesson_number)
         write_json(run / "sources" / f"{lesson_tag}_source_refresh.json", refresh)
         write_text(
             run / "sources" / f"{lesson_tag}_source_refresh_qa.md",
@@ -1301,8 +1453,11 @@ def produce_study_guide(course_slug: str, lesson_number: int) -> list[str]:
             + "\n\nSource gaps:\n"
             + ("\n".join(f"- {item}" for item in refresh.get("source_gaps") or []) or "- None."),
         )
-        ledger, references = merge_lesson_sources(run, ledger, refresh, lesson_number)
-        active_ledger = {**ledger, "sources": refresh.get("sources") or []}
+        mandatory_sources = [
+            item for item in ledger.get("sources") or []
+            if item.get("origin") == "operator_upload" and item.get("mandatory_use") is True
+        ]
+        active_ledger = {**ledger, "sources": [*mandatory_sources, *(refresh.get("sources") or [])]}
         source_checker = load_module("greg_source_reference_check", "tools/greg_source_reference_check.py")
         source_qa = source_checker.run_checks(run / "sources" / "source_ledger.json", run / "sources" / "student_references.md")
         write_text(run / "sources" / f"{lesson_tag}_source_reference_qa.md", source_checker.render_markdown(source_qa))
@@ -1331,6 +1486,10 @@ def produce_study_guide(course_slug: str, lesson_number: int) -> list[str]:
             draft = reusable_drafts[-1].read_text(encoding="utf-8", errors="replace")
             write_text(working_path, draft)
     if draft:
+        # Source refresh owns the bibliography even when compliant teaching
+        # prose is reused. This invalidates a stale reference section without
+        # needlessly rewriting the complete lesson.
+        draft = force_student_references(draft, references)
         draft = normalize_callout_density(draft)
         write_text(working_path, draft)
     prior_revision_was_noop = False

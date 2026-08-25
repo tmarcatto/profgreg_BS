@@ -3,8 +3,10 @@ from __future__ import annotations
 
 import importlib.util
 import sys
+import tempfile
 import unittest
 from pathlib import Path
+from unittest.mock import patch
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -17,6 +19,91 @@ spec.loader.exec_module(production)
 
 
 class GregLiveProductionTests(unittest.TestCase):
+    def test_image_only_upload_text_is_never_extracted_for_content(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            pdf = Path(directory) / "visual-only.pdf"
+            pdf.write_bytes(b"not a real PDF")
+            uploads = [{
+                "filename": pdf.name,
+                "stored_path": str(pdf),
+                "purpose": "source_material",
+                "reference_policy": "image_only",
+            }]
+            with patch.object(production, "read_uploads", return_value=uploads), patch.object(production.subprocess, "run") as run:
+                excerpts = production.source_excerpts("demo")
+            run.assert_not_called()
+            self.assertEqual("No readable uploaded excerpts were available.", excerpts)
+
+    def test_context_only_upload_text_can_guide_content_without_becoming_mandatory_reference(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            pdf = Path(directory) / "context.pdf"
+            pdf.write_bytes(b"not a real PDF")
+            uploads = [{
+                "filename": pdf.name,
+                "stored_path": str(pdf),
+                "purpose": "source_material",
+                "reference_policy": "context_only",
+            }]
+            completed = type("Completed", (), {"stdout": "Useful internal terminology."})()
+            with patch.object(production, "read_uploads", return_value=uploads), patch.object(production.subprocess, "run", return_value=completed):
+                excerpts = production.source_excerpts("demo")
+            self.assertIn("Useful internal terminology.", excerpts)
+
+    def test_required_upload_binding_marks_every_citable_attachment_mandatory(self) -> None:
+        uploads = [
+            {"filename": "Construction Project Management Handbook.pdf", "upload_id": "u1", "reference_policy": "reference_only"},
+            {"filename": "Integrated Approach.pdf", "upload_id": "u2", "reference_policy": "reference_and_images"},
+        ]
+        sources = [
+            {"title": "Construction Project Management Handbook", "formal_reference": "Handbook."},
+            {"title": "Integrated Approach", "formal_reference": "Integrated Approach."},
+        ]
+        self.assertEqual([], production.bind_required_upload_sources(sources, uploads))
+        self.assertTrue(all(source["mandatory_use"] for source in sources))
+        self.assertEqual(["operator_upload", "operator_upload"], [source["origin"] for source in sources])
+
+    def test_required_upload_binding_reports_an_omitted_attachment(self) -> None:
+        uploads = [{"filename": "Required Book.pdf", "upload_id": "u1", "reference_policy": "reference_only"}]
+        self.assertEqual(["Required Book.pdf"], production.bind_required_upload_sources([], uploads))
+
+    def test_lesson_reference_merge_preserves_attached_and_researched_sources(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            run = Path(directory)
+            (run / "sources").mkdir()
+            ledger = {"sources": [{
+                "source_id": "S01",
+                "title": "Attached Construction Handbook",
+                "formal_reference": "Publisher. Attached Construction Handbook.",
+                "source_type": "book",
+                "origin": "operator_upload",
+                "mandatory_use": True,
+                "currency_validation": {"status": "validated-current"},
+                "claims_supported": [{"claim": "Attached guidance", "lesson_numbers": [1]}],
+            }]}
+            refresh = {"sources": [{
+                "source_id": "L01S01",
+                "title": "Current External Guidance",
+                "formal_reference": "Authority. Current External Guidance.",
+                "source_type": "government",
+                "currency_validation": {"status": "validated-current"},
+                "claims_supported": [{"claim": "Current rule", "lesson_numbers": [1]}],
+            }]}
+            _, references = production.merge_lesson_sources(run, ledger, refresh, 1)
+            self.assertIn("Attached Construction Handbook", references)
+            self.assertIn("Current External Guidance", references)
+
+    def test_cached_draft_is_invalid_when_a_mandatory_attachment_is_missing(self) -> None:
+        ledger = {"sources": [{
+            "title": "Attached Construction Handbook",
+            "formal_reference": "Publisher. Attached Construction Handbook.",
+            "origin": "operator_upload",
+            "mandatory_use": True,
+        }]}
+        stale = "# Introduction\n\nText.\n\n# References\n\n- A current external source.\n"
+        current = "# Introduction\n\nText.\n\n# References\n\n- Publisher. Attached Construction Handbook.\n"
+        self.assertFalse(production.draft_has_all_mandatory_upload_references(stale, ledger))
+        self.assertTrue(production.draft_has_all_mandatory_upload_references(current, ledger))
+
     def test_reviewer_ledger_keeps_all_lesson_sources_without_unrelated_bulk(self) -> None:
         ledger = {"course_slug": "demo", "sources": [
             {"source_id": "A", "title": "Used", "formal_reference": "Used reference", "claims_supported": [{"claim": "Supported", "lesson_numbers": [1]}], "unused_bulk": "x" * 1000},
@@ -93,6 +180,21 @@ class GregLiveProductionTests(unittest.TestCase):
         }
         self.assertFalse(production.lesson_sources_are_adequate(weak))
         self.assertTrue(production.lesson_sources_are_adequate(strong))
+
+    def test_lesson_source_refresh_audit_covers_all_lesson_sources(self) -> None:
+        refresh = {"source_gaps": [], "sources": [{"source_id": "L01S01"}]}
+        ledger = {
+            "sources": [
+                {"source_id": "S01", "claims_supported": [{"lesson_numbers": [1]}]},
+                {"source_id": "L01S01", "claims_supported": [{"lesson_numbers": [1]}]},
+                {"source_id": "S02", "claims_supported": [{"lesson_numbers": [2]}]},
+            ]
+        }
+        normalized = production.normalize_lesson_source_refresh(refresh, ledger, 1)
+        self.assertEqual(["L01S01", "S01"], normalized["source_ids_reviewed"])
+        self.assertEqual("completed", normalized["status"])
+        self.assertEqual("completed", normalized["current_claim_validation"])
+        self.assertEqual([], normalized["gaps"])
 
     def test_student_reference_removes_chapter_and_page_locators(self) -> None:
         source = {
