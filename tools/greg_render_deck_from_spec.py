@@ -17,6 +17,7 @@ from greg_security import resolve_under_root
 
 ROOT = Path(__file__).resolve().parents[1]
 BUNDLED_NODE = Path.home() / ".cache" / "codex-runtimes" / "codex-primary-runtime" / "dependencies" / "node" / "bin" / "node"
+SHARED_NODE_MODULES = Path("/opt/profgreg/runtime/node_modules")
 SETUP_ARTIFACT_WORKSPACE = (
     Path.home()
     / ".codex"
@@ -83,10 +84,11 @@ def setup_workspace(workspace: Path) -> None:
     else:
         (workspace / "package.json").write_text('{"private":true,"type":"module"}\n', encoding="utf-8")
     bundled_node_modules = BUNDLED_NODE.parent.parent / "node_modules"
+    available_node_modules = SHARED_NODE_MODULES if SHARED_NODE_MODULES.exists() else bundled_node_modules
     workspace_node_modules = workspace / "node_modules"
-    if bundled_node_modules.exists() and not workspace_node_modules.exists():
+    if available_node_modules.exists() and not workspace_node_modules.exists():
         try:
-            workspace_node_modules.symlink_to(bundled_node_modules, target_is_directory=True)
+            workspace_node_modules.symlink_to(available_node_modules, target_is_directory=True)
         except OSError:
             pass
 
@@ -269,15 +271,16 @@ def render(spec_path: Path, skip_setup: bool = False) -> Path:
     if not skip_setup:
         setup_workspace(workspace)
     renderer = copy_renderer(workspace)
-    try:
-        subprocess.run(
-            [str(node_path()), str(renderer), "--spec", str(spec_path)],
-            cwd=ROOT,
-            check=True,
-        )
-        return run_folder_from_spec(spec) / spec["output"]["pptx"]
-    except subprocess.CalledProcessError:
-        return render_fallback_pptx(spec_path, spec)
+    result = subprocess.run(
+        [str(node_path()), str(renderer), "--spec", str(spec_path)],
+        cwd=ROOT,
+        capture_output=True,
+        text=True,
+    )
+    if result.returncode:
+        detail = result.stderr.strip() or result.stdout.strip() or "Deck renderer returned no diagnostic output."
+        raise RuntimeError(f"Deck rendering failed: {detail}")
+    return run_folder_from_spec(spec) / spec["output"]["pptx"]
 
 
 def main() -> int:
