@@ -91,6 +91,8 @@ class GregLiveProductionTests(unittest.TestCase):
         prompt = production.visual_semantic_review_prompt(seed, lesson, "# Section 01 - Start", {"visuals": []})
         self.assertIn("promised lifecycle endpoint", prompt)
         self.assertIn("hidden extra nodes or rows", prompt)
+        self.assertIn("material learner-visible error", prompt)
+        self.assertIn("minor editorial preferences are non-blocking", prompt)
 
     def test_citation_review_separates_prose_from_bibliography(self) -> None:
         seed = type("Seed", (), {"title": "Course"})()

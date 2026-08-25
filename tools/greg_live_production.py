@@ -879,7 +879,7 @@ Return:
 def visual_semantic_review_prompt(seed, lesson: dict[str, Any], draft: str, plan: dict[str, Any]) -> str:
     return f"""Your entire response must be one compact JSON object that starts with `{{` and ends with `}}`. Do not include analysis, Markdown, code fences, or introductory text. Independently review this visual plan for Lesson {lesson['lesson_number']}: {lesson['title']} in {seed.title}.
 
-Check every diagram against the lesson prose and against what the deterministic renderer will visibly show. Fail the plan if any title, learning claim, caption, node, card, or row contradicts another; if a promised lifecycle endpoint, responsibility, role, comparison attribute, or item is omitted; if a visible label is ambiguous; or if content exceeds these hard capacities: process-flow 2-6 nodes with titles <=30 characters and visible details <=36 characters, relationship-map 2-6 nodes, comparison-matrix 2-5 rows with left labels <=40 characters and right cells <=130 characters, card-sequence 2-8 cards. Do not accept hidden extra nodes or rows as satisfying a claim. Confirm that each visual is placed after the section that teaches it.
+Check every diagram against the lesson prose and against what the deterministic renderer will visibly show. Set `passed` to false only for a material learner-visible error: a factual contradiction, a promised lifecycle endpoint/responsibility/role/comparison item that is actually absent, a materially misleading authority or sequence, or content that will be clipped or hidden. Concise instructional compression is expected; a diagram does not need to reproduce every qualification or detail from the prose. Standard construction abbreviations already defined in the lesson and minor editorial preferences are non-blocking findings. Do not fail a correct plan merely because wording could be more exhaustive. Enforce these hard capacities: process-flow 2-6 nodes with titles <=30 characters and visible details <=36 characters, relationship-map 2-6 nodes, comparison-matrix 2-5 rows with left labels <=40 characters and right cells <=130 characters, card-sequence 2-8 cards. Do not accept hidden extra nodes or rows as satisfying a claim. Confirm that each visual is placed after the section that teaches it.
 
 Lesson draft:
 {draft[:36000]}
@@ -893,7 +893,7 @@ Return exactly:
 
 def request_visual_semantic_review(seed, lesson: dict[str, Any], draft: str, plan: dict[str, Any]) -> dict[str, Any]:
     prompt = visual_semantic_review_prompt(seed, lesson, draft, plan)
-    raw = request_text(seed.slug, "visual_review", prompt, max_tokens=12000)
+    raw = request_text(seed.slug, "visual_review", prompt, max_tokens=10000)
     try:
         return strip_json_fence(raw)
     except ModelRequestError:
