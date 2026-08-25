@@ -189,7 +189,7 @@ def run_checks(pdf_path: Path, qa_path: Path | None = None) -> dict:
         ("learning_line_caption", r"\blearning line\b"),
         ("student_access_dates", r"\bAccessed\s+(January|February|March|April|May|June|July|August|September|October|November|December)\b"),
         ("local_file_paths", r"/Users/|/private/|file://|\.codex/"),
-        ("internal_reference_rationale", r"Practitioner discussion sources|context signals|technical authority unless supported|source ledger|reliability"),
+        ("internal_reference_rationale", r"Practitioner discussion sources|context signals|technical authority unless supported|source ledger|source reliability"),
     ]
     for check, pattern in forbidden_patterns:
         if contains(all_text, pattern):

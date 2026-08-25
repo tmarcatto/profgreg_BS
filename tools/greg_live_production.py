@@ -850,7 +850,7 @@ def visual_plan_prompt(seed, lesson: dict[str, Any], draft: str, uploads: list[d
     return f"""Return JSON only. Create a production-ready visual plan for this student course book.
 Lesson {lesson['lesson_number']}: {lesson['title']} in {seed.title}.
 
-Use 2-4 distinct instructional visuals, roughly one visual per three content pages. Every visual must teach a unique claim. Prefer deterministic diagrams for structures, roles, responsibilities, comparisons, and processes. A trusted real image may be required only when students must inspect a fidelity-sensitive technical object such as an actual plan, schedule, specification page, code table, contract form, technical symbol set, equipment detail, or inspection record. Job descriptions, role maps, stakeholder maps, workflows, generic jobsite scenes, and conceptual comparisons are never operator-image requests: use a deterministic diagram or generated conceptual image. Generated conceptual images must be residential-construction focused and may not occupy over half a page. When people appear, respectfully show a mixed American-born and immigrant U.S. construction workforce. Never repeat a visual or its learning claim.
+Use 2-4 distinct instructional visuals, roughly one visual per three content pages. Every visual must teach a unique claim. Place each visual after the exact section that teaches its learning claim; do not distribute visuals by ordinal position merely to create cadence. Prefer deterministic diagrams for structures, roles, responsibilities, comparisons, and processes. A trusted real image may be required only when students must inspect a fidelity-sensitive technical object such as an actual plan, schedule, specification page, code table, contract form, technical symbol set, equipment detail, or inspection record. Job descriptions, role maps, stakeholder maps, workflows, generic jobsite scenes, and conceptual comparisons are never operator-image requests: use a deterministic diagram or generated conceptual image. Generated conceptual images must be residential-construction focused and may not occupy over half a page. When people appear, respectfully show a mixed American-born and immigrant U.S. construction workforce. Never repeat a visual or its learning claim.
 
 Available operator visual responses:
 {json.dumps(image_inventory, ensure_ascii=False)}
@@ -962,7 +962,9 @@ def create_visual_assets(seed, lesson: dict[str, Any], draft: str, run: Path, le
     section_headings = re.findall(r"(?im)^#\s+(Section\s+\d{2}\s+-\s+[^\n]+)$", draft)
     generated_seen = 0
     for index, visual in enumerate(visuals):
-        if section_headings:
+        placement = str(visual.get("placement") or "")
+        placement_is_valid = any(heading.lower() in placement.lower() for heading in section_headings)
+        if section_headings and not placement_is_valid:
             visual["placement"] = f"after {section_headings[min(index, len(section_headings) - 1)]}"
         if visual.get("visual_type") == "generated-conceptual-image":
             generated_seen += 1

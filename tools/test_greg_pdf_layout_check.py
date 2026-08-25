@@ -28,6 +28,7 @@ class PdfLayoutCheckUnitTests(unittest.TestCase):
         self.assertTrue(pdf_qa.contains("References Accessed August 9, 2026", r"\bAccessed\s+August\b"))
         self.assertTrue(pdf_qa.contains("/Users/name/file.pdf", r"/Users/"))
         self.assertFalse(pdf_qa.contains("References AIA Contract Documents", r"/Users/"))
+        self.assertFalse(pdf_qa.contains("reliability of working commitments", r"source reliability"))
 
     def test_norm(self) -> None:
         self.assertEqual(pdf_qa.norm("A\n  B\tC"), "A B C")
