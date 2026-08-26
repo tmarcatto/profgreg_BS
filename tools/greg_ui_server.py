@@ -1046,6 +1046,8 @@ def ui_shell(default_course: str) -> str:
     let currentStatus = null;
     let currentJobs = [];
     let operatorTargetMap = {{}};
+    let workspaceLoadInFlight = false;
+    let operatorActionInFlight = false;
     let uploadQueue = [];
     const progressSteps = [
       ['course_map', 'Course Map', 'Map and source research'],
@@ -1197,6 +1199,9 @@ def ui_shell(default_course: str) -> str:
       panel.innerHTML = `<strong>Course Map approved by automatic QA.</strong> <a class="download-link" href="/artifact?path=${{encodeURIComponent(map.path)}}&filename=${{encodeURIComponent(mapName)}}" target="_blank" rel="noopener">Download Course Map</a>`;
     }}
     function renderOperatorTool() {{
+      const select = document.getElementById('operatorTarget');
+      const previouslySelected = select.value;
+      const previousAction = document.getElementById('operatorAction').value;
       operatorTargetMap = {{}};
       const options = [];
       for (const lesson of currentStatus?.lessons || []) {{
@@ -1216,10 +1221,12 @@ def ui_shell(default_course: str) -> str:
           options.push(`<option value="${{esc(id)}}">Lesson ${{esc(lesson.lesson)}} · ${{requests.length}} requested image${{requests.length === 1 ? '' : 's'}}</option>`);
         }}
       }}
-      const select = document.getElementById('operatorTarget');
       select.innerHTML = options.length ? options.join('') : '<option value="">No file or image request needs operator action</option>';
       select.disabled = !options.length;
-      renderOperatorToolDetails();
+      const keptSelection = Boolean(previouslySelected && operatorTargetMap[previouslySelected]);
+      if (keptSelection) select.value = previouslySelected;
+      renderOperatorToolDetails(!keptSelection);
+      if (keptSelection) document.getElementById('operatorAction').value = previousAction;
     }}
     function renderOperatorToolDetails(resetAction = true) {{
       const target = operatorTargetMap[document.getElementById('operatorTarget').value];
@@ -1239,14 +1246,26 @@ def ui_shell(default_course: str) -> str:
       }}
     }}
     async function applyOperatorAction() {{
+      if (operatorActionInFlight) return;
       const target = operatorTargetMap[document.getElementById('operatorTarget').value];
       if (!target) return;
       const action = document.getElementById('operatorAction').value;
-      if (action === 'attach_images') {{ await uploadVisualBatch(target.lesson, target.requests); return; }}
-      const note = document.getElementById('operatorNote')?.value || '';
-      if (action === 'request_edits' && !note.trim()) {{ msg.textContent = 'Write the requested edits before sending the file back.'; return; }}
-      if (action === 'approve') {{ await approveArtifact(target.group.artifactType, null, target.path, target.lesson, note); return; }}
-      await requestEdits(target.group.artifactType, null, target.lesson, note);
+      const button = document.getElementById('applyOperatorAction');
+      operatorActionInFlight = true;
+      button.disabled = true;
+      button.textContent = 'Applying…';
+      msg.textContent = 'Applying operator action…';
+      try {{
+        if (action === 'attach_images') {{ await uploadVisualBatch(target.lesson, target.requests); return; }}
+        const note = document.getElementById('operatorNote')?.value || '';
+        if (action === 'request_edits' && !note.trim()) {{ msg.textContent = 'Write the requested edits before sending the file back.'; return; }}
+        if (action === 'approve') {{ await approveArtifact(target.group.artifactType, null, target.path, target.lesson, note); return; }}
+        await requestEdits(target.group.artifactType, null, target.lesson, note);
+      }} finally {{
+        operatorActionInFlight = false;
+        button.disabled = false;
+        button.textContent = 'Apply action';
+      }}
     }}
     function scopeKind(value) {{
       return String(value || '').startsWith('lesson_') ? 'lesson' : 'course';
@@ -1348,6 +1367,8 @@ def ui_shell(default_course: str) -> str:
       if (!course.value.trim()) {{
         return;
       }}
+      if (workspaceLoadInFlight) return;
+      workspaceLoadInFlight = true;
       try {{
         currentStatus = await api('/api/status?course=' + encodeURIComponent(course.value));
         const jobs = await api('/api/jobs?course=' + encodeURIComponent(course.value));
@@ -1360,7 +1381,20 @@ def ui_shell(default_course: str) -> str:
         renderLessonSelection();
       }} catch (error) {{
         msg.textContent = error.message;
+      }} finally {{
+        workspaceLoadInFlight = false;
       }}
+    }}
+    function operatorFormIsBeingEdited() {{
+      const form = document.getElementById('approvals');
+      if (!form) return false;
+      if (form.contains(document.activeElement)) return true;
+      return [...form.querySelectorAll('textarea')].some(input => input.value.trim())
+        || [...form.querySelectorAll('input[type="file"]')].some(input => input.files?.length);
+    }}
+    async function refreshWorkspaceIfIdle() {{
+      if (document.hidden || operatorActionInFlight || operatorFormIsBeingEdited()) return;
+      await loadWorkspace();
     }}
     function renderJobs() {{
       const active = currentJobs.slice().reverse().find(j => ['queued', 'running'].includes(j.state));
@@ -1656,7 +1690,7 @@ def ui_shell(default_course: str) -> str:
     }};
     toggleLessonInput();
     resetWorkspace(false);
-    setInterval(loadWorkspace, 10000);
+    setInterval(refreshWorkspaceIfIdle, 10000);
   </script>
 </body>
 </html>"""

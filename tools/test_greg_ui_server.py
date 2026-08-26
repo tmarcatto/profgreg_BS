@@ -76,7 +76,10 @@ class GregUiServerTests(unittest.TestCase):
         self.assertIn("course book content ready", html)
         self.assertIn("New course workspace ready.", html)
         self.assertIn("if (!course.value.trim()) {\n        return;", html)
-        self.assertIn("setInterval(loadWorkspace, 10000)", html)
+        self.assertIn("function operatorFormIsBeingEdited", html)
+        self.assertIn("function refreshWorkspaceIfIdle", html)
+        self.assertIn("setInterval(refreshWorkspaceIfIdle, 10000)", html)
+        self.assertIn("operatorActionInFlight", html)
         self.assertNotIn('value="demo-course"', html)
 
     def test_json_bytes_preserves_utf8(self) -> None:
