@@ -46,6 +46,20 @@ Generated PDFs, PPTX files, source uploads, rendered pages, rendered slides, and
 
 ## Deployment Gate
 
+## Synchronization and Recovery Standard
+
+For an approved production update, synchronize in this order: local workspace,
+GitHub `main`, then the server checkout. Make code changes locally whenever
+possible; the server must not become the only copy of a change.
+
+Before replacing the server checkout, the deployer must create a dated recovery
+point outside the checkout that includes a binary Git patch of any uncommitted
+work and must preserve that work on a named Git branch. Only then may the
+server fast-forward to the tested `main` commit. Run the deployment gate before
+restart, restart the UI and both workers, and confirm their active status and
+the deployed commit afterward. If a checkout is dirty or histories diverge,
+merge and test locally first; never discard server work to force an update.
+
 Before a deployment:
 
 ```bash

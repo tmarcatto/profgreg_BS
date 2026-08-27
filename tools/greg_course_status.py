@@ -261,7 +261,7 @@ def summarize(course_slug: str) -> dict:
         and (run / "sources" / "source_ledger.json").exists()
         and source_reference_passed is True
     )
-    if course_map_passed is True and source_reference_passed is False:
+    if course_map_passed is True and source_reference_passed is False and not has_operator_approved_lesson:
         stage = "SOURCE_QA_BLOCKED"
         gate_status = "Course Map source review requires an automatic correction before release."
         next_action = "re-run Course Map and source research; the operator file remains unavailable until QA passes."
