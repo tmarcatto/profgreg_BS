@@ -36,7 +36,11 @@ def extract_pages(pdf_path: Path) -> list[str]:
 
 
 def norm(text: str) -> str:
-    return re.sub(r"\s+", " ", text).strip()
+    normalized = re.sub(r"\s+", " ", text).strip()
+    # PDF extraction inserts whitespace after a visible end-of-line hyphen.
+    # Treat `Pre-\nConstruction` as the same complete label as
+    # `Pre-Construction`; the renderer separately guarantees box fit.
+    return re.sub(r"\s*-\s*", "-", normalized)
 
 
 def find_page(pages: list[str], pattern: str, min_page: int = 1, heading_only: bool = False) -> int | None:
@@ -59,7 +63,7 @@ def contains(text: str, pattern: str) -> bool:
 
 
 def has_unrendered_markdown(text: str) -> bool:
-    return "**" in text
+    return "**" in text or bool(re.search(r"(?:^|\s)\*(?:\s|$)", text))
 
 
 def meaningful_lines(text: str) -> list[str]:

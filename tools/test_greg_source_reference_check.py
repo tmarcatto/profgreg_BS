@@ -20,6 +20,48 @@ spec.loader.exec_module(checker)
 
 
 class SourceReferenceCheckTests(unittest.TestCase):
+    def test_mandatory_operator_attachment_missing_from_references_fails(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            tmp_path = Path(tmp)
+            ledger = tmp_path / "ledger.json"
+            refs = tmp_path / "refs.md"
+            ledger.write_text(
+                '{"sources":[{"source_id":"S01","title":"Attached Construction Handbook","author_or_organization":"Publisher","source_type":"book","authority_tier":"primary","publication_date":"2025","origin":"operator_upload","uploaded_filename":"Attached Construction Handbook.pdf","mandatory_use":true,"currency_validation":{"required":false,"status":"validated-current"},"claims_supported":[{"claim":"Project controls support delivery."}]}],"validation":{"all_sources_verified":true,"unsupported_claims":[]}}',
+                encoding="utf-8",
+            )
+            refs.write_text("# References\n\n- A different current source.\n", encoding="utf-8")
+            result = checker.run_checks(ledger, refs, date(2026, 8, 25))
+            self.assertFalse(result["passed"])
+            self.assertTrue(any(
+                item["check"] == "mandatory_operator_uploads_in_student_refs" and item["status"] == "fail"
+                for item in result["findings"]
+            ))
+
+    def test_mandatory_operator_attachment_present_in_references_passes_its_gate(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            tmp_path = Path(tmp)
+            ledger = tmp_path / "ledger.json"
+            refs = tmp_path / "refs.md"
+            ledger.write_text(
+                '{"sources":[{"source_id":"S01","title":"Attached Construction Handbook","author_or_organization":"Publisher","source_type":"book","authority_tier":"primary","publication_date":"2025","origin":"operator_upload","uploaded_filename":"Attached Construction Handbook.pdf","mandatory_use":true,"currency_validation":{"required":false,"status":"validated-current"},"claims_supported":[{"claim":"Project controls support delivery."}]}],"validation":{"all_sources_verified":true,"unsupported_claims":[]}}',
+                encoding="utf-8",
+            )
+            refs.write_text("# References\n\n- Publisher. Attached Construction Handbook.\n", encoding="utf-8")
+            result = checker.run_checks(ledger, refs, date(2026, 8, 25))
+            self.assertFalse(any(
+                item["check"] == "mandatory_operator_uploads_in_student_refs" and item["status"] == "fail"
+                for item in result["findings"]
+            ))
+
+    def test_formal_reference_can_use_a_shorter_title_than_the_ledger(self) -> None:
+        source = {
+            "title": "Project Management for Construction: Fundamental Concepts for Owners, Engineers, Architects and Builders",
+            "author_or_organization": "Chris Hendrickson and Tung Au",
+            "formal_reference": "Hendrickson, C., & Au, T. (2008). Project Management for Construction (Version 2.2). Carnegie Mellon University.",
+        }
+        references = "# References\n\n- Hendrickson, C., & Au, T. (2008). Project Management for Construction (Version 2.2). Carnegie Mellon University.\n"
+        self.assertTrue(checker.title_in_references(source, references))
+
     def test_old_source_detection(self) -> None:
         source = {"publication_date": "2017"}
         self.assertTrue(checker.is_more_than_three_years_old(source, 2026))

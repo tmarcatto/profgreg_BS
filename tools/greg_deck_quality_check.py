@@ -317,6 +317,10 @@ def run_checks(deck_path: Path, qa_path: Path | None = None) -> dict:
 
     image_slides = sorted(generated_like_by_slide)
     visual_slides = sorted(slide for slide, count in structured_visual_by_slide.items() if count >= 2)
+    if image_slides:
+        findings.append(Finding("pass", "teaching_image_present", f"Teaching image appears on slide(s): {image_slides}."))
+    else:
+        findings.append(Finding("fail", "teaching_image_present", "Deck has no non-brand teaching image."))
     consecutive = [(a, b) for a, b in zip(image_slides, image_slides[1:]) if b == a + 1]
     if consecutive:
         findings.append(Finding("fail", "image_cadence", f"Non-brand images appear on consecutive slides: {consecutive}."))

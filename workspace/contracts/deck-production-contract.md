@@ -170,6 +170,8 @@ If a slide does not fit an existing component, record why in the QA file. Do not
 
 ## Visual Rules
 
+- Include at least one image-plus-teaching-bullets slide in every deck. Its image must use one half of the teaching area, with the related explanation on the other half.
+- Across slides 2-9, use at least six distinct layout types. Do not repeat a layout on adjacent slides or use one body layout more than twice.
 - Include a meaningful image or strong visual break at least once every three slides.
 - Generated images should not appear on consecutive slides. A 3:1 text/vector-to-image cadence is preferred; up to 5:1 is acceptable when the lesson is more technical.
 - Use one dominant visual mode per slide: a slide may use a generated/sourced image with text, or a native vector diagram with labels, but do not mix a large image and a vector diagram as competing teaching visuals on the same slide.

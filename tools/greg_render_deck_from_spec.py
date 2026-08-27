@@ -164,17 +164,26 @@ def rect(shape_id: int, name: str, x: float, y: float, w: float, h: float, fill:
     """
 
 
-def slide_xml(slide: dict[str, Any], index: int, course_title: str) -> str:
+def localized_labels(locale: str | None) -> dict[str, str]:
+    if locale == "pt_br":
+        return {"lesson": "LIÇÃO", "topics": "Principais tópicos abordados"}
+    if locale == "es":
+        return {"lesson": "LECCIÓN", "topics": "Temas principales"}
+    return {"lesson": "LESSON", "topics": "Main topics covered"}
+
+
+def slide_xml(slide: dict[str, Any], index: int, course_title: str, locale: str | None = None) -> str:
+    labels = localized_labels(locale)
     parts = slide_text_parts(slide)
     title = parts[0] if parts else f"Slide {index}"
     body = "\n".join(parts[1:9])
     shapes = [
-        textbox(2, "eyebrow", 50, 32, 200, 28, f"LESSON {index if index == 1 else ''}".strip(), size=1200, bold=True),
+        textbox(2, "eyebrow", 50, 32, 200, 28, f"{labels['lesson']} {index if index == 1 else ''}".strip(), size=1200, bold=True),
         textbox(3, "title", 50, 68, 1100, 110, title, size=3000, bold=True),
     ]
     if index == 1:
         shapes.append(rect(4, "cover-panel", 50, 205, 560, 350, "FFF3EA"))
-        shapes.append(textbox(5, "main-topics", 85, 235, 500, 300, body or "Main topics covered", size=1800, bold=False))
+        shapes.append(textbox(5, "main-topics", 85, 235, 500, 300, body or labels["topics"], size=1800, bold=False))
     elif slide.get("layout") in {"card_sequence", "checklist_rows", "row_list"}:
         for item_index, text in enumerate(parts[1:5], start=0):
             x = 70 + item_index * 285
@@ -257,7 +266,7 @@ def render_fallback_pptx(spec_path: Path, spec: dict[str, Any]) -> Path:
         zf.writestr("ppt/slideMasters/_rels/slideMaster1.xml.rels", """<?xml version="1.0" encoding="UTF-8" standalone="yes"?><Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/slideLayout" Target="../slideLayouts/slideLayout1.xml"/></Relationships>""")
         zf.writestr("ppt/slideLayouts/slideLayout1.xml", """<?xml version="1.0" encoding="UTF-8" standalone="yes"?><p:sldLayout xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships" xmlns:p="http://schemas.openxmlformats.org/presentationml/2006/main" type="blank"><p:cSld name="Blank"><p:spTree><p:nvGrpSpPr><p:cNvPr id="1" name=""/><p:cNvGrpSpPr/><p:nvPr/></p:nvGrpSpPr><p:grpSpPr><a:xfrm><a:off x="0" y="0"/><a:ext cx="0" cy="0"/><a:chOff x="0" y="0"/><a:chExt cx="0" cy="0"/></a:xfrm></p:grpSpPr></p:spTree></p:cSld></p:sldLayout>""")
         for i, slide in enumerate(slides, start=1):
-            zf.writestr(f"ppt/slides/slide{i}.xml", slide_xml(slide, i, spec.get("course_title", "")))
+            zf.writestr(f"ppt/slides/slide{i}.xml", slide_xml(slide, i, spec.get("course_title", ""), spec.get("locale")))
             zf.writestr(f"ppt/slides/_rels/slide{i}.xml.rels", """<?xml version="1.0" encoding="UTF-8" standalone="yes"?><Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"/>""")
     write_inspect(output, spec)
     return output

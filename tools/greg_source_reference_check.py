@@ -114,6 +114,14 @@ def title_in_references(source: dict[str, Any], references_text: str) -> bool:
     title = str(source.get("title") or "").strip()
     org = str(source.get("author_or_organization") or "").strip()
     haystack = references_text.lower()
+    formal_reference = str(source.get("formal_reference") or "").strip()
+    normalize = lambda value: re.sub(r"[^a-z0-9]+", " ", value.lower()).strip()
+    # Formal bibliography wording may intentionally abbreviate a long source
+    # title while preserving author, edition, and publication identity. When
+    # the validated formal_reference itself is present, the attachment is not
+    # missing merely because the ledger title carries a longer subtitle.
+    if formal_reference and normalize(formal_reference) in normalize(references_text):
+        return True
     if title and title.lower() in haystack:
         return True
     if org and title:
@@ -202,6 +210,27 @@ def run_checks(ledger_path: Path, references_path: Path, production_date: date |
         findings.append(Finding("fail", "ineligible_sources_in_student_refs", f"Ineligible/internal sources appear in student references: {ineligible_in_refs}."))
     else:
         findings.append(Finding("pass", "ineligible_sources_in_student_refs", "No ineligible/internal source title found in student references."))
+
+    mandatory_uploads = [
+        source for source in sources
+        if source.get("origin") == "operator_upload" and source.get("mandatory_use") is True
+    ]
+    missing_mandatory_uploads = [
+        source_label(source) for source in mandatory_uploads
+        if not title_in_references(source, references_text)
+    ]
+    if missing_mandatory_uploads:
+        findings.append(Finding(
+            "fail",
+            "mandatory_operator_uploads_in_student_refs",
+            f"Citable operator attachments are missing from student references: {missing_mandatory_uploads}.",
+        ))
+    else:
+        findings.append(Finding(
+            "pass",
+            "mandatory_operator_uploads_in_student_refs",
+            f"All {len(mandatory_uploads)} mandatory operator attachment(s) appear in student references.",
+        ))
 
     reference_lines = student_reference_lines(references_text)
     if reference_lines:

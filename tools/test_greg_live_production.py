@@ -3,8 +3,11 @@ from __future__ import annotations
 
 import importlib.util
 import sys
+import tempfile
 import unittest
 from pathlib import Path
+from types import SimpleNamespace
+from unittest.mock import patch
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -17,6 +20,209 @@ spec.loader.exec_module(production)
 
 
 class GregLiveProductionTests(unittest.TestCase):
+    def test_resumed_study_guide_uses_a_new_revision_after_approval(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            run = Path(directory)
+            (run / "lesson_draft").mkdir()
+            (run / "docx_pdf").mkdir()
+            draft = run / "lesson_draft" / "lesson_02_draft_r03.md"
+            draft.write_text("# Saved reviewed draft\n", encoding="utf-8")
+            (run / "docx_pdf" / "lesson_02_study_guide_r03.pdf").write_bytes(b"approved")
+            with patch.object(production, "approved_study_guide_baseline", return_value="docx_pdf/lesson_02_study_guide_r03.pdf"):
+                target, revision = production.revisioned_resumed_study_guide_draft(run, "lesson_02", draft)
+            self.assertEqual(4, revision)
+            self.assertEqual("lesson_02_draft_r04.md", target.name)
+            self.assertEqual(draft.read_text(encoding="utf-8"), target.read_text(encoding="utf-8"))
+
+    def test_deck_image_assets_are_reused_with_run_relative_paths(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            run = Path(directory)
+            asset = run / "deck" / "assets" / "lesson_02_teaching_image_01.png"
+            asset.parent.mkdir(parents=True)
+            asset.write_bytes(b"already-generated")
+            slides = [{
+                "layout": "image_bullets",
+                "image_prompt": "A residential field verification scene.",
+                "image_alt": "Residential field verification.",
+                "image_name": "teaching-image-1",
+            }]
+            with patch.object(production, "request_image") as request_image:
+                production.create_deck_visual_assets(SimpleNamespace(slug="demo"), {}, slides, run, "lesson_02")
+            request_image.assert_not_called()
+            self.assertEqual("deck/assets/lesson_02_teaching_image_01.png", slides[0]["image"]["path"])
+
+    def test_failed_deck_spec_is_detected_as_resumable(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            run = Path(directory)
+            deck = run / "deck"
+            deck.mkdir()
+            spec = deck / "lesson_02_deck_spec_r03.json"
+            spec.write_text('{"slides": []}', encoding="utf-8")
+            self.assertTrue(spec.exists() and not (deck / "lesson_02_deck_r03.pptx").exists())
+
+    def test_deck_plan_requires_a_teaching_image_and_layout_diversity(self) -> None:
+        slides = [
+            {"layout": "cover", "title": "Buildable Work", "subtitle": "Make the job ready.", "topics": ["Intake", "Scope", "Permits"]},
+            {"layout": "intro_image_bullets", "title": "Start with the site", "intro": "A field visit turns assumptions into decisions.", "bullets": ["Verify access", "Record constraints", "Confirm owners"], "image_prompt": "A residential project manager reviewing a home site plan with a field lead.", "image_alt": "Project manager and field lead review a residential site plan."},
+            {"layout": "card_sequence", "title": "Move facts into action", "items": [], "takeaway": "Sequence creates control."},
+            {"layout": "comparison", "title": "Separate the request from the scope", "left": {"title": "Request", "body": "Starting point"}, "right": {"title": "Scope", "body": "Verified commitment"}, "bottom_line": "Clarify first."},
+            {"layout": "planned_actual", "title": "Test the gap", "left": {"title": "Planned", "body": "What was assumed"}, "right": {"title": "Actual", "body": "What the site allows"}, "bottom_line": "Price the real job."},
+            {"layout": "row_list", "title": "Capture the critical record", "items": [], "bottom_line": "Record what drives decisions."},
+            {"layout": "checklist_rows", "title": "Verify before commitment", "items": [], "bottom_line": "Close the gaps."},
+            {"layout": "image_bullets", "title": "Permit readiness protects the start", "intro": "Authority and scope must match.", "bullets": ["Identify authority", "Assemble package", "Track response"], "bottom_line": "Release only a complete package.", "image_prompt": "A residential permit package organized on a clean desk beside house plans, no readable text.", "image_alt": "Residential permit package and house plans prepared for submittal."},
+            {"layout": "card_sequence", "title": "Keep the handoff visible", "items": [], "takeaway": "A clear handoff prevents rework."},
+            {"layout": "takeaway", "title": "Buildability comes before production", "body": "Verify the job before committing the work.", "final_line": "Make the job buildable first."},
+        ]
+        normalized = production.normalize_deck_slides({"slides": slides}, {"title": "Buildability", "learning_goal": "Make the job buildable."})
+        self.assertEqual(10, len(normalized))
+        self.assertEqual("right", normalized[1]["image_side"])
+        self.assertEqual("left", normalized[7]["image_side"])
+
+    def test_deck_plan_rejects_missing_teaching_image(self) -> None:
+        slides = [{"layout": "cover", "title": "A", "subtitle": "B", "topics": ["One", "Two", "Three"]}]
+        slides.extend({"layout": layout} for layout in ["card_sequence", "comparison", "planned_actual", "row_list", "checklist_rows", "card_sequence", "comparison", "row_list"])
+        slides.append({"layout": "takeaway"})
+        with self.assertRaisesRegex(RuntimeError, "teaching image"):
+            production.normalize_deck_slides({"slides": slides}, {"title": "Test", "learning_goal": "Test"})
+
+    def test_image_only_upload_text_is_never_extracted_for_content(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            pdf = Path(directory) / "visual-only.pdf"
+            pdf.write_bytes(b"not a real PDF")
+            uploads = [{
+                "filename": pdf.name,
+                "stored_path": str(pdf),
+                "purpose": "source_material",
+                "reference_policy": "image_only",
+            }]
+            with patch.object(production, "read_uploads", return_value=uploads), patch.object(production.subprocess, "run") as run:
+                excerpts = production.source_excerpts("demo")
+            run.assert_not_called()
+            self.assertEqual("No readable uploaded excerpts were available.", excerpts)
+
+    def test_context_only_upload_text_can_guide_content_without_becoming_mandatory_reference(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            pdf = Path(directory) / "context.pdf"
+            pdf.write_bytes(b"not a real PDF")
+            uploads = [{
+                "filename": pdf.name,
+                "stored_path": str(pdf),
+                "purpose": "source_material",
+                "reference_policy": "context_only",
+            }]
+            completed = type("Completed", (), {"stdout": "Useful internal terminology."})()
+            with patch.object(production, "read_uploads", return_value=uploads), patch.object(production.subprocess, "run", return_value=completed):
+                excerpts = production.source_excerpts("demo")
+            self.assertIn("Useful internal terminology.", excerpts)
+
+    def test_revision_text_is_limited_to_the_matching_lesson_and_artifact(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            material = Path(directory) / "revision-note.txt"
+            material.write_text("Use the supplied photo after the inspection section.", encoding="utf-8")
+            uploads = [{
+                "filename": material.name,
+                "stored_path": str(material),
+                "purpose": "revision_material",
+                "revision_artifact_type": "study_guide",
+                "scope": "lesson_01",
+                "reference_policy": "context_only",
+            }]
+            with patch.object(production, "read_uploads", return_value=uploads):
+                matching = production.source_excerpts("demo", lesson=1, artifact_type="study_guide")
+                wrong_lesson = production.source_excerpts("demo", lesson=2, artifact_type="study_guide")
+                wrong_artifact = production.source_excerpts("demo", lesson=1, artifact_type="deck")
+            self.assertIn("supplied photo", matching)
+            self.assertEqual("No readable uploaded excerpts were available.", wrong_lesson)
+            self.assertEqual("No readable uploaded excerpts were available.", wrong_artifact)
+
+    def test_required_upload_binding_marks_every_citable_attachment_mandatory(self) -> None:
+        uploads = [
+            {"filename": "Construction Project Management Handbook.pdf", "upload_id": "u1", "reference_policy": "reference_only"},
+            {"filename": "Integrated Approach.pdf", "upload_id": "u2", "reference_policy": "reference_and_images"},
+        ]
+        sources = [
+            {"title": "Construction Project Management Handbook", "formal_reference": "Handbook."},
+            {"title": "Integrated Approach", "formal_reference": "Integrated Approach."},
+        ]
+        self.assertEqual([], production.bind_required_upload_sources(sources, uploads))
+        self.assertTrue(all(source["mandatory_use"] for source in sources))
+        self.assertEqual(["operator_upload", "operator_upload"], [source["origin"] for source in sources])
+
+    def test_required_upload_binding_reports_an_omitted_attachment(self) -> None:
+        uploads = [{"filename": "Required Book.pdf", "upload_id": "u1", "reference_policy": "reference_only"}]
+        self.assertEqual(["Required Book.pdf"], production.bind_required_upload_sources([], uploads))
+
+    def test_lesson_reference_merge_preserves_attached_and_researched_sources(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            run = Path(directory)
+            (run / "sources").mkdir()
+            ledger = {"sources": [{
+                "source_id": "S01",
+                "title": "Attached Construction Handbook",
+                "formal_reference": "Publisher. Attached Construction Handbook.",
+                "source_type": "book",
+                "origin": "operator_upload",
+                "mandatory_use": True,
+                "currency_validation": {"status": "validated-current"},
+                "claims_supported": [{"claim": "Attached guidance", "lesson_numbers": [1]}],
+            }]}
+            refresh = {"sources": [{
+                "source_id": "L01S01",
+                "title": "Current External Guidance",
+                "formal_reference": "Authority. Current External Guidance.",
+                "source_type": "government",
+                "currency_validation": {"status": "validated-current"},
+                "claims_supported": [{"claim": "Current rule", "lesson_numbers": [1]}],
+            }]}
+            _, references = production.merge_lesson_sources(run, ledger, refresh, 1)
+            self.assertIn("Attached Construction Handbook", references)
+            self.assertIn("Current External Guidance", references)
+
+    def test_cached_draft_is_invalid_when_a_mandatory_attachment_is_missing(self) -> None:
+        ledger = {"sources": [{
+            "title": "Attached Construction Handbook",
+            "formal_reference": "Publisher. Attached Construction Handbook.",
+            "origin": "operator_upload",
+            "mandatory_use": True,
+        }]}
+        stale = "# Introduction\n\nText.\n\n# References\n\n- A current external source.\n"
+        current = "# Introduction\n\nText.\n\n# References\n\n- Publisher. Attached Construction Handbook.\n"
+        self.assertFalse(production.draft_has_all_mandatory_upload_references(stale, ledger))
+        self.assertTrue(production.draft_has_all_mandatory_upload_references(current, ledger))
+
+    def test_reviewer_ledger_keeps_all_lesson_sources_without_unrelated_bulk(self) -> None:
+        ledger = {"course_slug": "demo", "sources": [
+            {"source_id": "A", "title": "Used", "formal_reference": "Used reference", "claims_supported": [{"claim": "Supported", "lesson_numbers": [1]}], "unused_bulk": "x" * 1000},
+            {"source_id": "B", "title": "Other", "claims_supported": [{"claim": "Other", "lesson_numbers": [2]}]},
+        ]}
+        compact = production.compact_reviewer_ledger(ledger, 1)
+        self.assertEqual([item["source_id"] for item in compact["sources"]], ["A"])
+        self.assertNotIn("unused_bulk", compact["sources"][0])
+
+    def test_localized_deck_removes_dash_punctuation_recursively(self) -> None:
+        value = {"topics": ["planejar–acompanhar–ajustar", "Escopo — não tarefas"]}
+        cleaned = production.normalize_localized_dash_punctuation(value)
+        self.assertEqual(cleaned, {"topics": ["planejar, acompanhar, ajustar", "Escopo; não tarefas"]})
+
+    def test_localized_slide_visible_items_never_returns_empty(self) -> None:
+        self.assertEqual(production.localized_slide_visible_items({"title": "Título"}), ["Título"])
+        self.assertEqual(production.localized_slide_visible_items({"title": "T", "topics": ["Um", "Dois"]}), ["Um", "Dois"])
+
+    def test_localized_retry_ignores_newer_incomplete_revision(self) -> None:
+        from tempfile import TemporaryDirectory
+
+        with TemporaryDirectory() as directory:
+            folder = Path(directory)
+            complete = folder / "lesson_01_study_guide_es_r01.md"
+            incomplete = folder / "lesson_01_study_guide_es_r02.md"
+            complete.write_text(
+                "\n".join([f"# Sección {number:02d}: Título" for number in range(1, 5)])
+                + "\n# Resumen y Conclusiones Clave\n- Uno\n- Dos\n- Tres\n- Cuatro\n",
+                encoding="utf-8",
+            )
+            incomplete.write_text("## Sección 01: Incompleta\n# Resumen y Conclusiones Clave\n", encoding="utf-8")
+            self.assertEqual(complete, production.latest_complete_localized_draft(folder, "lesson_01", "es"))
+
     def test_study_guide_revision_is_shared_across_draft_and_pdf(self) -> None:
         from tempfile import TemporaryDirectory
 
@@ -60,6 +266,21 @@ class GregLiveProductionTests(unittest.TestCase):
         }
         self.assertFalse(production.lesson_sources_are_adequate(weak))
         self.assertTrue(production.lesson_sources_are_adequate(strong))
+
+    def test_lesson_source_refresh_audit_covers_all_lesson_sources(self) -> None:
+        refresh = {"source_gaps": [], "sources": [{"source_id": "L01S01"}]}
+        ledger = {
+            "sources": [
+                {"source_id": "S01", "claims_supported": [{"lesson_numbers": [1]}]},
+                {"source_id": "L01S01", "claims_supported": [{"lesson_numbers": [1]}]},
+                {"source_id": "S02", "claims_supported": [{"lesson_numbers": [2]}]},
+            ]
+        }
+        normalized = production.normalize_lesson_source_refresh(refresh, ledger, 1)
+        self.assertEqual(["L01S01", "S01"], normalized["source_ids_reviewed"])
+        self.assertEqual("completed", normalized["status"])
+        self.assertEqual("completed", normalized["current_claim_validation"])
+        self.assertEqual([], normalized["gaps"])
 
     def test_student_reference_removes_chapter_and_page_locators(self) -> None:
         source = {

@@ -42,12 +42,17 @@ def normalize(value: str) -> str:
 
 def lesson_numbers(run: Path) -> list[str]:
     found: set[str] = set()
-    for pattern in ["lesson_draft/lesson_*_draft.md", "docx_pdf/lesson_*_study_guide_spec.json", "deck/lesson_*_visual_plan.json"]:
+    for pattern in ["lesson_draft/lesson_*_draft*.md", "docx_pdf/lesson_*_study_guide_spec*.json", "review/lesson_*_visual_plan.json", "deck/lesson_*_visual_plan.json"]:
         for path in run.glob(pattern):
             match = re.search(r"lesson_(\d+)_", path.name)
             if match:
                 found.add(f"{int(match.group(1)):02d}")
     return sorted(found)
+
+
+def latest_path(folder: Path, pattern: str) -> Path | None:
+    matches = sorted(folder.glob(pattern), key=lambda item: (item.stat().st_mtime, item.name))
+    return matches[-1] if matches else None
 
 
 def extract_glossary(markdown: str) -> list[dict[str, str]]:
@@ -78,7 +83,8 @@ def visual_structure(visual: dict[str, Any]) -> str:
 
 
 def collect_study_visuals(run: Path, lesson: str) -> list[dict[str, Any]]:
-    spec = read_json(run / "docx_pdf" / f"lesson_{lesson}_study_guide_spec.json")
+    spec_path = latest_path(run / "docx_pdf", f"lesson_{lesson}_study_guide_spec_r*.json") or latest_path(run / "docx_pdf", f"lesson_{lesson}_study_guide_spec.json")
+    spec = read_json(spec_path) if spec_path else {}
     visuals = []
     for index, visual in enumerate(spec.get("visuals") or [], start=1):
         title = str(visual.get("title") or "").strip()
@@ -101,7 +107,8 @@ def collect_study_visuals(run: Path, lesson: str) -> list[dict[str, Any]]:
 
 
 def collect_deck_visuals(run: Path, lesson: str) -> list[dict[str, Any]]:
-    plan = read_json(run / "deck" / f"lesson_{lesson}_visual_plan.json")
+    plan_path = latest_path(run / "deck", f"lesson_{lesson}_visual_plan*.json") or latest_path(run / "review", f"lesson_{lesson}_visual_plan*.json")
+    plan = read_json(plan_path) if plan_path else {}
     visuals = []
     for index, visual in enumerate(plan.get("visuals") or [], start=1):
         if visual.get("role") == "brand" or visual.get("visual_type") in {"brand-mark", "logo"}:
@@ -132,7 +139,7 @@ def build_registry(course_slug: str) -> dict[str, Any]:
     glossary_terms = []
     visuals = []
     for lesson in lesson_numbers(run):
-        draft_path = run / "lesson_draft" / f"lesson_{lesson}_draft.md"
+        draft_path = latest_path(run / "lesson_draft", f"lesson_{lesson}_draft_r*.md") or run / "lesson_draft" / f"lesson_{lesson}_draft.md"
         terms = extract_glossary(read_text(draft_path))
         lesson_study_visuals = collect_study_visuals(run, lesson)
         lesson_deck_visuals = collect_deck_visuals(run, lesson)

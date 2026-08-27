@@ -21,6 +21,16 @@ let currentSlide = 0;
 let currentSpec = null;
 const ROOT = process.cwd();
 
+function localizedLabels() {
+  if (currentSpec?.locale === "pt_br") {
+    return { lesson: "LIÇÃO", topics: "Principais tópicos abordados", takeaway: "CONCLUSÃO DA LIÇÃO" };
+  }
+  if (currentSpec?.locale === "es") {
+    return { lesson: "LECCIÓN", topics: "Temas principales", takeaway: "CONCLUSIÓN DE LA LECCIÓN" };
+  }
+  return { lesson: "LESSON", topics: "Main topics covered", takeaway: "LESSON TAKEAWAY" };
+}
+
 function assertInsideRoot(resolvedPath, originalValue) {
   const relative = path.relative(ROOT, resolvedPath);
   if (relative === "" || (!relative.startsWith("..") && !path.isAbsolute(relative))) {
@@ -170,7 +180,7 @@ async function addFooter(slide, n, startX = 68) {
 }
 
 function addEyebrow(slide) {
-  addText(slide, "eyebrow", `LESSON ${currentSpec.lesson_number}`, 72, 44, 300, 26, {
+  addText(slide, "eyebrow", `${localizedLabels().lesson} ${currentSpec.lesson_number}`, 72, 44, 300, 26, {
     fontSize: 16,
     bold: true,
     color: C.orange,
@@ -247,7 +257,7 @@ async function renderCover(deck, slideSpec) {
     fontSize: 22,
     color: C.slate,
   });
-  addText(slide, "lesson", `LESSON ${currentSpec.lesson_number}`, 218, 156, 220, 28, {
+  addText(slide, "lesson", `${localizedLabels().lesson} ${currentSpec.lesson_number}`, 218, 156, 220, 28, {
     fontSize: 18,
     bold: true,
     color: C.orange,
@@ -262,7 +272,7 @@ async function renderCover(deck, slideSpec) {
     bold: true,
     color: C.ink,
   });
-  addText(slide, "topics", "Main topics covered", 222, 410, 620, 32, {
+  addText(slide, "topics", localizedLabels().topics, 222, 410, 620, 32, {
     fontSize: 21,
     bold: true,
     color: C.navy,
@@ -278,25 +288,26 @@ async function renderImageBullets(deck, slideSpec) {
   const image = slideSpec.image || {};
   const imagePath = runPath(image.path);
   const imageLeft = slideSpec.image_side === "left";
-  const textX = imageLeft ? 622 : 88;
-  const imageX = imageLeft ? 88 : 716;
-  const imageW = imageLeft ? 458 : 466;
-  const imageH = imageLeft ? 296 : 286;
-  const imageY = imageLeft ? 238 : 248;
+  const textX = imageLeft ? 650 : 72;
+  const textW = 558;
+  const imageX = imageLeft ? 72 : 668;
+  const imageW = 540;
+  const imageH = 330;
+  const imageY = 236;
 
   if (imageLeft) {
     await addImage(slide, image.name || "teaching-image", imagePath, imageX, imageY, imageW, imageH, image.alt, "cover");
   }
 
-  addText(slide, "intro", slideSpec.intro, textX, imageLeft ? 236 : 238, imageLeft ? 570 : 548, imageLeft ? 88 : 62, {
-    fontSize: imageLeft ? 22 : 23,
+  addText(slide, "intro", slideSpec.intro, textX, 236, textW, 76, {
+    fontSize: 22,
     color: C.gray,
   });
   (slideSpec.bullets || []).forEach((item, idx) => {
-    addBullet(slide, item, textX, (imageLeft ? 358 : 334) + idx * 62, imageLeft ? 548 : 548, idx + 1, 21);
+    addBullet(slide, item, textX, 338 + idx * 62, textW, idx + 1, 21);
   });
   if (slideSpec.bottom_line) {
-    addText(slide, "bottom-line", slideSpec.bottom_line, textX, 550, 548, 42, { fontSize: 24, bold: true, color: C.navy });
+    addText(slide, "bottom-line", slideSpec.bottom_line, textX, 548, textW, 42, { fontSize: 23, bold: true, color: C.navy });
   }
   if (!imageLeft) {
     await addImage(slide, image.name || "teaching-image", imagePath, imageX, imageY, imageW, imageH, image.alt, "cover");
@@ -307,16 +318,19 @@ async function renderIntroImageBullets(deck, slideSpec) {
   const slide = addSlide(deck);
   await addChrome(slide, currentSlide);
   addTitle(slide, slideSpec.title, slideSpec.subtitle);
-  addText(slide, "intro", slideSpec.intro, 88, 240, 550, 92, { fontSize: 22, color: C.gray });
-  (slideSpec.bullets || []).forEach((item, idx) => addBullet(slide, item, 88, 360 + idx * 66, 575, idx + 1, 21));
+  const imageLeft = slideSpec.image_side === "left";
+  const textX = imageLeft ? 650 : 72;
+  const imageX = imageLeft ? 72 : 668;
+  addText(slide, "intro", slideSpec.intro, textX, 236, 558, 76, { fontSize: 22, color: C.gray });
+  (slideSpec.bullets || []).forEach((item, idx) => addBullet(slide, item, textX, 338 + idx * 66, 558, idx + 1, 21));
   await addImage(
     slide,
     slideSpec.image.name || "teaching-image",
     runPath(slideSpec.image.path),
-    738,
-    238,
-    444,
-    286,
+    imageX,
+    236,
+    540,
+    330,
     slideSpec.image.alt,
     "cover"
   );
@@ -417,7 +431,7 @@ async function renderChecklistRows(deck, slideSpec) {
 async function renderTakeaway(deck, slideSpec) {
   const slide = addSlide(deck);
   await addChrome(slide, currentSlide);
-  addText(slide, "lesson-label", `LESSON ${currentSpec.lesson_number} TAKEAWAY`, 78, 98, 420, 28, { fontSize: 17, bold: true, color: C.orange });
+  addText(slide, "lesson-label", `${localizedLabels().takeaway} ${currentSpec.lesson_number}`, 78, 98, 520, 28, { fontSize: 17, bold: true, color: C.orange });
   addText(slide, "takeaway-title", slideSpec.title, 78, 150, 1044, 100, {
     fontSize: 44,
     bold: true,

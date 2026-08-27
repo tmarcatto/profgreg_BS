@@ -21,6 +21,28 @@ spec.loader.exec_module(checker)
 
 
 class GregServerStatusTests(unittest.TestCase):
+    def test_jobs_created_in_same_second_have_unique_ids(self) -> None:
+        (ROOT / "tmp" / "jobs").mkdir(parents=True, exist_ok=True)
+        with tempfile.TemporaryDirectory(dir=ROOT / "tmp" / "jobs") as tmp:
+            root = Path(tmp)
+            with patch.object(checker, "iso_now", return_value="2026-08-25T04:16:46Z"):
+                first = checker.create_job(job_root=root, request_type="backup")
+                second = checker.create_job(job_root=root, request_type="backup")
+            self.assertNotEqual(first["job_id"], second["job_id"])
+            self.assertEqual(len(list(root.glob("job_*/job.json"))), 2)
+
+    def test_worker_startup_recovers_interrupted_jobs(self) -> None:
+        (ROOT / "tmp" / "jobs").mkdir(parents=True, exist_ok=True)
+        with tempfile.TemporaryDirectory(dir=ROOT / "tmp" / "jobs") as tmp:
+            root = Path(tmp)
+            job = checker.create_job(job_root=root, request_type="backup")
+            checker.transition_job(root, job["job_id"], "running", note="claimed")
+            recovered = checker.recover_interrupted_jobs(root)
+            current = checker.list_jobs(root)[0]
+            self.assertEqual(recovered, [job["job_id"]])
+            self.assertEqual(current["state"], "failed")
+            self.assertIn("Worker restart interrupted", current["last_error"])
+
     def test_qa_report_passed_detection(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             path = Path(tmp) / "deploy_qa.md"
@@ -96,6 +118,7 @@ class GregServerStatusTests(unittest.TestCase):
         manifest = data["manifest_data"]
         self.assertIn("/etc/profgreg", manifest["excluded_secret_paths"])
         self.assertIn("/srv/profgreg/uploads", manifest["included_roots"])
+        self.assertIn("/opt/profgreg/app/runs", manifest["included_roots"])
 
     def test_create_and_transition_job(self) -> None:
         (ROOT / "tmp" / "jobs").mkdir(parents=True, exist_ok=True)
@@ -109,6 +132,44 @@ class GregServerStatusTests(unittest.TestCase):
             self.assertEqual(running["state"], "running")
             completed = checker.transition_job(root, job["job_id"], "completed")
             self.assertEqual(completed["state"], "completed")
+
+    def test_list_jobs_reports_active_timing_step(self) -> None:
+        (ROOT / "tmp" / "jobs").mkdir(parents=True, exist_ok=True)
+        with tempfile.TemporaryDirectory(dir=ROOT / "tmp" / "jobs") as tmp:
+            root = Path(tmp)
+            job = checker.create_job(job_root=root, request_type="backup")
+            trace = root / job["job_id"] / "timing.jsonl"
+            trace.write_text(
+                '{"event":"activity_started","activity":"model_text:technical_content","started_at":"2026-08-26T13:00:00Z"}\n',
+                encoding="utf-8",
+            )
+            listed = checker.list_jobs(root)
+            self.assertEqual(listed[0]["progress"]["activity"], "model_text:technical_content")
+
+    def test_worker_lanes_route_content_and_decks_separately(self) -> None:
+        (ROOT / "tmp" / "jobs").mkdir(parents=True, exist_ok=True)
+        with tempfile.TemporaryDirectory(dir=ROOT / "tmp" / "jobs") as tmp:
+            root = Path(tmp)
+            book = checker.create_job(
+                job_root=root,
+                request_type="production_stage",
+                course_slug="demo",
+                payload={"stage": "study_guide", "lessons": [3]},
+            )
+            deck = checker.create_job(
+                job_root=root,
+                request_type="production_stage",
+                course_slug="demo",
+                payload={"stage": "deck", "lessons": [2]},
+            )
+            self.assertEqual(checker.job_lane(book), "content")
+            self.assertEqual(checker.job_lane(deck), "delivery")
+            self.assertEqual(checker.next_queued_job(root, worker_lane="content")["job_id"], book["job_id"])
+            self.assertEqual(checker.next_queued_job(root, worker_lane="delivery")["job_id"], deck["job_id"])
+            claimed = checker.claim_queued_job(root, worker_lane="content")
+            self.assertEqual(claimed["job_id"], book["job_id"])
+            self.assertIsNone(checker.next_queued_job(root, worker_lane="content"))
+            self.assertEqual(checker.next_queued_job(root, worker_lane="delivery")["job_id"], deck["job_id"])
 
     def test_invalid_job_transition_fails(self) -> None:
         (ROOT / "tmp" / "jobs").mkdir(parents=True, exist_ok=True)

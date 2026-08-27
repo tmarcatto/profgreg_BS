@@ -54,8 +54,10 @@ User-attached books may be used as references, following the normal source rules
 Respect the upload manifest policy for every user-attached source:
 
 - `context_only`: use as production context only; do not list it in student-facing References and do not use its images.
-- `reference_only`: it may appear in student-facing References when it passes normal source rules, but its images may not be reused.
-- `reference_and_images`: it may appear in student-facing References when it passes normal source rules, and its images may be reused when the source/license context supports that use and the image is properly referenced.
+- `reference_only`: it must be materially used, mapped to claims, and appear once in student-facing References after applicability validation; its images may not be reused.
+- `reference_and_images`: it must be materially used, mapped to claims, and appear once in student-facing References after applicability validation; its images may be reused when the source/license context supports that use and the image is properly referenced.
+
+The required research mix is always eligible operator attachments plus current external research. Never let lesson-level source refresh replace or remove an eligible attached reference. If an attachment cannot be validated or is irrelevant to the declared course, block and explain the conflict instead of silently dropping it.
 
 If an older attachment predates the upload-policy metadata, treat it as `context_only` until the operator explicitly reclassifies it. Do not cite attachments as "course source library."
 

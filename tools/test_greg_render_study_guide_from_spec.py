@@ -90,6 +90,53 @@ class RenderStudyGuideFromSpecTests(unittest.TestCase):
         self.assertIn("safety", " ".join(diagram.canv.text).lower())
         self.assertIn("homeowner", " ".join(diagram.canv.text).lower())
 
+    def test_wrap_lines_never_leaves_a_word_wider_than_the_box(self) -> None:
+        if pdf_renderer is None:
+            self.skipTest("ReportLab is not installed in this Python environment.")
+        lines = pdf_renderer.wrap_lines("Pre-Construction", pdf_renderer.FONT_BOLD, 8.5, 48)
+        self.assertGreaterEqual(len(lines), 2)
+        self.assertTrue(all(pdf_renderer.stringWidth(line, pdf_renderer.FONT_BOLD, 8.5) <= 48 for line in lines))
+
+    def test_process_flow_keeps_combined_title_and_detail_inside_each_box(self) -> None:
+        if pdf_renderer is None:
+            self.skipTest("ReportLab is not installed in this Python environment.")
+        class Canvas:
+            def __init__(self): self.text = []
+            def setFillColor(self, *_): pass
+            def setStrokeColor(self, *_): pass
+            def setLineWidth(self, *_): pass
+            def setFont(self, *_): pass
+            def roundRect(self, *_ , **__): pass
+            def drawString(self, x, y, text): self.text.append((x, y, text))
+            def line(self, *_): pass
+            def beginPath(self):
+                class Path:
+                    def moveTo(self, *_): pass
+                    def lineTo(self, *_): pass
+                    def close(self): pass
+                return Path()
+            def drawPath(self, *_, **__): pass
+        nodes = [
+            {"title": "Opportunity & Fit", "detail": "Screen job; brief risks and gaps"},
+            {"title": "Pre-Construction Plan", "detail": "Define scope, budget, controls"},
+            {"title": "Design & Permit Readiness", "detail": "Route questions; permit filed"},
+            {"title": "Procurement & Mobilization", "detail": "Order long-leads; set up site"},
+            {"title": "Construction Control", "detail": "Track changes, cost, quality"},
+            {"title": "Closeout & Warranty", "detail": "Punch, records, callback response"},
+        ]
+        diagram = pdf_renderer.ProcessFlowDiagram("Residential Project Lifecycle Stages", nodes)
+        diagram.width = 468
+        diagram.canv = Canvas()
+        diagram.draw()
+        node_text = [(y, text) for _, y, text in diagram.canv.text if text not in {"1", "2", "3", "4", "5", "6"}]
+        self.assertTrue(node_text)
+        self.assertTrue(all(y >= 52 for y, _ in node_text))
+        rendered_lines = {text for _, text in node_text}
+        self.assertIn("Opportunity", rendered_lines)
+        self.assertIn("Procurement", rendered_lines)
+        self.assertIn("Construction", rendered_lines)
+        self.assertNotIn("Opportun", rendered_lines)
+
     def test_source_with_paragraph_summary_is_blocked_before_rendering(self) -> None:
         with tempfile.TemporaryDirectory(dir=ROOT / "tmp") as tmp:
             draft = Path(tmp) / "draft.md"
@@ -140,6 +187,8 @@ class RenderStudyGuideFromSpecTests(unittest.TestCase):
         self.assertTrue(pdf_renderer.starts_structural_page("Section 01 - The First Decision"))
         self.assertTrue(pdf_renderer.starts_structural_page("Summary and Key Takeaways"))
         self.assertFalse(pdf_renderer.starts_structural_page("Section 02 - The Next Decision"))
+        self.assertFalse(pdf_renderer.starts_structural_page("Seção 02: A Próxima Decisão", "pt_br"))
+        self.assertFalse(pdf_renderer.starts_structural_page("Sección 02: La Próxima Decisión", "es"))
 
     def test_visual_heading_matches_section_prefix(self) -> None:
         if pdf_renderer is None:
@@ -158,6 +207,12 @@ class RenderStudyGuideFromSpecTests(unittest.TestCase):
             blocks[0]["body"],
             "These responsibilities are one job, not six. The duties run simultaneously.",
         )
+
+    def test_all_common_markdown_bullet_markers_render_as_bullets(self) -> None:
+        if pdf_renderer is None:
+            self.skipTest("ReportLab is not installed in this Python environment.")
+        blocks = pdf_renderer.parse_markdown("* Primeiro\n+ Segundo\n- Terceiro")
+        self.assertEqual(blocks, [{"type": "bullets", "items": ["Primeiro", "Segundo", "Terceiro"]}])
 
     def test_unapproved_callout_label_is_not_rendered_as_box(self) -> None:
         if pdf_renderer is None:

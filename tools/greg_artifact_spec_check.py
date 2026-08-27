@@ -188,11 +188,27 @@ def deck_checks(spec: dict[str, Any]) -> list[Finding]:
         findings.append(Finding("fail", "deck_cover_topics", "Cover slide must include main topics."))
 
     image_slides = [index + 1 for index, slide in enumerate(slides) if slide.get("image")]
+    image_layout_slides = [index + 1 for index, slide in enumerate(slides) if slide.get("layout") in {"intro_image_bullets", "image_bullets"}]
     consecutive = [(a, b) for a, b in zip(image_slides, image_slides[1:]) if b == a + 1]
     if consecutive:
         findings.append(Finding("fail", "deck_image_cadence", f"Image slides are consecutive: {consecutive}."))
     else:
         findings.append(Finding("pass", "deck_image_cadence", "Image slides are not consecutive."))
+
+    if image_layout_slides and all(isinstance(slides[index - 1].get("image"), dict) for index in image_layout_slides):
+        findings.append(Finding("pass", "deck_required_teaching_image", f"Deck includes half-slide teaching image layout(s): {image_layout_slides}."))
+    else:
+        findings.append(Finding("fail", "deck_required_teaching_image", "Deck needs at least one image-plus-teaching-bullets slide with a declared image asset."))
+
+    body_layouts = [str(slide.get("layout") or "") for slide in slides[1:-1]]
+    if len(set(body_layouts)) >= 6:
+        findings.append(Finding("pass", "deck_layout_diversity", f"Deck uses {len(set(body_layouts))} distinct body layouts."))
+    else:
+        findings.append(Finding("fail", "deck_layout_diversity", "Deck needs at least six distinct body layouts across slides 2-9."))
+    if any(left == right for left, right in zip(body_layouts, body_layouts[1:])):
+        findings.append(Finding("fail", "deck_adjacent_layout_repeat", "Adjacent body slides repeat the same layout."))
+    else:
+        findings.append(Finding("pass", "deck_adjacent_layout_repeat", "No adjacent body slides repeat a layout."))
 
     missing_image_fields = []
     for index, slide in enumerate(slides, start=1):

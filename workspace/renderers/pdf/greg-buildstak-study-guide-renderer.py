@@ -76,6 +76,9 @@ styles.add(ParagraphStyle(name="H2Keep", parent=styles["H2Greg"], keepWithNext=1
 styles.add(ParagraphStyle(name="RefGreg", parent=styles["BodyGreg"], fontSize=8.5, leading=11.5, leftIndent=10, firstLineIndent=-10, spaceAfter=5))
 styles.add(ParagraphStyle(name="CalloutLabel", parent=styles["BodyGreg"], fontName=FONT_BOLD, fontSize=10, leading=12, textColor=NAVY, spaceAfter=0))
 styles.add(ParagraphStyle(name="CalloutBody", parent=styles["BodyGreg"], fontSize=9.5, leading=13, textColor=INK, spaceAfter=0))
+styles.add(ParagraphStyle(name="BridgeLabel", parent=styles["CalloutLabel"], fontSize=9, leading=10))
+styles.add(ParagraphStyle(name="BridgeBody", parent=styles["CalloutBody"], fontSize=8.5, leading=10.5))
+styles.add(ParagraphStyle(name="BridgeLead", parent=styles["BodyGreg"], fontSize=9.2, leading=12, textColor=MUTED, spaceAfter=10))
 styles.add(ParagraphStyle(name="Caption", parent=styles["BodyGreg"], fontSize=8.6, leading=11, textColor=MUTED, alignment=TA_CENTER, spaceBefore=4, spaceAfter=10))
 
 
@@ -131,8 +134,27 @@ def inline(text: str) -> str:
     return escaped
 
 
-def wrap_lines(text: str, font: str, size: int, max_width: float) -> list[str]:
-    words = text.split()
+def wrap_lines(text: str, font: str, size: int, max_width: float, *, break_long_words: bool = True) -> list[str]:
+    words: list[str] = []
+    for raw_word in text.split():
+        if stringWidth(raw_word, font, size) <= max_width or not break_long_words:
+            words.append(raw_word)
+            continue
+        # A narrow process box can be smaller than a legitimate compound word
+        # such as "Pre-Construction". Split first at hyphens, then at the
+        # character boundary as a last resort. No rendered line may exceed its
+        # declared box merely because the token itself is long.
+        pieces = re.findall(r"[^-]+-?", raw_word) or [raw_word]
+        for piece in pieces:
+            pending = piece
+            while pending and stringWidth(pending, font, size) > max_width:
+                cut = 1
+                while cut < len(pending) and stringWidth(pending[: cut + 1], font, size) <= max_width:
+                    cut += 1
+                words.append(pending[:cut])
+                pending = pending[cut:]
+            if pending:
+                words.append(pending)
     lines: list[str] = []
     current = ""
     for word in words:
@@ -235,21 +257,26 @@ class Callout:
         orange_labels = {"APPLY IT", "HANDS-ON EXAMPLE", "SCENARIO"}
         border = ORANGE if self.label.upper() in orange_labels else NAVY
         fill = PALE_ORANGE if self.label.upper() in orange_labels else LIGHT
+        # A bridge commonly closes the last teaching section immediately
+        # before the mandatory Summary page. Keep it with the preceding prose
+        # using a compact, still legible treatment instead of stranding it on
+        # a nearly empty page of its own.
+        compact_bridge = self.label.upper() in {"BRIDGE", "PONTE", "PUENTE"}
         table = Table(
-            [[Paragraph(self.label, styles["CalloutLabel"]), Paragraph(inline(self.body), styles["CalloutBody"])]],
-            colWidths=[1.6 * inch, 4.85 * inch],
+            [[Paragraph(self.label, styles["BridgeLabel"] if compact_bridge else styles["CalloutLabel"]), Paragraph(inline(self.body), styles["BridgeBody"] if compact_bridge else styles["CalloutBody"])]],
+            colWidths=[1.2 * inch, 5.25 * inch] if compact_bridge else [1.6 * inch, 4.85 * inch],
             hAlign="LEFT",
         )
         table.setStyle(TableStyle([
             ("BOX", (0, 0), (-1, -1), 1.1, border),
             ("BACKGROUND", (0, 0), (-1, -1), fill),
             ("VALIGN", (0, 0), (-1, -1), "TOP"),
-            ("LEFTPADDING", (0, 0), (-1, -1), 12),
-            ("RIGHTPADDING", (0, 0), (-1, -1), 12),
-            ("TOPPADDING", (0, 0), (-1, -1), 10),
-            ("BOTTOMPADDING", (0, 0), (-1, -1), 10),
+            ("LEFTPADDING", (0, 0), (-1, -1), 5 if compact_bridge else 12),
+            ("RIGHTPADDING", (0, 0), (-1, -1), 5 if compact_bridge else 12),
+            ("TOPPADDING", (0, 0), (-1, -1), 4 if compact_bridge else 10),
+            ("BOTTOMPADDING", (0, 0), (-1, -1), 4 if compact_bridge else 10),
         ]))
-        return KeepTogether([Spacer(1, 7), table, Spacer(1, 9)])
+        return KeepTogether([Spacer(1, 3 if compact_bridge else 7), table, Spacer(1, 3 if compact_bridge else 9)])
 
 
 class CardRowDiagram(Flowable):
@@ -306,7 +333,7 @@ class ProcessFlowDiagram(Flowable):
         super().__init__()
         self.title = title
         self.nodes = nodes[:6]
-        self.height = 210
+        self.height = 235
 
     def wrap(self, availWidth, availHeight):
         self.width = availWidth
@@ -317,37 +344,76 @@ class ProcessFlowDiagram(Flowable):
         w = self.width
         draw_visual_title(c, self.title, w, self.height)
         count = max(len(self.nodes), 1)
-        gap = 20
+        # Six-stage flows need slightly wider cards than the original layout.
+        # Ten points still leaves a clear arrow lane while preventing
+        # legitimate labels such as "Procurement & Mobilization" from being
+        # squeezed into unreadable fragments.
+        gap = 10
         box_w = min(108, (w - gap * (count - 1)) / count)
         total_w = box_w * count + gap * (count - 1)
         x0 = (w - total_w) / 2
-        y = 45
+        y = 42
+        box_h = 120
         for index, node in enumerate(self.nodes):
             x = x0 + index * (box_w + gap)
             c.setFillColor(LIGHT)
             c.setStrokeColor(NAVY)
-            c.roundRect(x, y, box_w, 96, 5, stroke=1, fill=1)
+            c.roundRect(x, y, box_w, box_h, 5, stroke=1, fill=1)
             c.setFillColor(ORANGE)
             c.setFont(FONT_BOLD, 9)
-            c.drawString(x + 9, y + 75, str(index + 1))
+            c.drawString(x + 9, y + 98, str(index + 1))
             c.setFillColor(NAVY)
-            c.setFont(FONT_BOLD, 8.5)
-            title_lines = wrap_lines(str(node.get("title", "")), FONT_BOLD, 8.5, box_w - 20)
-            if len(title_lines) > 3:
+            title_size = 8.5
+            title_text = str(node.get("title", ""))
+            for candidate in (8.5, 8.0, 7.5, 7.0):
+                title_lines = wrap_lines(title_text, FONT_BOLD, candidate, box_w - 18, break_long_words=False)
+                title_size = candidate
+                if len(title_lines) <= 3 and all(stringWidth(line, FONT_BOLD, candidate) <= box_w - 18 for line in title_lines):
+                    break
+                # A compound may break after its visible hyphen, but ordinary
+                # words must never be split at arbitrary character positions.
+                title_lines = wrap_lines(
+                    re.sub(r"-(?=\S)", "- ", title_text),
+                    FONT_BOLD,
+                    candidate,
+                    box_w - 18,
+                    break_long_words=False,
+                )
+                if len(title_lines) <= 3 and all(stringWidth(line, FONT_BOLD, candidate) <= box_w - 18 for line in title_lines):
+                    break
+            if len(title_lines) > 3 or any(stringWidth(line, FONT_BOLD, title_size) > box_w - 18 for line in title_lines):
                 raise ValueError(f"Process-flow title does not fit in three visible lines: {node.get('title', '')}")
+            c.setFont(FONT_BOLD, title_size)
+            title_gap = title_size + 1.5
+            title_top = y + 80
             for line_index, line in enumerate(title_lines):
-                c.drawString(x + 9, y + 59 - line_index * 10, line)
+                c.drawString(x + 9, title_top - line_index * title_gap, line)
             c.setFillColor(INK)
-            c.setFont(FONT_REGULAR, 7.2)
-            detail_lines = wrap_lines(str(node.get("detail", "")), FONT_REGULAR, 7.2, box_w - 20)
-            if len(detail_lines) > 4:
+            detail_lines: list[str] = []
+            detail_size = 7.2
+            detail_top = title_top - (len(title_lines) - 1) * title_gap - 15
+            for candidate in (7.2, 6.8, 6.4):
+                candidate_lines = wrap_lines(
+                    str(node.get("detail", "")), FONT_REGULAR, candidate, box_w - 18, break_long_words=False
+                )
+                candidate_gap = candidate + 1.8
+                last_baseline = detail_top - max(0, len(candidate_lines) - 1) * candidate_gap
+                if len(candidate_lines) <= 4 and last_baseline >= y + 10 and all(
+                    stringWidth(line, FONT_REGULAR, candidate) <= box_w - 18 for line in candidate_lines
+                ):
+                    detail_lines = candidate_lines
+                    detail_size = candidate
+                    break
+            if not detail_lines and str(node.get("detail", "")).strip():
                 raise ValueError(f"Process-flow detail does not fit in four visible lines: {node.get('detail', '')}")
+            c.setFont(FONT_REGULAR, detail_size)
+            detail_gap = detail_size + 1.8
             for line_index, line in enumerate(detail_lines):
-                c.drawString(x + 9, y + 30 - line_index * 9, line)
+                c.drawString(x + 9, detail_top - line_index * detail_gap, line)
             if index < count - 1:
                 start = x + box_w + 3
                 end = x + box_w + gap - 3
-                mid_y = y + 48
+                mid_y = y + box_h / 2
                 c.setStrokeColor(ORANGE)
                 c.setFillColor(ORANGE)
                 c.setLineWidth(1.8)
@@ -642,10 +708,10 @@ def parse_markdown(markdown: str, locale: str = "en") -> list[dict[str, Any]]:
             blocks.append({"type": "paragraph", "text": f"**{line[4:].strip()}**"})
             index += 1
             continue
-        if line.startswith("- "):
+        if re.match(r"^[-*+]\s+\S", line):
             items: list[str] = []
-            while index < len(lines) and lines[index].strip().startswith("- "):
-                items.append(lines[index].strip()[2:].strip())
+            while index < len(lines) and re.match(r"^[-*+]\s+\S", lines[index].strip()):
+                items.append(re.sub(r"^[-*+]\s+", "", lines[index].strip()).strip())
                 index += 1
             blocks.append({"type": "bullets", "items": items})
             continue
@@ -825,6 +891,28 @@ def validate_visuals(visuals: list[dict[str, Any]]) -> None:
                 for node in nodes:
                     if len(str(node.get("title") or "")) > 30 or len(str(node.get("detail") or "")) > 36:
                         raise ValueError("Process-flow title/detail exceeds the visible 30/36 character limit.")
+                # Run the exact renderer against the standard content width so
+                # QA cannot approve title/detail combinations that only fit in
+                # isolation but collide or leave the bottom of a box together.
+                probe = ProcessFlowDiagram(str(visual.get("title") or ""), nodes)
+                probe.width = 6.5 * inch
+                class _FitCanvas:
+                    def setFillColor(self, *_): pass
+                    def setStrokeColor(self, *_): pass
+                    def setLineWidth(self, *_): pass
+                    def setFont(self, *_): pass
+                    def drawString(self, *_): pass
+                    def roundRect(self, *_, **__): pass
+                    def line(self, *_): pass
+                    def beginPath(self):
+                        class _Path:
+                            def moveTo(self, *_): pass
+                            def lineTo(self, *_): pass
+                            def close(self): pass
+                        return _Path()
+                    def drawPath(self, *_, **__): pass
+                probe.canv = _FitCanvas()
+                probe.draw()
         if visual_type == "source_to_wbs_matrix":
             rows = visual.get("rows")
             if not isinstance(rows, list) or not 2 <= len(rows) <= 5:
@@ -881,10 +969,28 @@ def build_story(blocks: list[dict[str, Any]], visuals: list[dict[str, Any]], loc
     story: list[Any] = [Spacer(1, 1), NextPageTemplate("normal"), PageBreak()]
     visual_after_heading = [item for item in visuals if item.get("after_heading")]
     content_blocks = front_matter_blocks(blocks)
+    # A final Bridge immediately before a forced structural page (normally the
+    # Summary) can never share the prior full page and otherwise creates an
+    # unattractive near-empty page. Preserve its teaching text as a restrained
+    # lead-in on the following structural page instead of stranding a box.
+    bridge_labels = {"BRIDGE", "PONTE", "PUENTE"}
+    for index, block in enumerate(content_blocks[:-1]):
+        following = content_blocks[index + 1]
+        if (
+            block.get("type") == "callout"
+            and str(block.get("label") or "").upper() in bridge_labels
+            and following.get("type") == "h1"
+            and starts_structural_page(str(following.get("text") or ""), locale)
+        ):
+            content_blocks[index] = {"type": "skip"}
+            content_blocks[index + 1] = {**following, "bridge_lead": str(block.get("body") or "")}
     current_heading = ""
     inserted_visuals: set[int] = set()
+    pending_section_header: list[Any] = []
     for block in content_blocks:
         block_type = block["type"]
+        if block_type == "skip":
+            continue
         if block_type == "page_break":
             add_page_break(story)
         elif block_type == "h1":
@@ -896,9 +1002,11 @@ def build_story(blocks: list[dict[str, Any]], visuals: list[dict[str, Any]], loc
             if match:
                 spacer = Spacer(1, 2)
                 spacer.keepWithNext = 1
-                story.extend([SectionHeader(int(match.group(1)), match.group(2), section_label), spacer])
+                pending_section_header = [SectionHeader(int(match.group(1)), match.group(2), section_label), spacer]
             else:
                 story.append(Paragraph(inline(block["text"]), styles["H1Greg"]))
+                if block.get("bridge_lead"):
+                    story.append(Paragraph(inline(str(block["bridge_lead"])), styles["BridgeLead"]))
         elif block_type == "h2":
             current_heading = block["text"]
             if normalized_heading(current_heading) == normalized_heading(locale_labels(locale)["introduction"]):
@@ -914,11 +1022,16 @@ def build_story(blocks: list[dict[str, Any]], visuals: list[dict[str, Any]], loc
             # Do not begin a fresh page with a short tail of the preceding
             # paragraph.  ReportLab will still split a paragraph that is taller
             # than a full page, but ordinary teaching paragraphs stay intact.
-            story.append(KeepTogether([paragraph]))
+            if pending_section_header:
+                story.append(KeepTogether([*pending_section_header, paragraph]))
+                pending_section_header = []
+            else:
+                story.append(KeepTogether([paragraph]))
             for index, visual in enumerate(visual_after_heading):
                 if index not in inserted_visuals and visual_matches_heading(str(visual["after_heading"]), current_heading):
                     story.extend(visual_flowables(visual))
                     inserted_visuals.add(index)
+    story.extend(pending_section_header)
     return story
 
 

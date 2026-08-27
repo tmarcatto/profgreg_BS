@@ -251,13 +251,15 @@ def summarize(course_slug: str) -> dict:
     if not course_source_qa_path.exists():
         course_source_qa_path = run / "sources" / "source_reference_qa.md"
     source_reference_passed = report_passed(course_source_qa_path, "Source/reference QA passed")
+    course_map_exists = (run / "course_map" / "course_map.md").exists() or (run / "course_map" / "course_map.json").exists()
+    has_operator_approved_lesson = any((run / "approval").glob("lesson_*_study_guide_approval.md"))
     course_map_ready = bool(
         course_map_passed is True
-        and (run / "course_map" / "course_map.md").exists()
+        and course_map_exists
         and (run / "sources" / "source_ledger.json").exists()
         and source_reference_passed is True
     )
-    if course_map_passed is True and source_reference_passed is False:
+    if course_map_passed is True and source_reference_passed is False and not has_operator_approved_lesson:
         stage = "SOURCE_QA_BLOCKED"
         gate_status = "Course Map source review requires an automatic correction before release."
         next_action = "re-run Course Map and source research; the operator file remains unavailable until QA passes."
@@ -265,6 +267,11 @@ def summarize(course_slug: str) -> dict:
         stage = "LESSON_PRODUCTION"
         gate_status = "Course Map and source ledger are ready. Select lesson(s) for course book production."
         next_action = "select one, several, or all lessons and generate course books."
+    elif course_map_exists and has_operator_approved_lesson:
+        course_map_ready = True
+        stage = "LESSON_PRODUCTION"
+        gate_status = "Course Map remains available because an operator-approved course book exists."
+        next_action = "select one, several, or all lessons and continue production."
     elif course_map_passed is True:
         stage = "SOURCE_LEDGER"
         gate_status = "Course Map is ready. Source research is next."

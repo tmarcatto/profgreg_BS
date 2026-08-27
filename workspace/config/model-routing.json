@@ -122,7 +122,7 @@
       "primary": {
         "provider": "openai",
         "model": "gpt-5.6-luna",
-        "reasoning": "max",
+        "reasoning": "high",
         "tools": ["web_search", "file_search"]
       },
       "fallbacks": [
@@ -192,7 +192,7 @@
       "primary": {
         "provider": "openai",
         "model": "gpt-5.6-luna",
-        "reasoning": "max"
+        "reasoning": "high"
       },
       "fallbacks": [
         {
@@ -207,7 +207,7 @@
       "primary": {
         "provider": "openai",
         "model": "gpt-5.6-luna",
-        "reasoning": "max"
+        "reasoning": "high"
       },
       "fallbacks": [
         {
@@ -222,7 +222,7 @@
       "primary": {
         "provider": "openai",
         "model": "gpt-5.6-luna",
-        "reasoning": "max"
+        "reasoning": "high"
       },
       "fallbacks": [
         {
@@ -263,7 +263,7 @@
       "primary": {
         "provider": "openai",
         "model": "gpt-5.6-luna",
-        "reasoning": "max"
+        "reasoning": "high"
       },
       "fallbacks": [
         {

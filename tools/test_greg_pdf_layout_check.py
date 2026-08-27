@@ -35,6 +35,7 @@ class PdfLayoutCheckUnitTests(unittest.TestCase):
 
     def test_norm(self) -> None:
         self.assertEqual(pdf_qa.norm("A\n  B\tC"), "A B C")
+        self.assertEqual(pdf_qa.norm("Pre-\nConstruction Plan"), "Pre-Construction Plan")
 
     def test_missing_pdf_fails(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
