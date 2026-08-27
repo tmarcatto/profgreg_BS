@@ -75,7 +75,11 @@ class GregUiServerTests(unittest.TestCase):
         self.assertIn("Saved unfinished courses", html)
         self.assertIn("function restoreSavedCourse", html)
         self.assertIn("/api/courses", html)
-        self.assertIn("Mark course complete", html)
+        self.assertIn('id="newCourse"', html)
+        self.assertIn('id="restartWorkspace"', html)
+        self.assertIn('id="deleteCourse"', html)
+        self.assertIn("/api/delete-course", html)
+        self.assertNotIn('id="targetLesson"', html)
         self.assertIn("uploadQueue = [];", html)
         self.assertIn("document.getElementById('files').value = '';", html)
         self.assertIn("function ensureCourseIntake", html)
@@ -112,6 +116,35 @@ class GregUiServerTests(unittest.TestCase):
         self.assertEqual([item["course_slug"] for item in workspaces], ["active-course", "complete-course"])
         self.assertEqual(workspaces[0]["status"], "active")
         self.assertEqual(workspaces[1]["status"], "completed")
+
+    def test_delete_course_workspace_removes_only_selected_course_data(self) -> None:
+        uploads_base = ROOT / "tmp" / "uploads"
+        jobs_base = ROOT / "tmp" / "jobs"
+        uploads_base.mkdir(parents=True, exist_ok=True)
+        jobs_base.mkdir(parents=True, exist_ok=True)
+        with tempfile.TemporaryDirectory() as runs_tmp, tempfile.TemporaryDirectory(dir=uploads_base) as uploads_tmp, tempfile.TemporaryDirectory(dir=jobs_base) as jobs_tmp:
+            runs_root = Path(runs_tmp)
+            selected = runs_root / "remove-me" / "input"
+            preserved = runs_root / "keep-me" / "input"
+            selected.mkdir(parents=True)
+            preserved.mkdir(parents=True)
+            (selected / "intake.md").write_text("# Remove me\n", encoding="utf-8")
+            (preserved / "intake.md").write_text("# Keep me\n", encoding="utf-8")
+            upload_dir = Path(uploads_tmp) / "remove-me"
+            upload_dir.mkdir()
+            (upload_dir / "source.pdf").write_bytes(b"pdf")
+
+            with patch.object(ui, "SESSION_RUN_ROOT", runs_root):
+                result = ui.delete_course_workspace(
+                    course_slug="remove-me",
+                    job_root=Path(jobs_tmp),
+                    upload_root=Path(uploads_tmp),
+                )
+
+            self.assertEqual(result["course_slug"], "remove-me")
+            self.assertFalse((runs_root / "remove-me").exists())
+            self.assertFalse(upload_dir.exists())
+            self.assertTrue((runs_root / "keep-me").exists())
 
     def test_safe_artifact_path_allows_runs_file(self) -> None:
         target = ROOT / "runs" / "tmp-ui-artifact" / "docx_pdf" / "sample.pdf"

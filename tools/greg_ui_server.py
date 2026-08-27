@@ -488,6 +488,40 @@ def create_course_intake(
     return {**setup.__dict__, "message": f"Course intake created: {setup.course_slug}"}
 
 
+def delete_course_workspace(*, course_slug: str, job_root: Path, upload_root: Path) -> dict:
+    """Permanently remove one inactive course and only its associated records."""
+    slug = slugify(course_slug)
+    runs_root = SESSION_RUN_ROOT.resolve()
+    run = (runs_root / slug).resolve()
+    if run.parent != runs_root or workspace_intake_path(run) is None:
+        raise ValueError("Choose an existing course workspace.")
+
+    jobs_root = safe_job_root(job_root)
+    course_jobs = [job for job in list_jobs(jobs_root) if str(job.get("course_slug") or "") == slug]
+    active_states = {"queued", "running", "needs_approval"}
+    if any(job.get("state") in active_states for job in course_jobs):
+        raise ValueError("This course has active work. Wait for it to finish or cancel it before deleting the course.")
+
+    uploads_root = safe_upload_root(upload_root)
+    uploads = upload_course_dir(uploads_root, slug).resolve()
+    if uploads.parent != uploads_root.resolve():
+        raise ValueError("Unsafe course upload path.")
+
+    shutil.rmtree(run)
+    if uploads.exists():
+        shutil.rmtree(uploads)
+
+    deleted_jobs = 0
+    for job in course_jobs:
+        job_id = str(job.get("job_id") or "")
+        job_dir = (jobs_root / job_id).resolve()
+        if job_dir.parent != jobs_root.resolve() or not job_dir.is_dir():
+            continue
+        shutil.rmtree(job_dir)
+        deleted_jobs += 1
+    return {"course_slug": slug, "deleted_jobs": deleted_jobs}
+
+
 def approval_artifact_path(course_slug: str, lesson: int, artifact_type: str) -> str:
     lesson_tag = f"lesson_{lesson:02d}"
     if artifact_type == "study_guide":
@@ -690,7 +724,7 @@ def ui_shell(default_course: str) -> str:
     .body {{ padding: 18px; }}
     .workspace-bar {{
       display: grid;
-      grid-template-columns: minmax(220px, 1fr) minmax(220px, 1fr) 160px auto;
+      grid-template-columns: minmax(220px, 1fr) minmax(220px, 1fr) auto;
       gap: 12px;
       align-items: center;
       border: 1px solid var(--line);
@@ -926,13 +960,11 @@ def ui_shell(default_course: str) -> str:
         <label for="coursePicker">Saved unfinished courses</label>
         <select id="coursePicker" aria-label="Saved unfinished courses"><option value="">Loading saved courses…</option></select>
       </div>
-      <div class="workspace-field">
-        <label for="targetLesson">Review lesson</label>
-        <input id="targetLesson" type="number" min="1" value="1" aria-label="Selected lesson" title="Selected lesson">
-      </div>
       <div class="workspace-actions">
+        <button id="newCourse" class="primary">New course</button>
         <button id="refreshWorkspace">Refresh</button>
-        <button id="completeCourse" class="ghost">Mark course complete</button>
+        <button id="restartWorkspace" class="subtle">Restart</button>
+        <button id="deleteCourse" class="danger">Delete</button>
       </div>
     </div>
     <div class="activity-now">
@@ -1188,22 +1220,6 @@ def ui_shell(default_course: str) -> str:
     function isDownloadablePath(path) {{
       return /\\.(pdf|pptx|docx|md)$/i.test(String(path || ''));
     }}
-    function selectedLessonTag() {{
-      const value = Number(document.getElementById('targetLesson').value || 1);
-      return String(Math.max(1, value)).padStart(2, '0');
-    }}
-    function selectedLessonRecord() {{
-      const tag = selectedLessonTag();
-      return (currentStatus?.lessons || []).find(item => String(item.lesson).padStart(2, '0') === tag) || null;
-    }}
-    function lessonStatus(field) {{
-      const lesson = selectedLessonRecord();
-      return lesson ? lesson[field] : '';
-    }}
-    function lessonTitle() {{
-      const lesson = selectedLessonRecord();
-      return lesson?.title || `Lesson ${{selectedLessonTag()}}`;
-    }}
     function fileExtension(path) {{
       const match = String(path || '').match(/\\.[a-z0-9]+$/i);
       return match ? match[0].toLowerCase() : '';
@@ -1211,10 +1227,11 @@ def ui_shell(default_course: str) -> str:
     function cleanFilenamePart(value) {{
       return String(value || '').replace(/[\\\\/:*?"<>|]+/g, '-').replace(/\\s+/g, ' ').trim();
     }}
-    function downloadFilename(group, artifactPath) {{
+    function downloadFilename(group, artifactPath, lesson) {{
       const ext = fileExtension(artifactPath) || (group.key.includes('deck') || group.key === 'deck' ? '.pptx' : '.pdf');
-      const lessonPart = `Lesson ${{selectedLessonTag()}}`;
-      const titlePart = cleanFilenamePart(lessonTitle());
+      const lessonNumber = Number(lesson?.lesson || lesson || 1);
+      const lessonPart = `Lesson ${{String(Math.max(1, lessonNumber)).padStart(2, '0')}}`;
+      const titlePart = cleanFilenamePart(lesson?.title || 'Course lesson');
       const suffix = group.key.includes('deck') || group.key === 'deck' ? 'Presentation' : 'Course Book';
       return `${{lessonPart}} - ${{titlePart}} - ${{suffix}}${{ext}}`;
     }}
@@ -1303,7 +1320,7 @@ def ui_shell(default_course: str) -> str:
         details.innerHTML = `<div class="notice"><strong>Lesson ${{String(target.lesson).padStart(2, '0')}} technical image batch</strong><ul>${{requestList}}</ul></div><label>Image files</label><input id="operatorImageFiles" type="file" multiple accept=".png,.jpg,.jpeg,.webp"><label>Sources and URLs</label><textarea id="operatorImageSources" placeholder="filename.ext | source or attribution | https://source-url\nOne line per file, in the same order as the requests above."></textarea>`;
       }} else {{
         const group = target.group;
-        const filename = downloadFilename(group, target.path);
+        const filename = downloadFilename(group, target.path, target);
         const supportingFiles = action.value === 'request_edits' ? `<label>Supporting files or images <span class="muted">(optional)</span></label><input id="operatorRevisionFiles" type="file" multiple accept=".pdf,.docx,.txt,.md,.png,.jpg,.jpeg,.webp"><div class="hint">These materials are bound to this edit request. Images can be used in the next course-book visual revision; they are not added as student references automatically.</div><label>Sources and URLs <span class="muted">(recommended for images)</span></label><textarea id="operatorRevisionSources" placeholder="filename.ext | source or attribution | https://source-url\nOne line per file."></textarea>` : '';
         details.innerHTML = `<div><a class="download-link" href="/artifact?path=${{encodeURIComponent(target.path)}}&filename=${{encodeURIComponent(filename)}}" target="_blank" rel="noopener">Download selected file</a></div><textarea id="operatorNote" placeholder="Required for edit requests; optional for approvals."></textarea>${{supportingFiles}}`;
       }}
@@ -1394,7 +1411,6 @@ def ui_shell(default_course: str) -> str:
       currentJobs = [];
       operatorTargetMap = {{}};
       course.value = '';
-      document.getElementById('targetLesson').value = '1';
       document.getElementById('courseTitle').value = '';
       document.getElementById('courseSlug').value = '';
       document.getElementById('syllabus').value = '';
@@ -1435,11 +1451,25 @@ def ui_shell(default_course: str) -> str:
         buttons.forEach(button => button.disabled = false);
       }}
     }}
-    async function markCourseComplete() {{
-      if (!course.value) return;
-      if (!confirm('Mark this course complete? It will remain safely stored but will no longer auto-load as unfinished.')) return;
+    function openNewCourse() {{
+      resetWorkspace();
+      document.getElementById('brief').scrollIntoView({{behavior: 'smooth', block: 'start'}});
+      document.getElementById('courseTitle').focus();
+    }}
+    function restartWorkspace() {{
+      resetWorkspace();
+      msg.textContent = 'Workspace cleared. The saved course remains on the server.';
+      document.getElementById('brief').scrollIntoView({{behavior: 'smooth', block: 'start'}});
+    }}
+    async function deleteCourse() {{
+      if (!course.value) {{
+        msg.textContent = 'Choose a saved course before deleting it.';
+        return;
+      }}
+      const selected = course.value;
+      if (!confirm(`Delete ${'{'}selected{'}'} permanently? This removes its course files, uploaded materials, and job history from the server and cannot be undone.`)) return;
       try {{
-        const data = await api('/api/complete-course', {{method: 'POST', body: JSON.stringify({{course: course.value}})}});
+        const data = await api('/api/delete-course', {{method: 'POST', body: JSON.stringify({{course: selected}})}});
         msg.textContent = data.message;
         await restoreSavedCourse();
       }} catch (error) {{ msg.textContent = error.message; }}
@@ -1702,7 +1732,7 @@ def ui_shell(default_course: str) -> str:
     async function approveArtifact(artifactType, noteId, artifactPath, lessonOverride, noteOverride) {{
       await post('/api/approve', {{
         course: course.value,
-        lesson: Number(lessonOverride || document.getElementById('targetLesson').value || 1),
+        lesson: Number(lessonOverride || 1),
         artifact_type: artifactType,
         artifact_path: artifactPath,
         note: noteOverride ?? document.getElementById(noteId)?.value ?? ''
@@ -1716,7 +1746,7 @@ def ui_shell(default_course: str) -> str:
       }}
       const form = new FormData();
       form.append('course', course.value);
-      form.append('lesson', String(Number(lessonOverride || document.getElementById('targetLesson').value || 1)));
+      form.append('lesson', String(Number(lessonOverride || 1)));
       form.append('artifact_type', artifactType);
       form.append('note', note);
       form.append('source_manifest', document.getElementById('operatorRevisionSources')?.value || '');
@@ -1792,16 +1822,17 @@ def ui_shell(default_course: str) -> str:
     document.querySelectorAll('[data-level]').forEach(btn => btn.onclick = () => setLevel(btn.dataset.level));
     document.getElementById('refreshTop').onclick = restoreSavedCourse;
     document.getElementById('refreshWorkspace').onclick = restoreSavedCourse;
+    document.getElementById('newCourse').onclick = openNewCourse;
+    document.getElementById('restartWorkspace').onclick = restartWorkspace;
     document.getElementById('coursePicker').onchange = async event => {{
       course.value = event.target.value;
       await loadWorkspace();
     }};
-    document.getElementById('completeCourse').onclick = markCourseComplete;
+    document.getElementById('deleteCourse').onclick = deleteCourse;
     document.getElementById('startProduction').onclick = startProductionFlow;
     document.getElementById('uploadScope').onchange = toggleLessonInput;
     document.getElementById('files').onchange = event => setUploadQueue(event.target.files);
     document.getElementById('upload').onclick = uploadFiles;
-    document.getElementById('targetLesson').onchange = () => {{ renderOperatorTool(); renderLessonSelection(); }};
     document.getElementById('operatorTarget').onchange = renderOperatorToolDetails;
     document.getElementById('operatorAction').onchange = () => renderOperatorToolDetails(false);
     document.getElementById('applyOperatorAction').onclick = applyOperatorAction;
@@ -1896,6 +1927,18 @@ class GregUiHandler(BaseHTTPRequestHandler):
             return
         parsed = urlparse(self.path)
         try:
+            if parsed.path == "/api/delete-course":
+                body = read_request_body(self)
+                result = delete_course_workspace(
+                    course_slug=str(body.get("course") or ""),
+                    job_root=getattr(self.server, "job_root"),
+                    upload_root=getattr(self.server, "upload_root"),
+                )
+                self.send_json(
+                    HTTPStatus.OK,
+                    {"message": f"Deleted course {result['course_slug']} and {result['deleted_jobs']} saved job record(s).", **result},
+                )
+                return
             if parsed.path == "/api/complete-course":
                 body = read_request_body(self)
                 course = slugify(str(body.get("course") or ""))
