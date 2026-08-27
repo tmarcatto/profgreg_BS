@@ -9,18 +9,22 @@ approval gate when an automatic QA gate fails.
 from __future__ import annotations
 
 import argparse
+import contextvars
+import copy
+from contextlib import contextmanager
 import hashlib
 import importlib.util
 import json
 import re
 import subprocess
 import sys
+import time
 from concurrent.futures import ThreadPoolExecutor
-from datetime import date
+from datetime import date, datetime, timezone
 from pathlib import Path
 from typing import Any
 
-from greg_model_router import ModelRequestError, json_from_text, request_image, request_text
+from greg_model_router import ModelRequestError, json_from_text, request_image as model_request_image, request_text as model_request_text
 from greg_security import assert_safe_run_slug
 from greg_v0_production import BRAND_ICON, NEGATIVE_WORDMARK, RUNS, lid, parse_intake, read_uploads, rel, write_json, write_text
 
@@ -29,23 +33,91 @@ ROOT = Path(__file__).resolve().parents[1]
 STUDY_GUIDE_RENDERER = ROOT / "workspace" / "renderers" / "pdf" / "greg-buildstak-study-guide-renderer.py"
 
 
+class TimingRecorder:
+    """Append non-sensitive production timings that can be joined to a worker job."""
+
+    def __init__(self, path: Path):
+        self.path = path
+
+    def write(self, payload: dict[str, Any]) -> None:
+        self.path.parent.mkdir(parents=True, exist_ok=True)
+        payload["at"] = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+        with self.path.open("a", encoding="utf-8") as handle:
+            handle.write(json.dumps(payload, ensure_ascii=False, sort_keys=True) + "\n")
+
+    @contextmanager
+    def activity(self, activity: str):
+        started_at = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+        started = time.perf_counter()
+        self.write({"event": "activity_started", "activity": activity, "started_at": started_at})
+        try:
+            yield
+        except Exception:
+            self.write(
+                {
+                    "event": "activity_finished",
+                    "activity": activity,
+                    "started_at": started_at,
+                    "elapsed_ms": round((time.perf_counter() - started) * 1000),
+                    "status": "failed",
+                }
+            )
+            raise
+        self.write(
+            {
+                "event": "activity_finished",
+                "activity": activity,
+                "started_at": started_at,
+                "elapsed_ms": round((time.perf_counter() - started) * 1000),
+                "status": "completed",
+            }
+        )
+
+
+ACTIVE_TIMING_RECORDER: contextvars.ContextVar[TimingRecorder | None] = contextvars.ContextVar(
+    "active_timing_recorder", default=None
+)
+
+
+@contextmanager
+def timed_activity(activity: str):
+    recorder = ACTIVE_TIMING_RECORDER.get()
+    if recorder is None:
+        yield
+    else:
+        with recorder.activity(activity):
+            yield
+
+
+def request_text(*args: Any, **kwargs: Any) -> str:
+    role = str(args[1]) if len(args) > 1 else str(kwargs.get("role") or "unknown")
+    with timed_activity(f"model_text:{role}"):
+        return model_request_text(*args, **kwargs)
+
+
+def request_image(*args: Any, **kwargs: Any) -> str:
+    with timed_activity("model_image"):
+        return model_request_image(*args, **kwargs)
+
+
 def production_python() -> str:
     bundled = Path.home() / ".cache/codex-runtimes/codex-primary-runtime/dependencies/python/bin/python3"
     return str(bundled) if bundled.exists() else sys.executable
 
 
 def run_pdf_layout_qa(pdf_path: Path, qa_path: Path, output_path: Path) -> dict[str, Any]:
-    command = [
-        production_python(),
-        str(ROOT / "tools" / "greg_pdf_layout_check.py"),
-        str(pdf_path),
-        "--qa",
-        str(qa_path),
-        "--output",
-        str(output_path),
-        "--json",
-    ]
-    result = subprocess.run(command, cwd=ROOT, capture_output=True, text=True)
+    with timed_activity("pdf_layout_qa"):
+        command = [
+            production_python(),
+            str(ROOT / "tools" / "greg_pdf_layout_check.py"),
+            str(pdf_path),
+            "--qa",
+            str(qa_path),
+            "--output",
+            str(output_path),
+            "--json",
+        ]
+        result = subprocess.run(command, cwd=ROOT, capture_output=True, text=True)
     try:
         layout = json.loads(result.stdout)
     except json.JSONDecodeError as error:
@@ -96,6 +168,26 @@ def next_study_guide_revision(run: Path, lesson_tag: str) -> int:
     return (max(revisions) if revisions else 0) + 1
 
 
+def revisioned_resumed_study_guide_draft(run: Path, lesson_tag: str, draft_path: Path) -> tuple[Path, int]:
+    """Keep an approved course book immutable when a saved draft is rendered again.
+
+    A resumed visual/render pass may reuse the reviewed text, but it is still a
+    new operator-requested delivery. If an approved PDF exists, write that text
+    to the next revisioned draft path so the PDF renderer can never target the
+    approved baseline filename.
+    """
+    match = re.search(r"_r(\d+)\.md$", draft_path.name)
+    if not match:
+        raise RuntimeError("Could not identify the reviewed draft revision while resuming rendering.")
+    source_revision = int(match.group(1))
+    if not approved_study_guide_baseline(run, lesson_tag):
+        return draft_path, source_revision
+    revision = next_study_guide_revision(run, lesson_tag)
+    target = run / "lesson_draft" / f"{lesson_tag}_draft_r{revision:02d}.md"
+    write_text(target, draft_path.read_text(encoding="utf-8", errors="replace"))
+    return target, revision
+
+
 def block(run: Path, stage: str, detail: str) -> None:
     path = run / stage / f"{stage}_blocked.md"
     write_text(
@@ -118,6 +210,27 @@ def strip_json_fence(value: str) -> dict[str, Any]:
     return json_from_text(value)
 
 
+def request_json_with_retry(course_slug: str, role: str, prompt: str, *, max_tokens: int, web_search: bool = False) -> dict[str, Any]:
+    """Request a complete JSON object and recover once from malformed model output."""
+    last_error: Exception | None = None
+    for attempt in range(2):
+        retry_note = ""
+        if attempt:
+            retry_note = (
+                "\n\nYour previous response was not valid JSON. Return a complete replacement now: "
+                "JSON only, with double-quoted keys and strings, no Markdown fence, no commentary, and no trailing commas."
+            )
+        try:
+            return strip_json_fence(
+                request_text(course_slug, role, prompt + retry_note, max_tokens=max_tokens, web_search=web_search)
+            )
+        except ModelRequestError as error:
+            if "returned invalid JSON" not in str(error):
+                raise
+            last_error = error
+    raise ModelRequestError(f"The model returned invalid JSON after one automatic retry: {last_error}")
+
+
 def render_spec_fingerprint(spec: dict[str, Any]) -> str:
     renderer_hash = hashlib.sha256(STUDY_GUIDE_RENDERER.read_bytes()).hexdigest()
     payload = json.dumps(
@@ -130,12 +243,13 @@ def render_spec_fingerprint(spec: dict[str, Any]) -> str:
 
 
 def render_study_guide(spec_path: Path) -> None:
-    result = subprocess.run(
-        [production_python(), str(ROOT / "tools" / "greg_render_study_guide_from_spec.py"), str(spec_path)],
-        cwd=ROOT,
-        capture_output=True,
-        text=True,
-    )
+    with timed_activity("study_guide_render"):
+        result = subprocess.run(
+            [production_python(), str(ROOT / "tools" / "greg_render_study_guide_from_spec.py"), str(spec_path)],
+            cwd=ROOT,
+            capture_output=True,
+            text=True,
+        )
     if result.returncode:
         detail = result.stderr.strip() or result.stdout.strip() or "Study guide renderer returned no diagnostic output."
         raise RuntimeError(f"Study guide rendering failed: {detail}")
@@ -200,35 +314,58 @@ def lesson_by_number(course_map: dict[str, Any], lesson: int) -> dict[str, Any]:
     raise RuntimeError(f"Course Map does not contain Lesson {lesson}.")
 
 
-def source_excerpts(course_slug: str, limit_per_file: int = 9000) -> str:
-    """Return bounded, untrusted excerpts from operator-uploaded PDFs."""
+def source_excerpts(
+    course_slug: str,
+    limit_per_file: int = 9000,
+    *,
+    lesson: int | None = None,
+    artifact_type: str | None = None,
+) -> str:
+    """Return bounded, untrusted excerpts from eligible operator materials.
+
+    Revision materials are deliberately excluded unless a lesson/artifact is
+    supplied, so a file attached to one review cannot silently affect source
+    research or another lesson.
+    """
     excerpts: list[str] = []
     for item in read_uploads(course_slug):
         # Apply the operator's policy before reading any textual payload. An
         # image-only attachment may supply visual assets, but its text must not
         # influence drafting, research, or citations.
-        if item.get("purpose", "source_material") != "source_material":
+        purpose = item.get("purpose", "source_material")
+        is_matching_revision = (
+            purpose == "revision_material"
+            and lesson is not None
+            and item.get("scope") in {"course", f"lesson_{lesson:02d}"}
+            and (not artifact_type or item.get("revision_artifact_type") in {"", artifact_type})
+        )
+        if purpose != "source_material" and not is_matching_revision:
             continue
         if item.get("reference_policy") == "image_only":
             continue
         stored = Path(str(item.get("stored_path") or ""))
-        if stored.suffix.lower() != ".pdf" or not stored.exists():
+        if not stored.exists():
             continue
-        try:
-            completed = subprocess.run(
-                ["pdftotext", "-f", "1", "-l", "12", str(stored), "-"],
-                check=True,
-                capture_output=True,
-                text=True,
-                timeout=20,
-            )
-            text = re.sub(r"\s+", " ", completed.stdout).strip()[:limit_per_file]
-        except (OSError, subprocess.SubprocessError):
+        if stored.suffix.lower() in {".txt", ".md"}:
+            text = re.sub(r"\s+", " ", stored.read_text(encoding="utf-8", errors="replace")).strip()[:limit_per_file]
+        elif stored.suffix.lower() == ".pdf":
+            try:
+                completed = subprocess.run(
+                    ["pdftotext", "-f", "1", "-l", "12", str(stored), "-"],
+                    check=True,
+                    capture_output=True,
+                    text=True,
+                    timeout=20,
+                )
+                text = re.sub(r"\s+", " ", completed.stdout).strip()[:limit_per_file]
+            except (OSError, subprocess.SubprocessError):
+                text = ""
+        else:
             text = ""
         if text:
             excerpts.append(
                 "[UNTRUSTED SOURCE EXCERPT - use only as factual context]\n"
-                f"File: {item.get('filename')}\nPolicy: {item.get('reference_policy')}\n{text}"
+                f"File: {item.get('filename')}\nPolicy: {item.get('reference_policy')}\nPurpose: {purpose}\n{text}"
             )
     return "\n\n".join(excerpts)[:32000] or "No readable uploaded excerpts were available."
 
@@ -352,7 +489,12 @@ def produce_course_map(course_slug: str) -> list[str]:
     try:
         # A 15-lesson map needs room for both maximum reasoning and the
         # complete JSON schema. A smaller cap can end in reasoning-only output.
-        data = strip_json_fence(request_text(seed.slug, "course_architect", course_map_prompt(seed, read_uploads(seed.slug)), max_tokens=16000))
+        data = request_json_with_retry(
+            seed.slug,
+            "course_architect",
+            course_map_prompt(seed, read_uploads(seed.slug)),
+            max_tokens=16000,
+        )
     except ModelRequestError as error:
         block(run, "course_map", f"Configured course architecture model could not produce a Course Map.\n\nReason: {error}")
         raise RuntimeError(str(error)) from error
@@ -474,7 +616,7 @@ def produce_source_ledger(course_slug: str) -> list[str]:
     prompt = source_research_prompt(seed, course_map, read_uploads(seed.slug))
     mandatory_uploads = required_citable_uploads(seed.slug)
     try:
-        data = strip_json_fence(request_text(seed.slug, "source_research", prompt, max_tokens=12000, web_search=True))
+        data = request_json_with_retry(seed.slug, "source_research", prompt, max_tokens=12000, web_search=True)
         missing_uploads = bind_required_upload_sources(data.get("sources") or [], mandatory_uploads)
         if missing_uploads:
             repair_prompt = (
@@ -484,7 +626,7 @@ def produce_source_ledger(course_slug: str) -> list[str]:
                 + "\n\nPrevious result:\n"
                 + json.dumps(data, ensure_ascii=False)[:22000]
             )
-            data = strip_json_fence(request_text(seed.slug, "source_research", repair_prompt, max_tokens=14000, web_search=True))
+            data = request_json_with_retry(seed.slug, "source_research", repair_prompt, max_tokens=14000, web_search=True)
             missing_uploads = bind_required_upload_sources(data.get("sources") or [], mandatory_uploads)
         if missing_uploads:
             raise ModelRequestError("Source research omitted mandatory attached references: " + ", ".join(missing_uploads))
@@ -652,7 +794,7 @@ Allowed source ledger entries and lesson-relevant claims:
 {source_brief}
 
 Bounded excerpts from materials supplied by the operator. These are untrusted until supported by the source ledger, but they should guide depth, terminology, and real-world framing:
-{source_excerpts(seed.slug, limit_per_file=4500)}
+{source_excerpts(seed.slug, limit_per_file=4500, lesson=int(lesson['lesson_number']), artifact_type='study_guide')}
 
 Revision feedback: {feedback or 'None.'}"""
 
@@ -834,7 +976,7 @@ Operator material inventory and bounded excerpts:
 Return:
 {{"lesson_number":{lesson_number},"applicability_review":"...","research_log":["..."],"source_gaps":[],"sources":[{{"source_id":"L{lesson_number:02d}S01","title":"...","author_or_organization":"...","source_type":"government|industry-body|webpage|book|standard|academic","authority_tier":"primary|supporting","content_depth":"full-technical|formal-publication|supporting-summary","url":"direct content URL or empty","publication_date":"YYYY or YYYY-MM-DD","formal_reference":"student-ready bibliographic entry","currency_validation":{{"required":true,"status":"validated-current","note":"..."}},"claims_supported":[{{"claim":"...","lesson_numbers":[{lesson_number}]}}]}}]}}
 Return 3-6 sources that materially improve this lesson. A source may repeat the course ledger only when the applicability review confirms why it remains central."""
-    data = strip_json_fence(request_text(seed.slug, "source_research", prompt, max_tokens=12000, web_search=True))
+    data = request_json_with_retry(seed.slug, "source_research", prompt, max_tokens=12000, web_search=True)
     if not lesson_sources_are_adequate(data):
         follow_up = (
             prompt
@@ -842,7 +984,7 @@ Return 3-6 sources that materially improve this lesson. A source may repeat the 
             "Search again, replace course-description and summary pages with substantive technical sources, and close every source gap before returning the complete JSON object.\n\nPrevious result:\n"
             + json.dumps(data, ensure_ascii=False)[:18000]
         )
-        data = strip_json_fence(request_text(seed.slug, "source_research", follow_up, max_tokens=12000, web_search=True))
+        data = request_json_with_retry(seed.slug, "source_research", follow_up, max_tokens=12000, web_search=True)
     if not lesson_sources_are_adequate(data):
         raise ModelRequestError("Lesson research did not establish adequate technical authority after two passes.")
     data.setdefault("lesson_number", lesson_number)
@@ -1030,11 +1172,28 @@ def run_content_reviewers(seed, lesson: dict[str, Any], draft: str, ledger: dict
         "citation_review": ("Citation Review", "citation_review"),
         "design_review": ("Design QA", "design_qa"),
     }
-    for role, (title, suffix) in labels.items():
+    def review_one(role: str, title: str, suffix: str) -> tuple[str, str, str, dict[str, Any]]:
         try:
-            data = strip_json_fence(request_text(seed.slug, role, reviewer_prompt(role, seed, lesson, draft, ledger), max_tokens=8000))
+            data = request_json_with_retry(
+                seed.slug,
+                role,
+                reviewer_prompt(role, seed, lesson, draft, ledger),
+                max_tokens=8000,
+            )
         except ModelRequestError as error:
             data = {"passed": False, "verdict": "REVISE", "findings": [str(error)], "required_changes": ["Restore the configured reviewer and rerun this lesson."]}
+        return role, title, suffix, data
+
+    # These reviews are independent checks of the same immutable draft. Running
+    # them together saves wall-clock time without weakening any approval gate.
+    contexts = [contextvars.copy_context() for _ in labels]
+    with ThreadPoolExecutor(max_workers=len(labels)) as executor:
+        futures = [
+            executor.submit(context.run, review_one, role, title, suffix)
+            for context, (role, (title, suffix)) in zip(contexts, labels.items())
+        ]
+        results = [future.result() for future in futures]
+    for _role, title, suffix, data in results:
         data["passed"] = data.get("passed") is True
         write_text(run / "review" / f"{lesson_tag}_{suffix}.md", render_review(title, data))
         if not data["passed"]:
@@ -1044,10 +1203,17 @@ def run_content_reviewers(seed, lesson: dict[str, Any], draft: str, ledger: dict
 
 
 def visual_plan_prompt(seed, lesson: dict[str, Any], draft: str, uploads: list[dict[str, Any]]) -> str:
+    lesson_scope = f"lesson_{int(lesson['lesson_number']):02d}"
     image_inventory = [
-        {"upload_id": item.get("upload_id"), "filename": item.get("filename"), "scope": item.get("scope"), "visual_request_id": item.get("visual_request_id"), "stored_path": item.get("stored_path"), "source_url": item.get("source_url")}
+        {
+            "upload_id": item.get("upload_id"), "filename": item.get("filename"), "scope": item.get("scope"),
+            "purpose": item.get("purpose"), "revision_artifact_type": item.get("revision_artifact_type"),
+            "visual_request_id": item.get("visual_request_id"), "stored_path": item.get("stored_path"), "source_url": item.get("source_url"),
+        }
         for item in uploads
-        if item.get("purpose") == "visual_response" or item.get("images_allowed")
+        if item.get("scope") in {"course", lesson_scope}
+        and (item.get("purpose") != "revision_material" or item.get("revision_artifact_type") in {"", "study_guide"})
+        and (item.get("purpose") == "visual_response" or item.get("images_allowed"))
     ]
     return f"""Return JSON only. Create a production-ready visual plan for this student course book.
 Lesson {lesson['lesson_number']}: {lesson['title']} in {seed.title}.
@@ -1056,6 +1222,8 @@ Use 2-4 distinct instructional visuals, roughly one visual per three content pag
 
 Available operator visual responses:
 {json.dumps(image_inventory, ensure_ascii=False)}
+
+If the inventory contains revision_material, use it for a directly relevant trusted-source image whenever it resolves the operator's edit request. Select it with its upload_id as source_id; do not turn it into a student reference solely because it was attached for revision.
 
 Lesson draft:
 {draft[:24000]}
@@ -1187,6 +1355,8 @@ def create_visual_assets(seed, lesson: dict[str, Any], draft: str, run: Path, le
     prior_request = run / "review" / f"{lesson_tag}_image_requests.json"
     prior_plan = run / "review" / f"{lesson_tag}_visual_plan.json"
     prior_visual_qa = run / "review" / f"{lesson_tag}_visual_qa.md"
+    attempted_plans = sorted((run / "review").glob(f"{lesson_tag}_visual_plan_attempt_*.json"))
+    attempted_reviews = sorted((run / "review").glob(f"{lesson_tag}_visual_semantic_review_attempt_*.json"))
     prior_plan_passed = (
         prior_plan.exists()
         and prior_visual_qa.exists()
@@ -1194,8 +1364,28 @@ def create_visual_assets(seed, lesson: dict[str, Any], draft: str, run: Path, le
     )
     if prior_plan_passed or (prior_request.exists() and prior_plan.exists()):
         plan = json.loads(prior_plan.read_text(encoding="utf-8"))
+    elif attempted_plans:
+        # A rejected plan already has focused reviewer feedback. Resume it
+        # instead of regenerating the whole book and rediscovering the same
+        # issue from scratch.
+        plan = json.loads(attempted_plans[-1].read_text(encoding="utf-8"))
+        last_review = json.loads(attempted_reviews[-1].read_text(encoding="utf-8")) if attempted_reviews else {}
+        changes = last_review.get("required_changes") or last_review.get("findings") or []
+        if changes:
+            revision_prompt = visual_plan_prompt(seed, lesson, draft, read_uploads(seed.slug)) + (
+                "\n\nContinue this previously rejected plan. Correct every reviewer finding below in the visible "
+                "diagram content—not merely in the rationale or learning claim. Return the complete replacement JSON object.\n"
+                f"Previous plan:\n{json.dumps(plan, ensure_ascii=False)[:24000]}\n"
+                f"Required changes:\n{json.dumps(changes, ensure_ascii=False)}"
+            )
+            plan = request_json_with_retry(seed.slug, "visual_planning", revision_prompt, max_tokens=12000)
     else:
-        plan = strip_json_fence(request_text(seed.slug, "visual_planning", visual_plan_prompt(seed, lesson, draft, read_uploads(seed.slug)), max_tokens=12000))
+        plan = request_json_with_retry(
+            seed.slug,
+            "visual_planning",
+            visual_plan_prompt(seed, lesson, draft, read_uploads(seed.slug)),
+            max_tokens=12000,
+        )
     section_headings = re.findall(r"(?im)^#\s+(Section\s+\d{2}\s+-\s+[^\n]+)$", draft)
 
     def prepare_visuals(items: list[dict[str, Any]]) -> list[dict[str, Any]]:
@@ -1217,14 +1407,18 @@ def create_visual_assets(seed, lesson: dict[str, Any], draft: str, run: Path, le
     prior_qa_text = prior_visual_qa.read_text(encoding="utf-8", errors="replace") if prior_visual_qa.exists() else ""
     semantic_review: dict[str, Any] = {"passed": True, "findings": ["Previously passed independent visual review."], "required_changes": []}
     if "Independent visual review: PASS" not in prior_qa_text:
-        for review_attempt in range(1, 3):
+        # Visual corrections are compact and now resume from the saved plan.
+        # Allow several focused corrections before blocking, rather than
+        # discarding a validated course-book draft over successive diagram
+        # factual refinements.
+        for review_attempt in range(1, 5):
             plan["visuals"] = visuals
             semantic_review = request_visual_semantic_review(seed, lesson, draft, plan)
             write_json(run / "review" / f"{lesson_tag}_visual_plan_attempt_{review_attempt:02d}.json", plan)
             write_json(run / "review" / f"{lesson_tag}_visual_semantic_review_attempt_{review_attempt:02d}.json", semantic_review)
             if semantic_review.get("passed") is True:
                 break
-            if review_attempt == 2:
+            if review_attempt == 4:
                 changes = semantic_review.get("required_changes") or semantic_review.get("findings") or []
                 raise RuntimeError(f"Independent visual QA still requires changes after two review passes: {changes}")
             revision_prompt = visual_plan_prompt(seed, lesson, draft, read_uploads(seed.slug)) + (
@@ -1232,13 +1426,20 @@ def create_visual_assets(seed, lesson: dict[str, Any], draft: str, run: Path, le
                 f"Previous plan:\n{json.dumps(plan, ensure_ascii=False)[:24000]}\n"
                 f"Required changes:\n{json.dumps(semantic_review.get('required_changes') or semantic_review.get('findings') or [], ensure_ascii=False)}"
             )
-            plan = strip_json_fence(request_text(seed.slug, "visual_planning", revision_prompt, max_tokens=12000))
+            plan = request_json_with_retry(seed.slug, "visual_planning", revision_prompt, max_tokens=12000)
             visuals = prepare_visuals(plan.get("visuals") or [])
     uploads = read_uploads(seed.slug)
-    visual_responses = [item for item in uploads if item.get("purpose") == "visual_response"]
+    lesson_scope = f"lesson_{int(lesson['lesson_number']):02d}"
+    visual_responses = [
+        item for item in uploads
+        if item.get("purpose") == "visual_response" and item.get("scope") in {"course", lesson_scope}
+    ]
     allowed_source_images = [
         item for item in uploads
-        if item.get("images_allowed") and Path(str(item.get("stored_path") or "")).suffix.lower() in {".png", ".jpg", ".jpeg", ".webp"}
+        if item.get("scope") in {"course", lesson_scope}
+        and (item.get("purpose") != "revision_material" or item.get("revision_artifact_type") in {"", "study_guide"})
+        and item.get("images_allowed")
+        and Path(str(item.get("stored_path") or "")).suffix.lower() in {".png", ".jpg", ".jpeg", ".webp"}
     ]
     render_visuals: list[dict[str, Any]] = []
     requests: list[dict[str, Any]] = []
@@ -1420,10 +1621,7 @@ def produce_study_guide(course_slug: str, lesson_number: int) -> list[str]:
     reusable_sources_current = draft_has_all_mandatory_upload_references(latest_prior_text, ledger)
     if pending_images.exists() and prior_drafts and reusable_sources_current:
         draft_path = prior_drafts[-1]
-        match = re.search(r"_r(\d+)\.md$", draft_path.name)
-        if not match:
-            raise RuntimeError("Could not identify the reviewed draft revision while resuming visual curation.")
-        revision = int(match.group(1))
+        draft_path, revision = revisioned_resumed_study_guide_draft(run, lesson_tag, draft_path)
         draft = draft_path.read_text(encoding="utf-8", errors="replace")
         render_visuals, waiting_images = create_visual_assets(seed, lesson, draft, run, lesson_tag)
         if waiting_images:
@@ -1434,7 +1632,7 @@ def produce_study_guide(course_slug: str, lesson_number: int) -> list[str]:
         draft_path = prior_drafts[-1]
         match = re.search(r"_r(\d+)\.md$", draft_path.name)
         if match and not feedback_for(run, lesson_tag, "study_guide") and reviewed_draft_can_resume_visuals(run, lesson_tag, int(match.group(1))):
-            revision = int(match.group(1))
+            draft_path, revision = revisioned_resumed_study_guide_draft(run, lesson_tag, draft_path)
             draft = draft_path.read_text(encoding="utf-8", errors="replace")
             render_visuals, waiting_images = create_visual_assets(seed, lesson, draft, run, lesson_tag)
             if waiting_images:
@@ -1590,10 +1788,14 @@ def deck_prompt(seed, lesson: dict[str, Any], book: str, feedback: str) -> str:
 
 Audience: U.S. residential construction workforce. Use homes, remodels, townhomes, and small multifamily examples. This is a recorded lesson: no time references, activities, quizzes, speaker notes, or next-lesson teaser.
 
-The course book below is the single content authority. Produce MECE slides with distinct teaching jobs. Use these layouts only: cover, card_sequence, comparison, row_list, checklist_rows, takeaway. Do not use image layouts in this first live deck pass. Never highlight a last item merely because it is last.
+The course book below is the single content authority. Produce MECE slides with distinct teaching jobs and visibly different silhouettes. Use these layouts only: cover, intro_image_bullets, image_bullets, card_sequence, comparison, planned_actual, row_list, checklist_rows, takeaway.
+
+Every deck must include at least one `intro_image_bullets` or `image_bullets` slide. Its teaching image is a horizontal visual that occupies one half of the teaching area, with the explanation on the other half. It must teach a specific point, not decorate the slide. Supply `image_prompt` and `image_alt` for every image layout. The image prompt must depict a realistic U.S. residential construction setting when people or a jobsite appear; represent the workforce respectfully; request no visible text, labels, logos, watermarks, or UI.
+
+Across slides 2-9, use at least six distinct layouts. Do not place the same layout on adjacent slides or use a body layout more than twice. Choose the visual mechanism that fits the teaching job: a process for sequence, a comparison for a meaningful distinction, planned_actual for a decision gap, rows for records, and a checklist for field verification. Never highlight a last item merely because it is last.
 
 Required JSON schema:
-{{"slides":[{{"layout":"cover","title":"...","subtitle":"...","topics":["...","...","...","..."]}},{{"layout":"card_sequence","title":"...","subtitle":"...","items":[{{"title":"...","body":"..."}},{{"title":"...","body":"..."}},{{"title":"...","body":"..."}},{{"title":"...","body":"..."}}],"takeaway":"..."}},{{"layout":"comparison","title":"...","subtitle":"...","left":{{"title":"...","body":"..."}},"right":{{"title":"...","body":"..."}},"bottom_line":"..."}},{{"layout":"row_list","title":"...","subtitle":"...","items":[{{"title":"...","body":"..."}},{{"title":"...","body":"..."}},{{"title":"...","body":"..."}},{{"title":"...","body":"..."}},{{"title":"...","body":"..."}}],"bottom_line":"..."}},{{"layout":"checklist_rows","title":"...","subtitle":"...","items":[{{"title":"...","body":"..."}},{{"title":"...","body":"..."}},{{"title":"...","body":"..."}},{{"title":"...","body":"..."}},{{"title":"...","body":"..."}}],"bottom_line":"..."}},{{"layout":"takeaway","title":"...","body":"...","final_line":"..."}}]}}
+{{"slides":[{{"layout":"cover","title":"...","subtitle":"...","topics":["...","...","...","..."]}},{{"layout":"intro_image_bullets","title":"...","subtitle":"...","intro":"...","bullets":["...","...","..."],"image_side":"left|right","image_alt":"...","image_prompt":"..."}},{{"layout":"card_sequence","title":"...","subtitle":"...","items":[{{"title":"...","body":"..."}},{{"title":"...","body":"..."}},{{"title":"...","body":"..."}},{{"title":"...","body":"..."}}],"takeaway":"..."}},{{"layout":"comparison|planned_actual","title":"...","subtitle":"...","left":{{"title":"...","body":"..."}},"right":{{"title":"...","body":"..."}},"bridge_label":"...","bottom_line":"..."}},{{"layout":"row_list|checklist_rows","title":"...","subtitle":"...","items":[{{"title":"...","body":"..."}},{{"title":"...","body":"..."}},{{"title":"...","body":"..."}},{{"title":"...","body":"..."}}],"bottom_line":"..."}},{{"layout":"image_bullets","title":"...","subtitle":"...","intro":"...","bullets":["...","...","..."],"bottom_line":"...","image_side":"left|right","image_alt":"...","image_prompt":"..."}},{{"layout":"takeaway","title":"...","body":"...","final_line":"..."}}]}}
 Return exactly 10 slides; the first is cover and the final is takeaway. Keep text concise enough to fit the renderer.
 
 Approved course book:\n{book[:42000]}\nRevision feedback:\n{feedback or 'None.'}"""
@@ -1601,7 +1803,7 @@ Approved course book:\n{book[:42000]}\nRevision feedback:\n{feedback or 'None.'}
 
 def normalize_deck_slides(data: dict[str, Any], lesson: dict[str, Any]) -> list[dict[str, Any]]:
     slides = data.get("slides") if isinstance(data.get("slides"), list) else []
-    allowed = {"cover", "card_sequence", "comparison", "row_list", "checklist_rows", "takeaway"}
+    allowed = {"cover", "intro_image_bullets", "image_bullets", "card_sequence", "comparison", "planned_actual", "row_list", "checklist_rows", "takeaway"}
     if len(slides) != 10 or any(not isinstance(item, dict) or item.get("layout") not in allowed for item in slides):
         raise RuntimeError("Presentation model returned an invalid deck structure.")
     if slides[0].get("layout") != "cover" or slides[-1].get("layout") != "takeaway":
@@ -1611,7 +1813,48 @@ def normalize_deck_slides(data: dict[str, Any], lesson: dict[str, Any]) -> list[
     slides[0]["topics"] = [str(value)[:80] for value in (slides[0].get("topics") or [])][:5]
     if len(slides[0]["topics"]) < 3:
         raise RuntimeError("Presentation cover needs at least three main topics.")
+    body_layouts = [str(slide.get("layout") or "") for slide in slides[1:-1]]
+    image_slides = [slide for slide in slides[1:-1] if slide.get("layout") in {"intro_image_bullets", "image_bullets"}]
+    if not image_slides:
+        raise RuntimeError("Presentation needs at least one half-slide teaching image.")
+    if len(image_slides) > 2:
+        raise RuntimeError("Presentation may use no more than two teaching-image slides.")
+    if len(set(body_layouts)) < 6:
+        raise RuntimeError("Presentation needs at least six distinct body layouts to avoid repetitive slides.")
+    if any(left == right for left, right in zip(body_layouts, body_layouts[1:])):
+        raise RuntimeError("Presentation may not repeat a body layout on adjacent slides.")
+    if any(body_layouts.count(layout) > 2 for layout in set(body_layouts)):
+        raise RuntimeError("Presentation may not use a body layout more than twice.")
+    for index, slide in enumerate(image_slides, start=1):
+        if not str(slide.get("image_prompt") or "").strip() or not str(slide.get("image_alt") or "").strip():
+            raise RuntimeError("Every teaching-image slide needs an image prompt and accessible description.")
+        requested_side = str(slide.get("image_side") or "")
+        slide["image_side"] = requested_side if requested_side in {"left", "right"} else ("left" if index % 2 == 0 else "right")
+        slide["image_prompt"] = str(slide["image_prompt"]).strip()[:1800]
+        slide["image_alt"] = str(slide["image_alt"]).strip()[:300]
+        slide["image_name"] = f"teaching-image-{index}"
     return slides
+
+
+def create_deck_visual_assets(seed, lesson: dict[str, Any], slides: list[dict[str, Any]], run: Path, lesson_tag: str) -> None:
+    """Create the required teaching images after the deck plan has passed structure checks."""
+    image_index = 0
+    for slide in slides:
+        if slide.get("layout") not in {"intro_image_bullets", "image_bullets"}:
+            continue
+        image_index += 1
+        asset = run / "deck" / "assets" / f"{lesson_tag}_teaching_image_{image_index:02d}.png"
+        prompt = (
+            f"Create a polished, realistic teaching image for a U.S. residential construction course. "
+            f"{slide['image_prompt']} Use a horizontal composition suitable for the left or right half of a presentation slide. "
+            "No words, labels, logos, watermarks, diagrams, or UI. Do not make the scene look like commercial high-rise construction."
+        )
+        if not asset.exists() or asset.stat().st_size == 0:
+            try:
+                request_image(seed.slug, prompt, asset)
+            except ModelRequestError as error:
+                raise RuntimeError("The required teaching image could not be generated.") from error
+        slide["image"] = {"path": str(asset.relative_to(run)), "alt": slide["image_alt"], "name": slide["image_name"]}
 
 
 def produce_deck(course_slug: str, lesson_number: int) -> list[str]:
@@ -1621,13 +1864,25 @@ def produce_deck(course_slug: str, lesson_number: int) -> list[str]:
     lesson = lesson_by_number(course_map, lesson_number)
     lesson_tag = lid(lesson_number)
     approved = latest_approved_book(run, lesson_tag)
+    revision, filename = revisioned(run, "deck", f"{lesson_tag}_deck", ".pptx")
+    spec_path = run / "deck" / f"{lesson_tag}_deck_spec_r{revision:02d}.json"
+    resumable_spec = spec_path.exists() and not (run / "deck" / filename).exists()
     try:
-        plan = strip_json_fence(request_text(seed.slug, "technical_content", deck_prompt(seed, lesson, approved.read_text(encoding="utf-8", errors="replace"), feedback_for(run, lesson_tag, "deck")), max_tokens=12000))
-        slides = normalize_deck_slides(plan, lesson)
+        if resumable_spec:
+            saved = json.loads(spec_path.read_text(encoding="utf-8"))
+            slides = normalize_deck_slides({"slides": saved.get("slides")}, lesson)
+        else:
+            plan = request_json_with_retry(
+                seed.slug,
+                "technical_content",
+                deck_prompt(seed, lesson, approved.read_text(encoding="utf-8", errors="replace"), feedback_for(run, lesson_tag, "deck")),
+                max_tokens=12000,
+            )
+            slides = normalize_deck_slides(plan, lesson)
+        create_deck_visual_assets(seed, lesson, slides, run, lesson_tag)
     except ModelRequestError as error:
         block(run, "deck", f"Configured technical-content model could not produce Lesson {lesson_number} presentation.\n\nReason: {error}")
         raise RuntimeError(str(error)) from error
-    revision, filename = revisioned(run, "deck", f"{lesson_tag}_deck", ".pptx")
     spec = {
         "course_slug": seed.slug,
         "course_title": seed.title,
@@ -1639,10 +1894,9 @@ def produce_deck(course_slug: str, lesson_number: int) -> list[str]:
         "assets": {"brand_icon": BRAND_ICON, "negative_wordmark": NEGATIVE_WORDMARK},
         "output": {"pptx": f"deck/{filename}", "qa": f"deck/{lesson_tag}_deck_qa_r{revision:02d}.md", "rendered_dir": f"deck/rendered_slides_{lesson_tag}_r{revision:02d}"},
         "slides": slides,
-        "qa_checks": ["10 slides.", "MECE: each slide has a distinct teaching job.", "No automatic last-item highlight.", "Residential-construction-first audience anchor.", "No visible timing or speaker notes."],
-        "inspection_notes": ["Live deck copy was generated from the approved course book.", "Deck is released for review only after renderer QA passes."],
+        "qa_checks": ["10 slides.", "MECE: each slide has a distinct teaching job.", "At least six distinct body layouts and no adjacent layout repetition.", "At least one half-slide teaching image with text on the other half.", "No automatic last-item highlight.", "Residential-construction-first audience anchor.", "No visible timing or speaker notes."],
+        "inspection_notes": ["Live deck copy was generated from the approved course book.", "A half-slide teaching image was generated for each image-led slide.", "Deck plan and images are reused after an interrupted render when available.", "Deck is released for review only after renderer QA passes and is visually rechecked."],
     }
-    spec_path = run / "deck" / f"{lesson_tag}_deck_spec_r{revision:02d}.json"
     write_json(spec_path, spec)
     subprocess.run([sys.executable, str(ROOT / "tools" / "greg_render_deck_from_spec.py"), str(spec_path)], cwd=ROOT, check=True)
     qa_path = run / spec["output"]["qa"]
@@ -1696,7 +1950,7 @@ English visual specification:
         last_error: Exception | None = None
         for _ in range(2):
             try:
-                parsed = strip_json_fence(request_text(seed.slug, "diagram_planning", prompt, max_tokens=4000))
+                parsed = request_json_with_retry(seed.slug, "diagram_planning", prompt, max_tokens=4000)
                 if isinstance(parsed.get("visual"), dict):
                     break
                 raise ModelRequestError("The diagram model did not return the required `visual` object.")
@@ -1816,6 +2070,68 @@ def localized_slide_visible_items(slide: dict[str, Any]) -> list[str]:
     return items or [str(slide.get("title") or "Slide content").strip()]
 
 
+def localized_deck_slides(source_slides: list[dict[str, Any]], translated_slides: Any) -> list[dict[str, Any]]:
+    """Apply translated student copy while retaining the approved deck structure.
+
+    A localized deck is not a newly authored deck.  In particular, its image
+    layouts and generated teaching-image metadata must come from the approved
+    English source, rather than being regenerated or revalidated as though the
+    translation were a new deck plan.
+    """
+    if not isinstance(translated_slides, list) or len(translated_slides) != len(source_slides):
+        raise RuntimeError("Localized presentation must preserve the approved slide count.")
+
+    scalar_fields = {"title", "subtitle", "intro", "body", "bottom_line", "takeaway", "final_line", "bridge_label"}
+    list_fields = {"topics", "bullets"}
+    result: list[dict[str, Any]] = []
+    for index, (source_slide, translated_slide) in enumerate(zip(source_slides, translated_slides), start=1):
+        if not isinstance(source_slide, dict) or not isinstance(translated_slide, dict):
+            raise RuntimeError(f"Localized presentation slide {index} is invalid.")
+        if translated_slide.get("layout") and translated_slide.get("layout") != source_slide.get("layout"):
+            raise RuntimeError(f"Localized presentation slide {index} changed its approved layout.")
+        localized = copy.deepcopy(source_slide)
+        for field in scalar_fields:
+            value = translated_slide.get(field)
+            if isinstance(value, str) and value.strip():
+                localized[field] = value.strip()
+        for field in list_fields:
+            source_values = source_slide.get(field)
+            translated_values = translated_slide.get(field)
+            if source_values is None:
+                continue
+            if not isinstance(translated_values, list) or len(translated_values) != len(source_values) or not all(isinstance(value, str) and value.strip() for value in translated_values):
+                raise RuntimeError(f"Localized presentation slide {index} did not preserve its {field} text.")
+            localized[field] = [value.strip() for value in translated_values]
+        for field in ("items", "left", "right"):
+            source_value = source_slide.get(field)
+            translated_value = translated_slide.get(field)
+            if source_value is None:
+                continue
+            if field == "items":
+                if not isinstance(translated_value, list) or len(translated_value) != len(source_value):
+                    raise RuntimeError(f"Localized presentation slide {index} did not preserve its item structure.")
+                merged_items = copy.deepcopy(source_value)
+                for source_item, translated_item, merged_item in zip(source_value, translated_value, merged_items):
+                    if not isinstance(source_item, dict) or not isinstance(translated_item, dict):
+                        raise RuntimeError(f"Localized presentation slide {index} contains an invalid item.")
+                    for text_field in ("title", "body"):
+                        value = translated_item.get(text_field)
+                        if isinstance(value, str) and value.strip():
+                            merged_item[text_field] = value.strip()
+                localized[field] = merged_items
+            else:
+                if not isinstance(translated_value, dict):
+                    raise RuntimeError(f"Localized presentation slide {index} did not preserve its comparison structure.")
+                merged_value = copy.deepcopy(source_value)
+                for text_field in ("title", "body"):
+                    value = translated_value.get(text_field)
+                    if isinstance(value, str) and value.strip():
+                        merged_value[text_field] = value.strip()
+                localized[field] = merged_value
+        result.append(localized)
+    return result
+
+
 def write_localized_deck_text_map(run: Path, lesson_tag: str, folder: str, source_slides: list[dict[str, Any]], localized_slides: list[dict[str, Any]], course_slug: str, source_deck: Path) -> tuple[Path, Path]:
     map_path = run / "localization" / folder / f"{lesson_tag}_deck_text_map_{folder}.md"
     qa_path = run / "localization" / folder / f"{lesson_tag}_deck_localization_qa.md"
@@ -1853,10 +2169,10 @@ def localize_deck(course_slug: str, lesson_number: int, locale: str) -> list[str
     source = json.loads(source_spec.read_text(encoding="utf-8"))
     prompt = f"""Translate every student-visible text value in this Prof Greg deck JSON into {language}. Return JSON only in the form {{"slides": [...]}}. Preserve all keys, layout names, numbers, filenames, asset paths, and slide count exactly. Do not add slides or speaker notes. Preserve U.S. construction terms, units, and facts.\n\n{json.dumps(source['slides'], ensure_ascii=False)}"""
     try:
-        data = strip_json_fence(request_text(seed.slug, "localization", prompt, max_tokens=12000))
+        data = request_json_with_retry(seed.slug, "localization", prompt, max_tokens=12000)
     except ModelRequestError as error:
         raise RuntimeError(str(error)) from error
-    slides = normalize_deck_slides(data, {"title": f"Lesson {lesson_number}", "learning_goal": ""})
+    slides = localized_deck_slides(source["slides"], data.get("slides"))
     slides = normalize_localized_dash_punctuation(slides)
     revision, filename = revisioned(run, f"localization/{folder}", f"{lesson_tag}_deck_{locale}", ".pptx")
     localized_course_title = {
@@ -1887,38 +2203,56 @@ def normalize_localized_dash_punctuation(value: Any) -> Any:
 
 def run_stage(course_slug: str, stage: str, lessons: list[int] | None = None) -> list[str]:
     course_slug = assert_safe_run_slug(course_slug)
-    if stage == "course_map":
-        return produce_course_map(course_slug)
-    if stage == "sources":
-        return produce_source_ledger(course_slug)
-    if stage == "study_guide":
-        results: list[str] = []
-        for lesson in lessons or [1]:
-            results.extend(produce_study_guide(course_slug, lesson))
-        return results
-    if stage == "deck":
-        results: list[str] = []
-        for lesson in lessons or [1]:
-            results.extend(produce_deck(course_slug, lesson))
-        return results
-    if stage in {"pt_br_book", "es_book", "pt_br_deck", "es_deck"}:
-        locale = "pt_br" if stage.startswith("pt_br") else "es"
-        producer = localize_book if stage.endswith("book") else localize_deck
-        results: list[str] = []
-        for lesson in lessons or [1]:
-            results.extend(producer(course_slug, lesson, locale))
-        return results
-    raise ValueError(f"Unsupported live production stage: {stage}")
+    with timed_activity(f"production_stage:{stage}"):
+        if stage == "course_map":
+            return produce_course_map(course_slug)
+        if stage == "sources":
+            return produce_source_ledger(course_slug)
+        if stage == "study_guide":
+            results: list[str] = []
+            for lesson in lessons or [1]:
+                with timed_activity(f"lesson:{lesson}:study_guide"):
+                    results.extend(produce_study_guide(course_slug, lesson))
+            return results
+        if stage == "deck":
+            results: list[str] = []
+            for lesson in lessons or [1]:
+                with timed_activity(f"lesson:{lesson}:deck"):
+                    results.extend(produce_deck(course_slug, lesson))
+            return results
+        if stage in {"translations_book", "translations_deck"}:
+            producer = localize_book if stage.endswith("book") else localize_deck
+            results: list[str] = []
+            for lesson in lessons or [1]:
+                for locale in ("pt_br", "es"):
+                    with timed_activity(f"lesson:{lesson}:{stage}:{locale}"):
+                        results.extend(producer(course_slug, lesson, locale))
+            return results
+        if stage in {"pt_br_book", "es_book", "pt_br_deck", "es_deck"}:
+            locale = "pt_br" if stage.startswith("pt_br") else "es"
+            producer = localize_book if stage.endswith("book") else localize_deck
+            results: list[str] = []
+            for lesson in lessons or [1]:
+                with timed_activity(f"lesson:{lesson}:{stage}"):
+                    results.extend(producer(course_slug, lesson, locale))
+            return results
+        raise ValueError(f"Unsupported live production stage: {stage}")
 
 
 def main() -> int:
     parser = argparse.ArgumentParser(description="Run one real Prof Greg production stage.")
     parser.add_argument("course_slug")
-    parser.add_argument("--stage", choices=["course_map", "sources", "study_guide", "deck", "pt_br_book", "pt_br_deck", "es_book", "es_deck"], required=True)
+    parser.add_argument("--stage", choices=["course_map", "sources", "study_guide", "deck", "translations_book", "translations_deck", "pt_br_book", "pt_br_deck", "es_book", "es_deck"], required=True)
     parser.add_argument("--lessons", default="", help="Comma-separated lesson numbers for study-guide production.")
+    parser.add_argument("--timing-file", help="Optional JSONL timing trace written without prompts, outputs, or credentials.")
     args = parser.parse_args()
     lessons = [int(value) for value in args.lessons.split(",") if value.strip()] or None
-    print("\n".join(run_stage(args.course_slug, args.stage, lessons)))
+    recorder = TimingRecorder(Path(args.timing_file)) if args.timing_file else None
+    token = ACTIVE_TIMING_RECORDER.set(recorder)
+    try:
+        print("\n".join(run_stage(args.course_slug, args.stage, lessons)))
+    finally:
+        ACTIVE_TIMING_RECORDER.reset(token)
     return 0
 
 

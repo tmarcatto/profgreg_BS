@@ -251,9 +251,13 @@ def summarize(course_slug: str) -> dict:
     if not course_source_qa_path.exists():
         course_source_qa_path = run / "sources" / "source_reference_qa.md"
     source_reference_passed = report_passed(course_source_qa_path, "Source/reference QA passed")
+    course_map_exists = (run / "course_map" / "course_map.md").exists() or (run / "course_map" / "course_map.json").exists()
+    has_operator_approved_lesson = any(
+        (run / "approval").glob("lesson_*_study_guide_approval.md")
+    )
     course_map_ready = bool(
         course_map_passed is True
-        and (run / "course_map" / "course_map.md").exists()
+        and course_map_exists
         and (run / "sources" / "source_ledger.json").exists()
         and source_reference_passed is True
     )
@@ -265,6 +269,14 @@ def summarize(course_slug: str) -> dict:
         stage = "LESSON_PRODUCTION"
         gate_status = "Course Map and source ledger are ready. Select lesson(s) for course book production."
         next_action = "select one, several, or all lessons and generate course books."
+    elif course_map_exists and has_operator_approved_lesson:
+        # Legacy courses may predate the current Course Map/source-QA records.
+        # A subsequent explicit course-book approval proves that the operator
+        # accepted the map used to produce it, so keep the map available.
+        course_map_ready = True
+        stage = "LESSON_PRODUCTION"
+        gate_status = "Course Map remains available because an operator-approved course book exists."
+        next_action = "select one, several, or all lessons and continue production."
     elif course_map_passed is True:
         stage = "SOURCE_LEDGER"
         gate_status = "Course Map is ready. Source research is next."
@@ -337,13 +349,16 @@ def summarize_lessons(run: Path, manifest: dict) -> list[dict]:
         exists = bool(item_path) and path.exists() and path.is_file()
         status = item.get("status", "missing")
         if key.endswith("_study_guide_pdf"):
+            approval_exists = (run / "approval" / f"lesson_{str(lesson).zfill(2)}_study_guide_approval.md").exists()
             blockers = study_guide_quality_blockers(run, str(lesson).zfill(2), path) if exists else []
-            if blockers:
+            # An explicit operator approval is the final decision for that artifact.
+            # Do not retroactively block it when new automatic checks are introduced.
+            if blockers and not approval_exists:
                 row["study_guide"] = "blocked"
                 row["study_guide_blocked_path"] = rel(path)
                 row["study_guide_quality_blockers"] = blockers
             else:
-                row["study_guide"] = status if exists else "missing"
+                row["study_guide"] = "approved" if approval_exists else (status if exists else "missing")
                 if exists:
                     row["study_guide_path"] = rel(path)
         elif key.endswith("_deck_pptx"):
@@ -379,7 +394,8 @@ def summarize_lessons(run: Path, manifest: dict) -> list[dict]:
         request_md = run / "review" / f"lesson_{lesson}_image_requests.md"
         visual_plan = run / "review" / f"lesson_{lesson}_visual_plan.json"
         visual_qa = run / "review" / f"lesson_{lesson}_visual_qa.md"
-        if request_json.exists():
+        approval_exists = (run / "approval" / f"lesson_{lesson}_study_guide_approval.md").exists()
+        if request_json.exists() and not approval_exists:
             row["visual_status"] = "waiting_images"
             row["image_request_path"] = rel(request_md if request_md.exists() else request_json)
             row["image_requests"] = (load_json(request_json).get("requests") or [])

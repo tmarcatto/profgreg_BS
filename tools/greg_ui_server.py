@@ -9,6 +9,7 @@ import mimetypes
 import os
 import re
 import shutil
+from datetime import datetime, timezone
 from http import HTTPStatus
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
@@ -27,6 +28,7 @@ ROOT = Path(__file__).resolve().parents[1]
 SERVER_UPLOAD_ROOT = Path("/srv/profgreg/uploads")
 LOCAL_UPLOAD_ROOT = ROOT / "tmp" / "uploads"
 SESSION_RUN_ROOT = ROOT / "runs"
+COURSE_SESSION_FILE = "ops/course_session.json"
 MAX_UPLOAD_FILE_BYTES = 200 * 1024 * 1024
 MAX_UPLOAD_REQUEST_BYTES = 500 * 1024 * 1024
 MAX_IMAGE_UPLOAD_BYTES = 25 * 1024 * 1024
@@ -38,6 +40,7 @@ REFERENCE_POLICIES = {
     "reference_and_images": "May appear in student references and images may be reused when properly referenced.",
 }
 DEFAULT_LESSON_COUNT_BY_LEVEL = {"Basic": 10, "Intermediate": 15, "Advanced": 15}
+UPLOAD_PURPOSES = {"source_material", "visual_response", "revision_material"}
 
 
 def operator_visible_jobs(jobs: list[dict[str, object]], *, limit: int = 30) -> list[dict[str, object]]:
@@ -130,25 +133,56 @@ def safe_upload_root(path: Path) -> Path:
     raise ValueError(f"Upload root must stay under {server} or {local}: {path}")
 
 
-def clear_session_storage(*, job_root: Path, upload_root: Path, run_root: Path = SESSION_RUN_ROOT) -> dict[str, int]:
-    """Clear only session data, never application code or reusable framework materials."""
-    resolved_run_root = run_root.expanduser().resolve()
-    if resolved_run_root != SESSION_RUN_ROOT.resolve():
-        raise ValueError("Run root is outside the session storage area.")
-    # Clear uploads and queued jobs even if a legacy run contains files owned
-    # by a former administrator process. Runs are attempted last.
-    roots = {"uploads": safe_upload_root(upload_root), "jobs": safe_job_root(job_root), "runs": resolved_run_root}
-    removed = {key: 0 for key in roots}
-    for label, root in roots.items():
-        if not root.exists():
+def course_session_path(course_slug: str) -> Path:
+    return SESSION_RUN_ROOT / slugify(course_slug) / COURSE_SESSION_FILE
+
+
+def read_course_session(course_slug: str) -> dict:
+    path = course_session_path(course_slug)
+    if not path.exists():
+        return {"status": "active"}
+    try:
+        data = json.loads(path.read_text(encoding="utf-8"))
+    except json.JSONDecodeError:
+        return {"status": "active"}
+    return data if isinstance(data, dict) else {"status": "active"}
+
+
+def write_course_session(course_slug: str, status: str) -> None:
+    path = course_session_path(course_slug)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(json.dumps({"status": status, "updated_at": datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")}, indent=2) + "\n", encoding="utf-8")
+
+
+def workspace_intake_path(run: Path) -> Path | None:
+    """Return the intake marker used by either the current or earlier run layouts."""
+    for path in (run / "intake.md", run / "input" / "intake.md"):
+        if path.exists():
+            return path
+    return None
+
+
+def list_course_workspaces() -> list[dict]:
+    workspaces: list[dict] = []
+    if not SESSION_RUN_ROOT.exists():
+        return workspaces
+    for run in SESSION_RUN_ROOT.iterdir():
+        if not run.is_dir() or run.name.startswith("_"):
             continue
-        for child in root.iterdir():
-            if child.is_dir():
-                shutil.rmtree(child)
-            else:
-                child.unlink()
-            removed[label] += 1
-    return removed
+        intake = workspace_intake_path(run)
+        if intake is None:
+            continue
+        title = next((line[2:].strip() for line in intake.read_text(encoding="utf-8", errors="replace").splitlines() if line.startswith("# ")), run.name)
+        session = read_course_session(run.name)
+        workspaces.append({
+            "course_slug": run.name,
+            "title": title,
+            "status": "completed" if session.get("status") == "completed" else "active",
+            "updated_at": datetime.fromtimestamp(run.stat().st_mtime, timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
+        })
+    workspaces.sort(key=lambda item: item["updated_at"], reverse=True)
+    workspaces.sort(key=lambda item: item["status"] == "completed")
+    return workspaces
 
 
 def safe_filename(value: str) -> str:
@@ -239,8 +273,10 @@ def normalize_upload_meta(meta: dict) -> dict:
     meta = dict(meta)
     meta["upload_id"] = str(meta.get("upload_id") or upload_identifier(meta))
     apply_reference_policy(meta, str(meta.get("reference_policy") or "context_only"))
-    meta["purpose"] = str(meta.get("purpose") or "source_material")
+    purpose = str(meta.get("purpose") or "source_material")
+    meta["purpose"] = purpose if purpose in UPLOAD_PURPOSES else "source_material"
     meta["visual_request_id"] = str(meta.get("visual_request_id") or "")
+    meta["revision_artifact_type"] = str(meta.get("revision_artifact_type") or "")
     meta["source_label"] = str(meta.get("source_label") or "")
     meta["source_url"] = str(meta.get("source_url") or "")
     return meta
@@ -318,6 +354,7 @@ def save_uploaded_file(
     reference_policy: str = "context_only",
     purpose: str = "source_material",
     visual_request_id: str = "",
+    revision_artifact_type: str = "",
     source_label: str = "",
     source_url: str = "",
 ) -> dict:
@@ -344,8 +381,9 @@ def save_uploaded_file(
         "images_allowed": policy in {"image_only", "reference_and_images"},
         "size_bytes": len(data),
         "sha256": file_sha256(target),
-        "purpose": "visual_response" if purpose == "visual_response" else "source_material",
+        "purpose": purpose if purpose in UPLOAD_PURPOSES else "source_material",
         "visual_request_id": visual_request_id.strip()[:80],
+        "revision_artifact_type": revision_artifact_type.strip()[:80],
         "source_label": source_label.strip()[:300],
         "source_url": source_url.strip()[:1000],
     }
@@ -446,6 +484,7 @@ def create_course_intake(
         ),
         encoding="utf-8",
     )
+    write_course_session(setup.course_slug, "active")
     return {**setup.__dict__, "message": f"Course intake created: {setup.course_slug}"}
 
 
@@ -485,11 +524,20 @@ def record_ui_artifact_approval(*, course_slug: str, lesson: int, artifact_type:
     )
 
 
-def record_revision_request(*, course_slug: str, lesson: int, artifact_type: str, note: str) -> dict:
+def record_revision_request(
+    *, course_slug: str, lesson: int, artifact_type: str, note: str, attachments: list[dict] | None = None
+) -> dict:
     course_slug = slugify(course_slug)
     lesson_tag = f"lesson_{lesson:02d}"
     target = ROOT / "runs" / course_slug / "operator_feedback" / f"{lesson_tag}_{artifact_type}_revision_request.md"
     target.parent.mkdir(parents=True, exist_ok=True)
+    attachments = attachments or []
+    attachment_lines = [
+        f"- {item.get('filename')} ({item.get('reference_policy')}; {item.get('purpose')})"
+        + (f" — {item.get('source_label')}" if item.get("source_label") else "")
+        + (f" — {item.get('source_url')}" if item.get("source_url") else "")
+        for item in attachments
+    ]
     target.write_text(
         "\n".join(
             [
@@ -502,11 +550,14 @@ def record_revision_request(*, course_slug: str, lesson: int, artifact_type: str
                 "Requested changes:",
                 note.strip() or "- Revision requested from Prof Greg Operator.",
                 "",
+                "Supporting materials attached to this revision:",
+                "\n".join(attachment_lines) if attachment_lines else "- None.",
+                "",
             ]
         ),
         encoding="utf-8",
     )
-    return {"feedback_path": str(target.relative_to(ROOT))}
+    return {"feedback_path": str(target.relative_to(ROOT)), "attachments": attachments}
 
 
 def ui_shell(default_course: str) -> str:
@@ -639,7 +690,7 @@ def ui_shell(default_course: str) -> str:
     .body {{ padding: 18px; }}
     .workspace-bar {{
       display: grid;
-      grid-template-columns: minmax(280px, 1fr) 160px auto;
+      grid-template-columns: minmax(220px, 1fr) minmax(220px, 1fr) 160px auto;
       gap: 12px;
       align-items: center;
       border: 1px solid var(--line);
@@ -659,6 +710,10 @@ def ui_shell(default_course: str) -> str:
       box-shadow: var(--shadow);
     }}
     .activity-now strong {{ display: block; color: var(--navy); margin-bottom: 3px; }}
+    .worker-lanes {{ display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; margin: 12px 0; }}
+    .worker-lane {{ border: 1px solid var(--line); border-radius: 8px; padding: 12px; background: #fff; box-shadow: var(--shadow); }}
+    .worker-lane strong {{ display: block; color: var(--navy); margin-bottom: 4px; }}
+    .worker-lane .lane-note {{ color: var(--muted); font-size: 12px; margin-bottom: 7px; }}
     .progress-card {{
       border: 1px solid #fed7aa;
       border-radius: 8px;
@@ -868,16 +923,25 @@ def ui_shell(default_course: str) -> str:
         <input id="course" value="" placeholder="New course workspace" aria-label="Course slug" readonly>
       </div>
       <div class="workspace-field">
+        <label for="coursePicker">Saved unfinished courses</label>
+        <select id="coursePicker" aria-label="Saved unfinished courses"><option value="">Loading saved courses…</option></select>
+      </div>
+      <div class="workspace-field">
         <label for="targetLesson">Review lesson</label>
         <input id="targetLesson" type="number" min="1" value="1" aria-label="Selected lesson" title="Selected lesson">
       </div>
       <div class="workspace-actions">
         <button id="refreshWorkspace">Refresh</button>
+        <button id="completeCourse" class="ghost">Mark course complete</button>
       </div>
     </div>
     <div class="activity-now">
       <strong>Current activity</strong>
       <span id="currentActivity">Idle.</span>
+    </div>
+    <div class="worker-lanes" aria-label="Production worker lanes">
+      <div class="worker-lane"><strong>Content worker</strong><div class="lane-note">Course maps, course books, and book translations</div><span id="contentLaneStatus" class="muted">Checking…</span></div>
+      <div class="worker-lane"><strong>Delivery worker</strong><div class="lane-note">Presentations, deck translations, and operational tasks</div><span id="deliveryLaneStatus" class="muted">Checking…</span></div>
     </div>
     <div class="progress-card">
       <div class="progress-top">
@@ -993,10 +1057,8 @@ def ui_shell(default_course: str) -> str:
             <div class="lesson-actions">
               <button class="primary" id="produceBooks">Generate course books</button>
               <button id="produceDecks">Generate presentations</button>
-              <button id="producePtBrBooks">Generate PT-BR books</button>
-              <button id="producePtBrDecks">Generate PT-BR decks</button>
-              <button id="produceEsBooks">Generate ES books</button>
-              <button id="produceEsDecks">Generate ES decks</button>
+              <button id="produceTranslatedBooks">Translate course books (PT + ES)</button>
+              <button id="produceTranslatedDecks">Translate presentations (PT + ES)</button>
             </div>
           </div>
           <div class="lesson-table-wrap">
@@ -1025,7 +1087,7 @@ def ui_shell(default_course: str) -> str:
       <div class="section-head">
         <div class="title-row">
           <div class="step-num">5</div>
-          <div><h2>Operator Action</h2><div class="hint">Choose a file or image request, then approve it, request edits, or attach the requested image. Files remain managed in the lesson table.</div></div>
+          <div><h2>Operator Action</h2><div class="hint">Choose a file or image request, then approve it, request edits with supporting files, or attach the requested image. Files remain managed in the lesson table.</div></div>
         </div>
       </div>
       <div class="body">
@@ -1242,7 +1304,8 @@ def ui_shell(default_course: str) -> str:
       }} else {{
         const group = target.group;
         const filename = downloadFilename(group, target.path);
-        details.innerHTML = `<div><a class="download-link" href="/artifact?path=${{encodeURIComponent(target.path)}}&filename=${{encodeURIComponent(filename)}}" target="_blank" rel="noopener">Download selected file</a></div><textarea id="operatorNote" placeholder="Required for edit requests; optional for approvals."></textarea>`;
+        const supportingFiles = action.value === 'request_edits' ? `<label>Supporting files or images <span class="muted">(optional)</span></label><input id="operatorRevisionFiles" type="file" multiple accept=".pdf,.docx,.txt,.md,.png,.jpg,.jpeg,.webp"><div class="hint">These materials are bound to this edit request. Images can be used in the next course-book visual revision; they are not added as student references automatically.</div><label>Sources and URLs <span class="muted">(recommended for images)</span></label><textarea id="operatorRevisionSources" placeholder="filename.ext | source or attribution | https://source-url\nOne line per file."></textarea>` : '';
+        details.innerHTML = `<div><a class="download-link" href="/artifact?path=${{encodeURIComponent(target.path)}}&filename=${{encodeURIComponent(filename)}}" target="_blank" rel="noopener">Download selected file</a></div><textarea id="operatorNote" placeholder="Required for edit requests; optional for approvals."></textarea>${{supportingFiles}}`;
       }}
     }}
     async function applyOperatorAction() {{
@@ -1350,18 +1413,43 @@ def ui_shell(default_course: str) -> str:
       renderJobs();
       if (showMessage) msg.textContent = 'New course workspace ready.';
     }}
-    async function resetSession() {{
+    async function restoreSavedCourse() {{
       const buttons = [document.getElementById('refreshTop'), document.getElementById('refreshWorkspace')];
       buttons.forEach(button => button.disabled = true);
       try {{
-        const data = await api('/api/reset-session', {{method: 'POST', body: JSON.stringify({{}})}});
-        resetWorkspace(false);
-        msg.textContent = data.message || 'Session cleared. Start a new course.';
+        const data = await api('/api/courses');
+        const picker = document.getElementById('coursePicker');
+        const active = (data.courses || []).filter(item => item.status !== 'completed');
+        picker.innerHTML = active.length
+          ? active.map(item => `<option value="${{esc(item.course_slug)}}">${{esc(item.title)}} · in progress</option>`).join('')
+          : '<option value="">No unfinished courses</option>';
+        const selected = active.find(item => item.course_slug === course.value) || active[0];
+        if (!selected) {{ resetWorkspace(false); return; }}
+        course.value = selected.course_slug;
+        picker.value = selected.course_slug;
+        await loadWorkspace();
+        msg.textContent = `Loaded saved course: ${{selected.title}}`;
       }} catch (error) {{
         msg.textContent = error.message;
       }} finally {{
         buttons.forEach(button => button.disabled = false);
       }}
+    }}
+    async function markCourseComplete() {{
+      if (!course.value) return;
+      if (!confirm('Mark this course complete? It will remain safely stored but will no longer auto-load as unfinished.')) return;
+      try {{
+        const data = await api('/api/complete-course', {{method: 'POST', body: JSON.stringify({{course: course.value}})}});
+        msg.textContent = data.message;
+        await restoreSavedCourse();
+      }} catch (error) {{ msg.textContent = error.message; }}
+    }}
+    function operatorFormIsBeingEdited() {{
+      const form = document.getElementById('approvals');
+      if (!form) return false;
+      if (form.contains(document.activeElement)) return true;
+      return [...form.querySelectorAll('textarea')].some(input => input.value.trim())
+        || [...form.querySelectorAll('input[type="file"]')].some(input => input.files?.length);
     }}
     async function loadWorkspace() {{
       if (!course.value.trim()) {{
@@ -1385,18 +1473,12 @@ def ui_shell(default_course: str) -> str:
         workspaceLoadInFlight = false;
       }}
     }}
-    function operatorFormIsBeingEdited() {{
-      const form = document.getElementById('approvals');
-      if (!form) return false;
-      if (form.contains(document.activeElement)) return true;
-      return [...form.querySelectorAll('textarea')].some(input => input.value.trim())
-        || [...form.querySelectorAll('input[type="file"]')].some(input => input.files?.length);
-    }}
     async function refreshWorkspaceIfIdle() {{
       if (document.hidden || operatorActionInFlight || operatorFormIsBeingEdited()) return;
       await loadWorkspace();
     }}
     function renderJobs() {{
+      renderWorkerLanes();
       const active = currentJobs.slice().reverse().find(j => ['queued', 'running'].includes(j.state));
       const completedCourseMap = Boolean(currentStatus?.course_map_ready);
       const relevantJobs = currentJobs.filter(job => !(
@@ -1418,9 +1500,40 @@ def ui_shell(default_course: str) -> str:
         return;
       }}
       const state = active ? latest.state : 'needs attention';
-      const detail = operatorJobMessage(latest);
+      const detail = active ? activeJobMessage(latest) : operatorJobMessage(latest);
       const timing = active ? jobTiming(latest) : '';
       holder.innerHTML = `<span class="state ${{esc(latest.state)}}">${{esc(state)}}</span> · ${{esc(detail)}}${{timing ? ` · ${{esc(timing)}}` : ''}}`;
+    }}
+    function renderWorkerLanes() {{
+      for (const lane of ['content', 'delivery']) {{
+        const holder = document.getElementById(lane + 'LaneStatus');
+        const jobs = currentJobs.filter(job => String(job.lane || '') === lane && ['queued', 'running'].includes(job.state));
+        const running = jobs.find(job => job.state === 'running');
+        const queued = jobs.filter(job => job.state === 'queued').length;
+        if (running) {{
+          holder.innerHTML = `<span class="state running">Working</span> · ${{esc(activeJobMessage(running))}}${{queued ? ` · ${{queued}} queued` : ''}}`;
+        }} else if (queued) {{
+          holder.innerHTML = `<span class="state queued">Ready</span> · ${{queued}} job${{queued === 1 ? '' : 's'}} queued`;
+        }} else {{
+          holder.innerHTML = `<span class="state completed">Available</span> · Ready for the next selected action`;
+        }}
+      }}
+    }}
+    function activeJobMessage(job) {{
+      const activity = String(job?.progress?.activity || '');
+      const labels = {{
+        'model_text:source_research': 'Researching current sources',
+        'model_text:technical_content': 'Writing the course book',
+        'model_text:pedagogy_review': 'Checking learning design',
+        'model_text:citation_review': 'Checking citations',
+        'model_text:design_review': 'Checking document design',
+        'model_text:visual_planning': 'Planning visuals',
+        'model_text:visual_review': 'Checking visual accuracy',
+        'model_image': 'Creating an illustration',
+        'study_guide_render': 'Assembling the course book',
+        'pdf_layout_qa': 'Checking the final PDF layout'
+      }};
+      return labels[activity] || operatorJobMessage(job);
     }}
     function jobTiming(job) {{
       const stage = String(job?.payload?.stage || job?.request_type || '');
@@ -1429,6 +1542,8 @@ def ui_shell(default_course: str) -> str:
         course_start: 6,
         study_guide: 25,
         deck: 6,
+        translations_book: 16,
+        translations_deck: 12,
         pt_br_book: 8,
         es_book: 8,
         pt_br_deck: 6,
@@ -1512,7 +1627,7 @@ def ui_shell(default_course: str) -> str:
       }});
       const manualSlug = document.getElementById('courseSlug').value;
       course.value = created.course_slug || manualSlug;
-      await loadWorkspace();
+      await restoreSavedCourse();
       return course.value;
     }}
     async function startProductionFlow() {{
@@ -1599,12 +1714,18 @@ def ui_shell(default_course: str) -> str:
         msg.textContent = 'Write the requested edits before sending the artifact back.';
         return;
       }}
-      await post('/api/request-changes', {{
-        course: course.value,
-        lesson: Number(lessonOverride || document.getElementById('targetLesson').value || 1),
-        artifact_type: artifactType,
-        note
-      }});
+      const form = new FormData();
+      form.append('course', course.value);
+      form.append('lesson', String(Number(lessonOverride || document.getElementById('targetLesson').value || 1)));
+      form.append('artifact_type', artifactType);
+      form.append('note', note);
+      form.append('source_manifest', document.getElementById('operatorRevisionSources')?.value || '');
+      for (const file of document.getElementById('operatorRevisionFiles')?.files || []) form.append('files', file);
+      try {{
+        const data = await api('/api/request-changes', {{method: 'POST', body: form}});
+        msg.textContent = data.message || 'Edit request recorded and queued.';
+        await loadWorkspace();
+      }} catch (error) {{ msg.textContent = error.message; }}
     }}
     async function uploadFiles() {{
       try {{
@@ -1669,8 +1790,13 @@ def ui_shell(default_course: str) -> str:
       }} catch (error) {{ msg.textContent = error.message; }}
     }}
     document.querySelectorAll('[data-level]').forEach(btn => btn.onclick = () => setLevel(btn.dataset.level));
-    document.getElementById('refreshTop').onclick = resetSession;
-    document.getElementById('refreshWorkspace').onclick = resetSession;
+    document.getElementById('refreshTop').onclick = restoreSavedCourse;
+    document.getElementById('refreshWorkspace').onclick = restoreSavedCourse;
+    document.getElementById('coursePicker').onchange = async event => {{
+      course.value = event.target.value;
+      await loadWorkspace();
+    }};
+    document.getElementById('completeCourse').onclick = markCourseComplete;
     document.getElementById('startProduction').onclick = startProductionFlow;
     document.getElementById('uploadScope').onchange = toggleLessonInput;
     document.getElementById('files').onchange = event => setUploadQueue(event.target.files);
@@ -1681,15 +1807,13 @@ def ui_shell(default_course: str) -> str:
     document.getElementById('applyOperatorAction').onclick = applyOperatorAction;
     document.getElementById('produceBooks').onclick = () => produceSelected('study_guide');
     document.getElementById('produceDecks').onclick = () => produceSelected('deck');
-    document.getElementById('producePtBrBooks').onclick = () => produceSelected('pt_br_book');
-    document.getElementById('producePtBrDecks').onclick = () => produceSelected('pt_br_deck');
-    document.getElementById('produceEsBooks').onclick = () => produceSelected('es_book');
-    document.getElementById('produceEsDecks').onclick = () => produceSelected('es_deck');
+    document.getElementById('produceTranslatedBooks').onclick = () => produceSelected('translations_book');
+    document.getElementById('produceTranslatedDecks').onclick = () => produceSelected('translations_deck');
     document.getElementById('selectAllLessons').onchange = event => {{
       document.querySelectorAll('[data-lesson-select]').forEach(input => input.checked = event.target.checked);
     }};
     toggleLessonInput();
-    resetWorkspace(false);
+    restoreSavedCourse();
     setInterval(refreshWorkspaceIfIdle, 10000);
   </script>
 </body>
@@ -1735,6 +1859,9 @@ class GregUiHandler(BaseHTTPRequestHandler):
                 body = ui_shell(getattr(self.server, "default_course", DEFAULT_COURSE)).encode("utf-8")
                 self.send_bytes(HTTPStatus.OK, body, "text/html; charset=utf-8")
                 return
+            if parsed.path == "/api/courses":
+                self.send_json(HTTPStatus.OK, {"courses": list_course_workspaces()})
+                return
             if parsed.path == "/api/status":
                 course = parse_qs(parsed.query).get("course", [getattr(self.server, "default_course", DEFAULT_COURSE)])[0]
                 self.send_json(HTTPStatus.OK, course_status(course))
@@ -1769,12 +1896,18 @@ class GregUiHandler(BaseHTTPRequestHandler):
             return
         parsed = urlparse(self.path)
         try:
-            if parsed.path == "/api/reset-session":
-                removed = clear_session_storage(
-                    job_root=getattr(self.server, "job_root"),
-                    upload_root=getattr(self.server, "upload_root"),
-                )
-                self.send_json(HTTPStatus.OK, {"message": "Session cleared. Start a new course.", "removed": removed})
+            if parsed.path == "/api/complete-course":
+                body = read_request_body(self)
+                course = slugify(str(body.get("course") or ""))
+                if not course or workspace_intake_path(SESSION_RUN_ROOT / course) is None:
+                    self.send_json(HTTPStatus.BAD_REQUEST, {"error": "Choose an existing course workspace."})
+                    return
+                active = [job for job in list_jobs(getattr(self.server, "job_root")) if str(job.get("course_slug") or "") == course and job.get("state") in {"queued", "running"}]
+                if active:
+                    self.send_json(HTTPStatus.CONFLICT, {"error": "This course still has active work. Wait for it to finish before marking it complete."})
+                    return
+                write_course_session(course, "completed")
+                self.send_json(HTTPStatus.OK, {"message": "Course marked complete. It remains stored and can be recovered from the server backup."})
                 return
             if parsed.path == "/api/upload":
                 content_length = int(self.headers.get("Content-Length", "0") or "0")
@@ -1844,7 +1977,16 @@ class GregUiHandler(BaseHTTPRequestHandler):
                     message += " Course book production resumed automatically."
                 self.send_json(HTTPStatus.OK, {"message": message, "uploads": saved, "job": job})
                 return
-            body = read_request_body(self)
+            if parsed.path == "/api/request-changes" and "multipart/form-data" in (self.headers.get("Content-Type", "")).lower():
+                content_length = int(self.headers.get("Content-Length", "0") or "0")
+                if content_length > MAX_UPLOAD_REQUEST_BYTES:
+                    self.send_json(HTTPStatus.REQUEST_ENTITY_TOO_LARGE, {"error": f"Revision attachments are too large. Maximum per request is {MAX_UPLOAD_REQUEST_BYTES // (1024 * 1024)} MB."})
+                    return
+                fields, revision_files = parse_multipart_form(self.headers.get("Content-Type", ""), self.rfile.read(content_length))
+                body = fields
+            else:
+                body = read_request_body(self)
+                revision_files = []
             job_root = getattr(self.server, "job_root")
             if parsed.path == "/api/backup":
                 result = enqueue_job(job_root=job_root, request_type="backup", summary=str(body.get("summary") or "ui backup request"))
@@ -1892,7 +2034,7 @@ class GregUiHandler(BaseHTTPRequestHandler):
                 course = str(body.get("course") or getattr(self.server, "default_course", DEFAULT_COURSE))
                 stage = str(body.get("stage") or "")
                 lessons = [int(value) for value in (body.get("lessons") or [])]
-                if stage not in {"study_guide", "deck", "pt_br_book", "pt_br_deck", "es_book", "es_deck"} or not lessons:
+                if stage not in {"study_guide", "deck", "translations_book", "translations_deck", "pt_br_book", "pt_br_deck", "es_book", "es_deck"} or not lessons:
                     self.send_json(HTTPStatus.BAD_REQUEST, {"error": "Choose at least one lesson and a supported production type."})
                     return
                 result = enqueue_job(
@@ -1953,7 +2095,9 @@ class GregUiHandler(BaseHTTPRequestHandler):
                 lesson = int(body.get("lesson") or 1)
                 artifact_type = str(body.get("artifact_type") or "artifact")
                 note = str(body.get("note") or "")
-                feedback = record_revision_request(course_slug=course, lesson=lesson, artifact_type=artifact_type, note=note)
+                if not note.strip():
+                    self.send_json(HTTPStatus.BAD_REQUEST, {"error": "Describe the requested edits before sending the artifact back."})
+                    return
                 stage_by_artifact = {
                     "study_guide": "study_guide",
                     "deck": "deck",
@@ -1966,12 +2110,31 @@ class GregUiHandler(BaseHTTPRequestHandler):
                 if not stage:
                     self.send_json(HTTPStatus.BAD_REQUEST, {"error": "Unsupported artifact type for revision."})
                     return
+                source_manifest = parse_visual_source_manifest(str(body.get("source_manifest") or ""))
+                attachments = []
+                for field in revision_files:
+                    filename = str(field.get("filename") or "")
+                    data = bytes(field.get("data") or b"")
+                    if not filename:
+                        continue
+                    clean_name = safe_filename(filename)
+                    source_meta = source_manifest.get(clean_name.casefold(), {})
+                    is_image = Path(clean_name).suffix.lower() in {".png", ".jpg", ".jpeg", ".webp"}
+                    attachments.append(save_uploaded_file(
+                        upload_root=getattr(self.server, "upload_root"), course_slug=course, filename=filename, data=data,
+                        scope="lesson", lesson=lesson,
+                        reference_policy="image_only" if is_image else "context_only",
+                        purpose="revision_material", revision_artifact_type=artifact_type,
+                        source_label=str(source_meta.get("source_label") or "Operator-supplied revision material"),
+                        source_url=str(source_meta.get("source_url") or ""),
+                    ))
+                feedback = record_revision_request(course_slug=course, lesson=lesson, artifact_type=artifact_type, note=note, attachments=attachments)
                 result = enqueue_job(
                     job_root=job_root,
                     request_type="production_stage",
                     course_slug=course,
                     lesson=lesson,
-                    summary=f"ui revision request for {artifact_type}: {note[:180]}",
+                    summary=f"ui revision request for {artifact_type}{' with supporting files' if attachments else ''}: {note[:180]}",
                     payload={"stage": stage, "lessons": [lesson]},
                 )
                 self.send_json(HTTPStatus.OK, {"message": "Edit request recorded and queued.", "feedback": feedback, "job": result.job})

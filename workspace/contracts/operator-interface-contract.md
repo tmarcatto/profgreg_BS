@@ -122,6 +122,8 @@ If the user says only "ok", "continue", or "next step", Greg should not treat th
 - A Course Map or lesson artifact must not be downloadable while its production job is active or any required automatic QA is failing.
 - The lesson table is the canonical artifact surface. It owns status and download access for every lesson file.
 - The operator uses one action tool: select an artifact or image request, then approve, request edits, or attach the requested image.
+- An edit request may include supporting PDF, DOCX, TXT, Markdown, or image files. These files are bound to the selected lesson and artifact revision, recorded with their source/attribution metadata, and retained outside Git with the upload manifest.
+- Revision attachments are contextual evidence, not automatic student references. Images are eligible for the next course-book visual pass only when their attribution is supplied; the normal visual QA and human approval gates still apply.
 - A visual status with no active plan is `not planned`, not `pending`. `waiting for images` is reserved for an explicit image request.
 - Operator-facing activity messages must be concise. Tracebacks, server paths, and internal exception details remain in internal job records.
 
@@ -257,6 +259,7 @@ Rules:
 - expose `waiting_images` as a first-class lesson status when visual curation is incomplete;
 - provide the image-request document for download and show every requested visual by ID and teaching purpose;
 - accept one operator image response per visual-request ID with source label and source URL/attribution;
+- accept optional supporting files and images with an edit request; record them as lesson- and artifact-specific revision material rather than as general course sources;
 - keep the student PDF unavailable until every required image is present and visual QA passes;
 - do not show secrets, raw prompts, full source content, or internal stack traces.
 

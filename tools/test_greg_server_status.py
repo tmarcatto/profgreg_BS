@@ -118,6 +118,7 @@ class GregServerStatusTests(unittest.TestCase):
         manifest = data["manifest_data"]
         self.assertIn("/etc/profgreg", manifest["excluded_secret_paths"])
         self.assertIn("/srv/profgreg/uploads", manifest["included_roots"])
+        self.assertIn("/opt/profgreg/app/runs", manifest["included_roots"])
 
     def test_create_and_transition_job(self) -> None:
         (ROOT / "tmp" / "jobs").mkdir(parents=True, exist_ok=True)
@@ -131,6 +132,44 @@ class GregServerStatusTests(unittest.TestCase):
             self.assertEqual(running["state"], "running")
             completed = checker.transition_job(root, job["job_id"], "completed")
             self.assertEqual(completed["state"], "completed")
+
+    def test_list_jobs_reports_active_timing_step(self) -> None:
+        (ROOT / "tmp" / "jobs").mkdir(parents=True, exist_ok=True)
+        with tempfile.TemporaryDirectory(dir=ROOT / "tmp" / "jobs") as tmp:
+            root = Path(tmp)
+            job = checker.create_job(job_root=root, request_type="backup")
+            trace = root / job["job_id"] / "timing.jsonl"
+            trace.write_text(
+                '{"event":"activity_started","activity":"model_text:technical_content","started_at":"2026-08-26T13:00:00Z"}\n',
+                encoding="utf-8",
+            )
+            listed = checker.list_jobs(root)
+            self.assertEqual(listed[0]["progress"]["activity"], "model_text:technical_content")
+
+    def test_worker_lanes_route_content_and_decks_separately(self) -> None:
+        (ROOT / "tmp" / "jobs").mkdir(parents=True, exist_ok=True)
+        with tempfile.TemporaryDirectory(dir=ROOT / "tmp" / "jobs") as tmp:
+            root = Path(tmp)
+            book = checker.create_job(
+                job_root=root,
+                request_type="production_stage",
+                course_slug="demo",
+                payload={"stage": "study_guide", "lessons": [3]},
+            )
+            deck = checker.create_job(
+                job_root=root,
+                request_type="production_stage",
+                course_slug="demo",
+                payload={"stage": "deck", "lessons": [2]},
+            )
+            self.assertEqual(checker.job_lane(book), "content")
+            self.assertEqual(checker.job_lane(deck), "delivery")
+            self.assertEqual(checker.next_queued_job(root, worker_lane="content")["job_id"], book["job_id"])
+            self.assertEqual(checker.next_queued_job(root, worker_lane="delivery")["job_id"], deck["job_id"])
+            claimed = checker.claim_queued_job(root, worker_lane="content")
+            self.assertEqual(claimed["job_id"], book["job_id"])
+            self.assertIsNone(checker.next_queued_job(root, worker_lane="content"))
+            self.assertEqual(checker.next_queued_job(root, worker_lane="delivery")["job_id"], deck["job_id"])
 
     def test_invalid_job_transition_fails(self) -> None:
         (ROOT / "tmp" / "jobs").mkdir(parents=True, exist_ok=True)

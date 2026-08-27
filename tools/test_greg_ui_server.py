@@ -45,6 +45,12 @@ class GregUiServerTests(unittest.TestCase):
         self.assertIn("/api/start-course", html)
         self.assertIn("/api/produce", html)
         self.assertIn("Generate course books", html)
+        self.assertIn("Translate course books (PT + ES)", html)
+        self.assertIn("Translate presentations (PT + ES)", html)
+        self.assertIn("produceSelected('translations_book')", html)
+        self.assertIn("produceSelected('translations_deck')", html)
+        self.assertNotIn("Generate PT-BR books", html)
+        self.assertNotIn("Generate ES books", html)
         self.assertIn("lesson-table", html)
         self.assertIn("/api/jobs?course=", html)
         self.assertIn("documentCell", html)
@@ -55,6 +61,9 @@ class GregUiServerTests(unittest.TestCase):
         self.assertIn("Download", html)
         self.assertIn("operatorTarget", html)
         self.assertIn("Attach requested images", html)
+        self.assertIn("Supporting files or images", html)
+        self.assertIn("operatorRevisionFiles", html)
+        self.assertIn("operatorRevisionSources", html)
         self.assertNotIn("visualCurationPanel", html)
         self.assertNotIn("Download blocked file", html)
         self.assertIn("/artifact?path=", html)
@@ -63,8 +72,10 @@ class GregUiServerTests(unittest.TestCase):
         self.assertIn("/api/request-changes", html)
         self.assertIn("New course workspace", html)
         self.assertIn("function resetWorkspace", html)
-        self.assertIn("function resetSession", html)
-        self.assertIn("/api/reset-session", html)
+        self.assertIn("Saved unfinished courses", html)
+        self.assertIn("function restoreSavedCourse", html)
+        self.assertIn("/api/courses", html)
+        self.assertIn("Mark course complete", html)
         self.assertIn("uploadQueue = [];", html)
         self.assertIn("document.getElementById('files').value = '';", html)
         self.assertIn("function ensureCourseIntake", html)
@@ -85,6 +96,22 @@ class GregUiServerTests(unittest.TestCase):
     def test_json_bytes_preserves_utf8(self) -> None:
         data = ui.json_bytes({"message": "ação"})
         self.assertIn("ação".encode("utf-8"), data)
+
+    def test_unfinished_workspaces_are_listed_before_completed_ones(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            run_root = Path(tmp)
+            for index, (slug, title) in enumerate((("active-course", "Active course"), ("complete-course", "Completed course"))):
+                run = run_root / slug
+                run.mkdir()
+                intake = run / "input" / "intake.md" if index else run / "intake.md"
+                intake.parent.mkdir(parents=True, exist_ok=True)
+                intake.write_text(f"# {title}\n", encoding="utf-8")
+            with patch.object(ui, "SESSION_RUN_ROOT", run_root):
+                ui.write_course_session("complete-course", "completed")
+                workspaces = ui.list_course_workspaces()
+        self.assertEqual([item["course_slug"] for item in workspaces], ["active-course", "complete-course"])
+        self.assertEqual(workspaces[0]["status"], "active")
+        self.assertEqual(workspaces[1]["status"], "completed")
 
     def test_safe_artifact_path_allows_runs_file(self) -> None:
         target = ROOT / "runs" / "tmp-ui-artifact" / "docx_pdf" / "sample.pdf"
@@ -174,6 +201,44 @@ class GregUiServerTests(unittest.TestCase):
             self.assertEqual(result["purpose"], "visual_response")
             self.assertEqual(result["visual_request_id"], "L02V01")
             self.assertEqual(result["scope"], "lesson_02")
+
+    def test_revision_material_is_preserved_and_recorded_with_feedback(self) -> None:
+        base = ROOT / "tmp" / "uploads"
+        base.mkdir(parents=True, exist_ok=True)
+        run = ROOT / "runs" / "revision-material-test"
+        if run.exists():
+            shutil.rmtree(run)
+        try:
+            with tempfile.TemporaryDirectory(dir=base) as tmp:
+                attachment = ui.save_uploaded_file(
+                    upload_root=Path(tmp),
+                    course_slug="Revision Material Test",
+                    filename="field-photo.png",
+                    data=b"\x89PNG\r\n\x1a\nminimal-test-payload",
+                    scope="lesson",
+                    lesson=1,
+                    reference_policy="image_only",
+                    purpose="revision_material",
+                    revision_artifact_type="study_guide",
+                    source_label="Operator field photo",
+                    source_url="https://example.com/field-photo",
+                )
+                self.assertEqual(attachment["purpose"], "revision_material")
+                self.assertEqual(attachment["revision_artifact_type"], "study_guide")
+                feedback = ui.record_revision_request(
+                    course_slug="Revision Material Test",
+                    lesson=1,
+                    artifact_type="study_guide",
+                    note="Use the attached field photo in the visual revision.",
+                    attachments=[attachment],
+                )
+            text = (ROOT / feedback["feedback_path"]).read_text(encoding="utf-8")
+            self.assertIn("Supporting materials attached to this revision", text)
+            self.assertIn("field-photo.png", text)
+            self.assertIn("https://example.com/field-photo", text)
+        finally:
+            if run.exists():
+                shutil.rmtree(run)
 
     def test_visual_batch_maps_ids_by_filename_then_order(self) -> None:
         files = [{"filename": "L01V02-plan.png"}, {"filename": "field-photo.jpg"}]

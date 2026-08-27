@@ -82,7 +82,9 @@ Visual plan rule:
 - every non-brand visual needs a purpose and distinct learning claim;
 - every non-brand visual needs `context_focus`, defaulting to `U.S. residential construction`;
 - people-centered visuals need `workforce_representation`, confirming respectful representation of the U.S. construction workforce, including American-born and immigrant workers when appropriate;
+- every deck includes at least one image-plus-teaching-bullets slide, with the image taking one half of the teaching area and related content on the other half;
 - generated images are fallback, never consecutive, never captioned/subtitled on deck slides, and never larger than half the slide;
+- across slides 2-9, use at least six distinct layouts; never repeat the same layout on adjacent slides or use one body layout more than twice;
 - real examples are required when the lesson teaches real documents, plans, schedules, symbols, or technical drawings unless the visual plan explicitly marks `visual_curation_required`;
 - highlighted visuals require a valid reason: exception, warning, decision point, risk threshold, contrast, or lesson emphasis.
 

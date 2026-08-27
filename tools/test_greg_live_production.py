@@ -6,6 +6,7 @@ import sys
 import tempfile
 import unittest
 from pathlib import Path
+from types import SimpleNamespace
 from unittest.mock import patch
 
 
@@ -19,6 +20,79 @@ spec.loader.exec_module(production)
 
 
 class GregLiveProductionTests(unittest.TestCase):
+    def test_combined_translation_stages_produce_pt_and_es_for_each_lesson(self) -> None:
+        with patch.object(production, "localize_book", side_effect=lambda course, lesson, locale: [f"{lesson}:{locale}"]) as localize_book:
+            self.assertEqual(["1:pt_br", "1:es", "2:pt_br", "2:es"], production.run_stage("demo", "translations_book", [1, 2]))
+        self.assertEqual(
+            [("demo", 1, "pt_br"), ("demo", 1, "es"), ("demo", 2, "pt_br"), ("demo", 2, "es")],
+            [item.args for item in localize_book.call_args_list],
+        )
+
+    def test_resumed_study_guide_uses_a_new_revision_after_approval(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            run = Path(directory)
+            (run / "lesson_draft").mkdir()
+            (run / "docx_pdf").mkdir()
+            draft = run / "lesson_draft" / "lesson_02_draft_r03.md"
+            draft.write_text("# Saved reviewed draft\n", encoding="utf-8")
+            (run / "docx_pdf" / "lesson_02_study_guide_r03.pdf").write_bytes(b"approved")
+            with patch.object(production, "approved_study_guide_baseline", return_value="docx_pdf/lesson_02_study_guide_r03.pdf"):
+                target, revision = production.revisioned_resumed_study_guide_draft(run, "lesson_02", draft)
+            self.assertEqual(4, revision)
+            self.assertEqual("lesson_02_draft_r04.md", target.name)
+            self.assertEqual(draft.read_text(encoding="utf-8"), target.read_text(encoding="utf-8"))
+
+    def test_deck_image_assets_are_reused_with_run_relative_paths(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            run = Path(directory)
+            asset = run / "deck" / "assets" / "lesson_02_teaching_image_01.png"
+            asset.parent.mkdir(parents=True)
+            asset.write_bytes(b"already-generated")
+            slides = [{
+                "layout": "image_bullets",
+                "image_prompt": "A residential field verification scene.",
+                "image_alt": "Residential field verification.",
+                "image_name": "teaching-image-1",
+            }]
+            with patch.object(production, "request_image") as request_image:
+                production.create_deck_visual_assets(SimpleNamespace(slug="demo"), {}, slides, run, "lesson_02")
+            request_image.assert_not_called()
+            self.assertEqual("deck/assets/lesson_02_teaching_image_01.png", slides[0]["image"]["path"])
+
+    def test_failed_deck_spec_is_detected_as_resumable(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            run = Path(directory)
+            deck = run / "deck"
+            deck.mkdir()
+            spec = deck / "lesson_02_deck_spec_r03.json"
+            spec.write_text('{"slides": []}', encoding="utf-8")
+            self.assertTrue(spec.exists() and not (deck / "lesson_02_deck_r03.pptx").exists())
+
+    def test_deck_plan_requires_a_teaching_image_and_layout_diversity(self) -> None:
+        slides = [
+            {"layout": "cover", "title": "Buildable Work", "subtitle": "Make the job ready.", "topics": ["Intake", "Scope", "Permits"]},
+            {"layout": "intro_image_bullets", "title": "Start with the site", "intro": "A field visit turns assumptions into decisions.", "bullets": ["Verify access", "Record constraints", "Confirm owners"], "image_prompt": "A residential project manager reviewing a home site plan with a field lead.", "image_alt": "Project manager and field lead review a residential site plan."},
+            {"layout": "card_sequence", "title": "Move facts into action", "items": [], "takeaway": "Sequence creates control."},
+            {"layout": "comparison", "title": "Separate the request from the scope", "left": {"title": "Request", "body": "Starting point"}, "right": {"title": "Scope", "body": "Verified commitment"}, "bottom_line": "Clarify first."},
+            {"layout": "planned_actual", "title": "Test the gap", "left": {"title": "Planned", "body": "What was assumed"}, "right": {"title": "Actual", "body": "What the site allows"}, "bottom_line": "Price the real job."},
+            {"layout": "row_list", "title": "Capture the critical record", "items": [], "bottom_line": "Record what drives decisions."},
+            {"layout": "checklist_rows", "title": "Verify before commitment", "items": [], "bottom_line": "Close the gaps."},
+            {"layout": "image_bullets", "title": "Permit readiness protects the start", "intro": "Authority and scope must match.", "bullets": ["Identify authority", "Assemble package", "Track response"], "bottom_line": "Release only a complete package.", "image_prompt": "A residential permit package organized on a clean desk beside house plans, no readable text.", "image_alt": "Residential permit package and house plans prepared for submittal."},
+            {"layout": "card_sequence", "title": "Keep the handoff visible", "items": [], "takeaway": "A clear handoff prevents rework."},
+            {"layout": "takeaway", "title": "Buildability comes before production", "body": "Verify the job before committing the work.", "final_line": "Make the job buildable first."},
+        ]
+        normalized = production.normalize_deck_slides({"slides": slides}, {"title": "Buildability", "learning_goal": "Make the job buildable."})
+        self.assertEqual(10, len(normalized))
+        self.assertEqual("right", normalized[1]["image_side"])
+        self.assertEqual("left", normalized[7]["image_side"])
+
+    def test_deck_plan_rejects_missing_teaching_image(self) -> None:
+        slides = [{"layout": "cover", "title": "A", "subtitle": "B", "topics": ["One", "Two", "Three"]}]
+        slides.extend({"layout": layout} for layout in ["card_sequence", "comparison", "planned_actual", "row_list", "checklist_rows", "card_sequence", "comparison", "row_list"])
+        slides.append({"layout": "takeaway"})
+        with self.assertRaisesRegex(RuntimeError, "teaching image"):
+            production.normalize_deck_slides({"slides": slides}, {"title": "Test", "learning_goal": "Test"})
+
     def test_image_only_upload_text_is_never_extracted_for_content(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             pdf = Path(directory) / "visual-only.pdf"
@@ -48,6 +122,26 @@ class GregLiveProductionTests(unittest.TestCase):
             with patch.object(production, "read_uploads", return_value=uploads), patch.object(production.subprocess, "run", return_value=completed):
                 excerpts = production.source_excerpts("demo")
             self.assertIn("Useful internal terminology.", excerpts)
+
+    def test_revision_text_is_limited_to_the_matching_lesson_and_artifact(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            material = Path(directory) / "revision-note.txt"
+            material.write_text("Use the supplied photo after the inspection section.", encoding="utf-8")
+            uploads = [{
+                "filename": material.name,
+                "stored_path": str(material),
+                "purpose": "revision_material",
+                "revision_artifact_type": "study_guide",
+                "scope": "lesson_01",
+                "reference_policy": "context_only",
+            }]
+            with patch.object(production, "read_uploads", return_value=uploads):
+                matching = production.source_excerpts("demo", lesson=1, artifact_type="study_guide")
+                wrong_lesson = production.source_excerpts("demo", lesson=2, artifact_type="study_guide")
+                wrong_artifact = production.source_excerpts("demo", lesson=1, artifact_type="deck")
+            self.assertIn("supplied photo", matching)
+            self.assertEqual("No readable uploaded excerpts were available.", wrong_lesson)
+            self.assertEqual("No readable uploaded excerpts were available.", wrong_artifact)
 
     def test_required_upload_binding_marks_every_citable_attachment_mandatory(self) -> None:
         uploads = [
@@ -117,6 +211,25 @@ class GregLiveProductionTests(unittest.TestCase):
         value = {"topics": ["planejar–acompanhar–ajustar", "Escopo — não tarefas"]}
         cleaned = production.normalize_localized_dash_punctuation(value)
         self.assertEqual(cleaned, {"topics": ["planejar, acompanhar, ajustar", "Escopo; não tarefas"]})
+
+    def test_localized_deck_keeps_approved_teaching_image_metadata(self) -> None:
+        source = [{
+            "layout": "image_bullets",
+            "title": "Verify the site",
+            "bullets": ["Confirm access", "Record constraints"],
+            "image_prompt": "A realistic residential site visit.",
+            "image_alt": "A project manager reviewing a home site.",
+            "image": {"path": "deck/assets/lesson_01_teaching_image_01.png", "alt": "A project manager reviewing a home site."},
+        }]
+        translated = [{
+            "layout": "image_bullets",
+            "title": "Verifique o local",
+            "bullets": ["Confirme o acesso", "Registre as restrições"],
+        }]
+        slides = production.localized_deck_slides(source, translated)
+        self.assertEqual("Verifique o local", slides[0]["title"])
+        self.assertEqual("deck/assets/lesson_01_teaching_image_01.png", slides[0]["image"]["path"])
+        self.assertEqual("A realistic residential site visit.", slides[0]["image_prompt"])
 
     def test_localized_slide_visible_items_never_returns_empty(self) -> None:
         self.assertEqual(production.localized_slide_visible_items({"title": "Título"}), ["Título"])

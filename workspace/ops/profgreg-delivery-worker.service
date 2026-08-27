@@ -1,5 +1,5 @@
 [Unit]
-Description=Prof Greg content job worker
+Description=Prof Greg delivery job worker
 After=network-online.target
 Wants=network-online.target
 Documentation=file:/opt/profgreg/app/workspace/contracts/server-job-contract.md
@@ -10,7 +10,7 @@ User=profgreg
 Group=profgreg
 WorkingDirectory=/opt/profgreg/app
 EnvironmentFile=/etc/profgreg/profgreg.env
-ExecStart=/usr/bin/python3 /opt/profgreg/app/tools/greg_server_status.py --worker --worker-lane content --job-root /srv/profgreg/jobs --backup-root /srv/profgreg/backups --poll-interval 5
+ExecStart=/usr/bin/python3 /opt/profgreg/app/tools/greg_server_status.py --worker --worker-lane delivery --job-root /srv/profgreg/jobs --backup-root /srv/profgreg/backups --poll-interval 5
 Restart=on-failure
 RestartSec=10
 NoNewPrivileges=true

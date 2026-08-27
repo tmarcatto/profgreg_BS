@@ -136,6 +136,39 @@ class CourseStatusTests(unittest.TestCase):
             self.assertTrue(lessons[0]["study_guide_quality_blockers"])
             self.assertEqual(lessons[0]["visual_status"], "not_planned")
 
+    def test_operator_approved_study_guide_is_not_retroactively_blocked(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            run = Path(tmp) / "runs" / "demo"
+            for folder in ("docx_pdf", "lesson_draft", "sources", "course_map", "approval", "review"):
+                (run / folder).mkdir(parents=True, exist_ok=True)
+            (run / "docx_pdf" / "lesson_01_study_guide.pdf").write_text("pdf", encoding="utf-8")
+            (run / "lesson_draft" / "lesson_01_draft.md").write_text("# Introduction\n\nThis study guide is written for construction learners working in the United States.", encoding="utf-8")
+            (run / "sources" / "student_references.md").write_text("References pending", encoding="utf-8")
+            (run / "approval" / "lesson_01_study_guide_approval.md").write_text("Approval status: approved", encoding="utf-8")
+            (run / "review" / "lesson_01_image_requests.json").write_text('{"requests": [{"visual_id": "v1"}]}', encoding="utf-8")
+            lessons = status.summarize_lessons(run, {"artifacts": [{"key": "lesson_01_study_guide_pdf", "path": "docx_pdf/lesson_01_study_guide.pdf", "status": "active", "lesson": "01"}]})
+            self.assertEqual(lessons[0]["study_guide"], "approved")
+            self.assertEqual(lessons[0]["visual_status"], "not_planned")
+            self.assertIn("study_guide_path", lessons[0])
+
+    def test_legacy_course_map_stays_available_after_operator_book_approval(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            original_runs = status.RUNS
+            try:
+                status.RUNS = Path(tmp) / "runs"
+                run = status.RUNS / "legacy-course"
+                for folder in ("input", "course_map", "approval"):
+                    (run / folder).mkdir(parents=True, exist_ok=True)
+                (run / "input" / "intake.md").write_text("# Legacy course", encoding="utf-8")
+                (run / "course_map" / "course_map.json").write_text('{"lessons": [{"lesson_number": 1, "title": "Approved lesson"}]}', encoding="utf-8")
+                (run / "approval" / "lesson_01_study_guide_approval.md").write_text("Approval status: approved", encoding="utf-8")
+                result = status.summarize("legacy-course")
+            finally:
+                status.RUNS = original_runs
+            self.assertTrue(result["course_map_ready"])
+            self.assertEqual(result["stage"], "LESSON_PRODUCTION")
+            self.assertIn("operator-approved course book", result["gate_status"])
+
     def test_render_markdown_includes_lesson_table(self) -> None:
         text = status.render_markdown(
             {

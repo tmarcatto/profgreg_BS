@@ -76,6 +76,9 @@ styles.add(ParagraphStyle(name="H2Keep", parent=styles["H2Greg"], keepWithNext=1
 styles.add(ParagraphStyle(name="RefGreg", parent=styles["BodyGreg"], fontSize=8.5, leading=11.5, leftIndent=10, firstLineIndent=-10, spaceAfter=5))
 styles.add(ParagraphStyle(name="CalloutLabel", parent=styles["BodyGreg"], fontName=FONT_BOLD, fontSize=10, leading=12, textColor=NAVY, spaceAfter=0))
 styles.add(ParagraphStyle(name="CalloutBody", parent=styles["BodyGreg"], fontSize=9.5, leading=13, textColor=INK, spaceAfter=0))
+styles.add(ParagraphStyle(name="BridgeLabel", parent=styles["CalloutLabel"], fontSize=9, leading=10))
+styles.add(ParagraphStyle(name="BridgeBody", parent=styles["CalloutBody"], fontSize=8.5, leading=10.5))
+styles.add(ParagraphStyle(name="BridgeLead", parent=styles["BodyGreg"], fontSize=9.2, leading=12, textColor=MUTED, spaceAfter=10))
 styles.add(ParagraphStyle(name="Caption", parent=styles["BodyGreg"], fontSize=8.6, leading=11, textColor=MUTED, alignment=TA_CENTER, spaceBefore=4, spaceAfter=10))
 
 
@@ -254,21 +257,26 @@ class Callout:
         orange_labels = {"APPLY IT", "HANDS-ON EXAMPLE", "SCENARIO"}
         border = ORANGE if self.label.upper() in orange_labels else NAVY
         fill = PALE_ORANGE if self.label.upper() in orange_labels else LIGHT
+        # A bridge commonly closes the last teaching section immediately
+        # before the mandatory Summary page. Keep it with the preceding prose
+        # using a compact, still legible treatment instead of stranding it on
+        # a nearly empty page of its own.
+        compact_bridge = self.label.upper() in {"BRIDGE", "PONTE", "PUENTE"}
         table = Table(
-            [[Paragraph(self.label, styles["CalloutLabel"]), Paragraph(inline(self.body), styles["CalloutBody"])]],
-            colWidths=[1.6 * inch, 4.85 * inch],
+            [[Paragraph(self.label, styles["BridgeLabel"] if compact_bridge else styles["CalloutLabel"]), Paragraph(inline(self.body), styles["BridgeBody"] if compact_bridge else styles["CalloutBody"])]],
+            colWidths=[1.2 * inch, 5.25 * inch] if compact_bridge else [1.6 * inch, 4.85 * inch],
             hAlign="LEFT",
         )
         table.setStyle(TableStyle([
             ("BOX", (0, 0), (-1, -1), 1.1, border),
             ("BACKGROUND", (0, 0), (-1, -1), fill),
             ("VALIGN", (0, 0), (-1, -1), "TOP"),
-            ("LEFTPADDING", (0, 0), (-1, -1), 12),
-            ("RIGHTPADDING", (0, 0), (-1, -1), 12),
-            ("TOPPADDING", (0, 0), (-1, -1), 10),
-            ("BOTTOMPADDING", (0, 0), (-1, -1), 10),
+            ("LEFTPADDING", (0, 0), (-1, -1), 5 if compact_bridge else 12),
+            ("RIGHTPADDING", (0, 0), (-1, -1), 5 if compact_bridge else 12),
+            ("TOPPADDING", (0, 0), (-1, -1), 4 if compact_bridge else 10),
+            ("BOTTOMPADDING", (0, 0), (-1, -1), 4 if compact_bridge else 10),
         ]))
-        return KeepTogether([Spacer(1, 7), table, Spacer(1, 9)])
+        return KeepTogether([Spacer(1, 3 if compact_bridge else 7), table, Spacer(1, 3 if compact_bridge else 9)])
 
 
 class CardRowDiagram(Flowable):
@@ -961,11 +969,28 @@ def build_story(blocks: list[dict[str, Any]], visuals: list[dict[str, Any]], loc
     story: list[Any] = [Spacer(1, 1), NextPageTemplate("normal"), PageBreak()]
     visual_after_heading = [item for item in visuals if item.get("after_heading")]
     content_blocks = front_matter_blocks(blocks)
+    # A final Bridge immediately before a forced structural page (normally the
+    # Summary) can never share the prior full page and otherwise creates an
+    # unattractive near-empty page. Preserve its teaching text as a restrained
+    # lead-in on the following structural page instead of stranding a box.
+    bridge_labels = {"BRIDGE", "PONTE", "PUENTE"}
+    for index, block in enumerate(content_blocks[:-1]):
+        following = content_blocks[index + 1]
+        if (
+            block.get("type") == "callout"
+            and str(block.get("label") or "").upper() in bridge_labels
+            and following.get("type") == "h1"
+            and starts_structural_page(str(following.get("text") or ""), locale)
+        ):
+            content_blocks[index] = {"type": "skip"}
+            content_blocks[index + 1] = {**following, "bridge_lead": str(block.get("body") or "")}
     current_heading = ""
     inserted_visuals: set[int] = set()
     pending_section_header: list[Any] = []
     for block in content_blocks:
         block_type = block["type"]
+        if block_type == "skip":
+            continue
         if block_type == "page_break":
             add_page_break(story)
         elif block_type == "h1":
@@ -980,6 +1005,8 @@ def build_story(blocks: list[dict[str, Any]], visuals: list[dict[str, Any]], loc
                 pending_section_header = [SectionHeader(int(match.group(1)), match.group(2), section_label), spacer]
             else:
                 story.append(Paragraph(inline(block["text"]), styles["H1Greg"]))
+                if block.get("bridge_lead"):
+                    story.append(Paragraph(inline(str(block["bridge_lead"])), styles["BridgeLead"]))
         elif block_type == "h2":
             current_heading = block["text"]
             if normalized_heading(current_heading) == normalized_heading(locale_labels(locale)["introduction"]):

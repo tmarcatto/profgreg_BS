@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import argparse
+import fcntl
 import hashlib
 import io
 import json
@@ -28,6 +29,7 @@ UI_SERVICE_SAMPLE = "workspace/ops/profgreg-ui.service"
 SERVER_BACKUP_ROOT = Path("/srv/profgreg/backups")
 SERVER_UPLOADS = Path("/srv/profgreg/uploads")
 SERVER_OUTPUTS = Path("/srv/profgreg/outputs")
+SERVER_RUNS = Path("/opt/profgreg/app/runs")
 SERVER_LOGS = Path("/var/log/profgreg")
 SERVER_SECRETS = Path("/etc/profgreg")
 LOCAL_JOB_ROOT = ROOT / "tmp" / "jobs"
@@ -35,6 +37,7 @@ SERVER_JOB_ROOT = Path("/srv/profgreg/jobs")
 
 JOB_STATES = {"queued", "running", "needs_approval", "completed", "failed", "cancelled"}
 JOB_REQUEST_TYPES = {"course_status", "course_start", "stage_next", "lesson_lifecycle", "production_stage", "backup", "full_flow_v1_test"}
+WORKER_LANES = {"all", "content", "delivery"}
 JOB_TRANSITIONS = {
     "queued": {"running", "failed", "cancelled"},
     "running": {"needs_approval", "completed", "failed", "cancelled"},
@@ -168,6 +171,59 @@ def job_event(job_dir: Path, event_type: str, payload: dict[str, Any]) -> None:
         handle.write(line + "\n")
 
 
+def parse_iso_timestamp(value: str) -> datetime | None:
+    """Parse a job timestamp without letting malformed legacy data stop a worker."""
+    try:
+        return datetime.strptime(value, "%Y-%m-%dT%H:%M:%SZ").replace(tzinfo=timezone.utc)
+    except (TypeError, ValueError):
+        return None
+
+
+def timing_summary(trace_path: Path) -> list[dict[str, Any]]:
+    """Return completed timing spans only; traces never contain prompts or generated content."""
+    if not trace_path.exists():
+        return []
+    spans: list[dict[str, Any]] = []
+    for line in trace_path.read_text(encoding="utf-8", errors="replace").splitlines():
+        try:
+            item = json.loads(line)
+        except json.JSONDecodeError:
+            continue
+        if item.get("event") != "activity_finished" or not isinstance(item.get("elapsed_ms"), int):
+            continue
+        spans.append(
+            {
+                "activity": str(item.get("activity") or "unknown"),
+                "status": str(item.get("status") or "unknown"),
+                "elapsed_ms": item["elapsed_ms"],
+                "started_at": str(item.get("started_at") or ""),
+                "finished_at": str(item.get("at") or ""),
+            }
+        )
+    return spans
+
+
+def timing_progress(trace_path: Path) -> dict[str, Any] | None:
+    """Expose the current non-sensitive production step for the operator UI."""
+    if not trace_path.exists():
+        return None
+    active: dict[str, dict[str, Any]] = {}
+    for line in trace_path.read_text(encoding="utf-8", errors="replace").splitlines():
+        try:
+            item = json.loads(line)
+        except json.JSONDecodeError:
+            continue
+        activity = str(item.get("activity") or "")
+        if not activity:
+            continue
+        if item.get("event") == "activity_started":
+            active[activity] = {"activity": activity, "started_at": str(item.get("started_at") or item.get("at") or "")}
+        elif item.get("event") == "activity_finished":
+            active.pop(activity, None)
+    # The newest record wins when nested stage and lesson spans are also open.
+    return next(reversed(active.values())) if active else None
+
+
 def read_json(path: Path) -> dict[str, Any]:
     if not path.exists():
         return {}
@@ -227,6 +283,10 @@ def list_jobs(job_root: Path = LOCAL_JOB_ROOT) -> list[dict[str, Any]]:
     for path in sorted(root.glob("job_*/job.json")):
         data = read_json(path)
         if data:
+            data["lane"] = job_lane(data)
+            progress = timing_progress(path.parent / "timing.jsonl")
+            if progress:
+                data["progress"] = progress
             jobs.append(data)
     return jobs
 
@@ -277,11 +337,45 @@ def update_job(job_root: Path, job: dict[str, Any], **updates: Any) -> dict[str,
     return data
 
 
-def next_queued_job(job_root: Path) -> dict[str, Any] | None:
+def job_lane(job: dict[str, Any]) -> str:
+    """Route each job to one safe worker lane.
+
+    Content jobs make or localize books; delivery jobs make decks, backups,
+    and lifecycle reports. This keeps a long book request from blocking a
+    ready presentation or PDF-related task.
+    """
+    if job.get("request_type") == "production_stage":
+        stage = str((job.get("payload") or {}).get("stage") or "")
+        if stage in {"deck", "translations_deck", "pt_br_deck", "es_deck"}:
+            return "delivery"
+        return "content"
+    if job.get("request_type") in {"backup", "lesson_lifecycle", "stage_next"}:
+        return "delivery"
+    return "content"
+
+
+def next_queued_job(job_root: Path, *, worker_lane: str = "all") -> dict[str, Any] | None:
+    if worker_lane not in WORKER_LANES:
+        raise ValueError(f"Unsupported worker lane: {worker_lane}")
     for job in list_jobs(job_root):
-        if job.get("state") == "queued":
+        if job.get("state") == "queued" and (worker_lane == "all" or job_lane(job) == worker_lane):
             return job
     return None
+
+
+def claim_queued_job(job_root: Path, *, worker_lane: str) -> dict[str, Any] | None:
+    """Atomically claim one queued job so the two services cannot double-run it."""
+    lock_path = job_root / ".worker-claim.lock"
+    lock_path.touch(exist_ok=True)
+    with lock_path.open("a+", encoding="utf-8") as lock:
+        fcntl.flock(lock.fileno(), fcntl.LOCK_EX)
+        try:
+            job = next_queued_job(job_root, worker_lane=worker_lane)
+            if not job:
+                return None
+            return transition_job(job_root, str(job["job_id"]), "running", note=f"{worker_lane} worker claimed job")
+        finally:
+            fcntl.flock(lock.fileno(), fcntl.LOCK_UN)
 
 
 def execute_worker_job(job_root: Path, job: dict[str, Any], *, backup_root: Path, dry_run: bool = False) -> dict[str, Any]:
@@ -364,7 +458,7 @@ def execute_worker_job(job_root: Path, job: dict[str, Any], *, backup_root: Path
         payload = job.get("payload") or {}
         stage = str(payload.get("stage") or "")
         lessons = [int(value) for value in (payload.get("lessons") or [])]
-        if not course_slug or stage not in {"course_map", "sources", "study_guide", "deck", "pt_br_book", "pt_br_deck", "es_book", "es_deck"}:
+        if not course_slug or stage not in {"course_map", "sources", "study_guide", "deck", "translations_book", "translations_deck", "pt_br_book", "pt_br_deck", "es_book", "es_deck"}:
             raise ValueError("production_stage job requires a course and supported stage.")
         if dry_run:
             return update_job(
@@ -373,28 +467,62 @@ def execute_worker_job(job_root: Path, job: dict[str, Any], *, backup_root: Path
                 artifacts=[{"kind": "operator_report", "path": f"runs/{course_slug}/process_review/dry_run_{stage}.md", "created": False}],
                 last_error=None,
             )
-        command = ["python3", "tools/greg_live_production.py", str(course_slug), "--stage", stage]
+        trace_path = job_root / job["job_id"] / "timing.jsonl"
+        command = ["python3", "tools/greg_live_production.py", str(course_slug), "--stage", stage, "--timing-file", str(trace_path)]
         if lessons:
             command.extend(["--lessons", ",".join(str(value) for value in lessons)])
         code, output = run_command(command, ROOT)
         if code != 0:
             raise RuntimeError(output or f"production_stage failed with exit code {code}")
-        artifacts = [{"kind": stage, "path": f"runs/{course_slug}", "created": True}]
-        return update_job(job_root, job, artifacts=artifacts, last_error=None)
+        artifacts = [
+            {"kind": stage, "path": f"runs/{course_slug}", "created": True},
+            {"kind": "timing_trace", "path": str(trace_path), "created": trace_path.exists()},
+        ]
+        return update_job(job_root, job, artifacts=artifacts, timing_activities=timing_summary(trace_path), last_error=None)
     raise ValueError(f"Worker does not support request_type yet: {request_type}")
 
 
-def process_one_worker_job(job_root: Path, *, backup_root: Path = SERVER_BACKUP_ROOT, dry_run: bool = False) -> dict[str, Any]:
+def process_one_worker_job(
+    job_root: Path,
+    *,
+    backup_root: Path = SERVER_BACKUP_ROOT,
+    dry_run: bool = False,
+    worker_lane: str = "all",
+) -> dict[str, Any]:
     root = safe_job_root(job_root)
     backup_root = safe_backup_root(backup_root)
-    job = next_queued_job(root)
-    if not job:
+    candidate = next_queued_job(root, worker_lane=worker_lane)
+    if not candidate:
         return {"processed": False, "job_id": None, "state": None}
-    job_id = job["job_id"]
     try:
-        running = transition_job(root, job_id, "running", note="worker claimed job")
+        running = claim_queued_job(root, worker_lane=worker_lane)
+    except Exception as error:
+        message = compact_error_note(f"{summarize_worker_error(error)}; worker could not persist failed state")
+        return {
+            "processed": True,
+            "job_id": candidate["job_id"],
+            "state": "failed",
+            "error": message,
+            "failure_recorded": False,
+        }
+    if not running:
+        return {"processed": False, "job_id": None, "state": None}
+    job = running
+    job_id = job["job_id"]
+    execution_started: float | None = None
+    try:
+        created_at = parse_iso_timestamp(str(running.get("created_at") or ""))
+        started_at = parse_iso_timestamp(str(running.get("updated_at") or ""))
+        queue_wait_ms = round((started_at - created_at).total_seconds() * 1000) if created_at and started_at else None
+        running = update_job(root, running, timing={"queue_wait_ms": queue_wait_ms})
+        execution_started = time.perf_counter()
         executed = execute_worker_job(root, running, backup_root=backup_root, dry_run=dry_run)
         completed = transition_job(root, job_id, "completed", note="worker completed job")
+        timing = dict(executed.get("timing") or {})
+        timing["queue_wait_ms"] = queue_wait_ms
+        timing["worker_execution_ms"] = round((time.perf_counter() - execution_started) * 1000)
+        completed = update_job(root, completed, timing=timing)
+        job_event(root / job_id, "timing_summary", timing)
         return {"processed": True, "job_id": job_id, "state": completed["state"], "artifacts": executed.get("artifacts", [])}
     except Exception as error:
         message = summarize_worker_error(error)
@@ -402,6 +530,12 @@ def process_one_worker_job(job_root: Path, *, backup_root: Path = SERVER_BACKUP_
         try:
             current = next((item for item in list_jobs(root) if item.get("job_id") == job_id), job)
             if current.get("state") in {"queued", "running"}:
+                timing = dict(current.get("timing") or {})
+                if execution_started is not None:
+                    timing["worker_execution_ms"] = round((time.perf_counter() - execution_started) * 1000)
+                trace_path = root / job_id / "timing.jsonl"
+                current = update_job(root, current, timing=timing, timing_activities=timing_summary(trace_path))
+                job_event(root / job_id, "timing_summary", timing)
                 transition_job(root, job_id, "failed", note=message)
                 failure_recorded = True
         except Exception as state_error:
@@ -424,11 +558,12 @@ def run_worker_loop(
     max_jobs: int | None = None,
     poll_interval: float = 10.0,
     dry_run: bool = False,
+    worker_lane: str = "all",
 ) -> list[dict[str, Any]]:
     results: list[dict[str, Any]] = []
     processed = 0
     while True:
-        result = process_one_worker_job(job_root, backup_root=backup_root, dry_run=dry_run)
+        result = process_one_worker_job(job_root, backup_root=backup_root, dry_run=dry_run, worker_lane=worker_lane)
         results.append(result)
         if result["processed"]:
             processed += 1
@@ -488,7 +623,7 @@ def create_backup(
         "archive": str(archive_path),
         "archive_sha256": None,
         "archive_size_bytes": 0,
-        "included_roots": [str(SERVER_UPLOADS), str(SERVER_OUTPUTS)],
+        "included_roots": [str(SERVER_UPLOADS), str(SERVER_OUTPUTS), str(SERVER_RUNS)],
         "excluded_secret_paths": [str(SERVER_SECRETS), str(SERVER_SECRETS / "profgreg.env")],
         "log_inventory_only": str(SERVER_LOGS),
         "log_inventory": file_inventory(SERVER_LOGS, include_patterns=("*.log", "*.log.*")),
@@ -496,6 +631,7 @@ def create_backup(
         "restore_notes": [
             "Restore uploaded source materials from archive path uploads/ into /srv/profgreg/uploads.",
             "Restore generated outputs from archive path outputs/ into /srv/profgreg/outputs.",
+            "Restore unfinished course workspaces from archive path runs/ into /opt/profgreg/app/runs.",
             "Do not restore secrets from this backup; restore /etc/profgreg through the operator-controlled encrypted secret process.",
             "Review deployed_commit before mixing restored artifacts with a newer code checkout.",
         ],
@@ -514,6 +650,7 @@ def create_backup(
     with tarfile.open(archive_path, "w:gz") as archive:
         manifest["included_files"].extend(add_tree_to_archive(archive, SERVER_UPLOADS, "uploads"))
         manifest["included_files"].extend(add_tree_to_archive(archive, SERVER_OUTPUTS, "outputs"))
+        manifest["included_files"].extend(add_tree_to_archive(archive, SERVER_RUNS, "runs"))
         manifest_bytes = json.dumps(manifest, indent=2, ensure_ascii=False).encode("utf-8")
         info = tarfile.TarInfo("manifest.preview.json")
         info.size = len(manifest_bytes)
@@ -574,7 +711,8 @@ def worker_service_policy_ok(text: str) -> bool:
     required = [
         "User=profgreg",
         "EnvironmentFile=/etc/profgreg/profgreg.env",
-        "greg_server_status.py --worker --job-root /srv/profgreg/jobs",
+        "greg_server_status.py --worker",
+        "--job-root /srv/profgreg/jobs",
         "Restart=on-failure",
         "NoNewPrivileges=true",
         "ProtectSystem=strict",
@@ -927,6 +1065,7 @@ def main() -> int:
     parser.add_argument("--to", choices=sorted(JOB_STATES))
     parser.add_argument("--note", default="")
     parser.add_argument("--worker", action="store_true", help="Run the conservative server worker.")
+    parser.add_argument("--worker-lane", choices=sorted(WORKER_LANES), default="all", help="Job lane this worker may claim.")
     parser.add_argument("--once", action="store_true", help="With --worker, process at most one queued job.")
     parser.add_argument("--max-jobs", type=int, help="With --worker, stop after this many processed jobs.")
     parser.add_argument("--poll-interval", type=float, default=10.0, help="With --worker, seconds between polls.")
@@ -936,7 +1075,7 @@ def main() -> int:
 
     if args.worker:
         recover_interrupted_jobs(Path(args.job_root))
-        data = run_worker_loop(job_root=Path(args.job_root), backup_root=Path(args.backup_root), once=args.once, max_jobs=args.max_jobs, poll_interval=args.poll_interval, dry_run=args.dry_run)
+        data = run_worker_loop(job_root=Path(args.job_root), backup_root=Path(args.backup_root), once=args.once, max_jobs=args.max_jobs, poll_interval=args.poll_interval, dry_run=args.dry_run, worker_lane=args.worker_lane)
         report = json.dumps(data, indent=2, ensure_ascii=False) + "\n"
     elif args.create_backup:
         data = create_backup(Path(args.root), backup_root=Path(args.backup_root), label=args.backup_label, dry_run=args.dry_run)
