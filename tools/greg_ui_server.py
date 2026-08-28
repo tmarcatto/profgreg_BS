@@ -204,11 +204,14 @@ def course_cost_report(course_slug: str) -> dict:
                 # current versioned rate card so historic course spend is not
                 # silently omitted from the workspace total.
                 if item.get("outcome") == "completed" and item.get("usage") and not item.get("cost"):
-                    from greg_model_router import cost_estimate
-                    item["cost"] = cost_estimate(
-                        {"provider": item.get("provider"), "model": item.get("model")},
-                        item["usage"],
-                    )
+                    try:
+                        from greg_model_router import cost_estimate
+                        item["cost"] = cost_estimate(
+                            {"provider": item.get("provider"), "model": item.get("model")},
+                            item["usage"],
+                        )
+                    except Exception:
+                        item["cost"] = {"currency": "USD", "status": "unpriced"}
                 rows.append(item)
     rows.sort(key=lambda item: str(item.get("at") or ""), reverse=True)
     completed = [item for item in rows if item.get("outcome") == "completed"]
@@ -1004,8 +1007,8 @@ def ui_shell(default_course: str) -> str:
       <a href="#materials">Materials</a>
       <a href="#course-map">Course Map</a>
       <a href="#pipeline">Lessons</a>
-      <a href="#costs">AI Costs</a>
       <a href="#approvals">Approvals</a>
+      <a href="#costs">AI Costs</a>
     </nav>
   </header>
   <main>
@@ -1173,19 +1176,10 @@ def ui_shell(default_course: str) -> str:
       </div>
     </section>
 
-    <section id="costs" class="card">
-      <div class="section-head"><div class="title-row"><div class="step-num">5</div><div><h2>AI Costs</h2><div class="hint">Every provider call made for this course workspace is listed separately. Totals use the configured API rate card.</div></div></div></div>
-      <div class="body">
-        <div class="status-summary" id="costSummary"><div class="metric"><div class="label">Total estimated investment</div><div class="value">Loading…</div></div></div>
-        <div class="cost-provider-list" id="costProviders"></div>
-        <div class="table-wrap"><table><thead><tr><th>Date / time</th><th>Artifact / stage</th><th>Provider</th><th>Model</th><th>Usage</th><th>Cost (USD)</th><th>Status</th></tr></thead><tbody id="costRows"><tr><td colspan="7" class="muted">No AI calls recorded for this workspace.</td></tr></tbody></table></div>
-      </div>
-    </section>
-
     <section id="approvals" class="card">
       <div class="section-head">
         <div class="title-row">
-          <div class="step-num">6</div>
+          <div class="step-num">5</div>
           <div><h2>Operator Action</h2><div class="hint">Choose a lesson first, then select its file or image request to approve it, request edits, or attach requested images. Files remain managed in the lesson table.</div></div>
         </div>
       </div>
@@ -1198,6 +1192,15 @@ def ui_shell(default_course: str) -> str:
           <div class="operator-result" id="operatorResult" role="status" aria-live="polite"></div>
           <div class="operator-tool-actions"><button class="primary" id="applyOperatorAction">Apply action</button></div>
         </div>
+      </div>
+    </section>
+
+    <section id="costs" class="card">
+      <div class="section-head"><div class="title-row"><div class="step-num">6</div><div><h2>AI Costs</h2><div class="hint">Every provider call made for this course workspace is listed separately. Totals use the configured API rate card.</div></div></div></div>
+      <div class="body">
+        <div class="status-summary" id="costSummary"><div class="metric"><div class="label">Total estimated investment</div><div class="value">Loading…</div></div></div>
+        <div class="cost-provider-list" id="costProviders"></div>
+        <div class="table-wrap"><table><thead><tr><th>Date / time</th><th>Artifact / stage</th><th>Provider</th><th>Model</th><th>Usage</th><th>Cost (USD)</th><th>Status</th></tr></thead><tbody id="costRows"><tr><td colspan="7" class="muted">No AI calls recorded for this workspace.</td></tr></tbody></table></div>
       </div>
     </section>
 
@@ -1614,19 +1617,16 @@ def ui_shell(default_course: str) -> str:
         currentJobs = jobs.jobs || [];
         renderJobs();
         const uploads = await api('/api/uploads?course=' + encodeURIComponent(course.value));
-        let costs = null;
-        try {{
-          costs = await api('/api/costs?course=' + encodeURIComponent(course.value));
-        }} catch (costError) {{
-          // Cost reporting is optional. It must never prevent the saved
-          // course workspace, files, or active revision from loading.
-          console.warn('Cost report unavailable:', costError.message);
-        }}
         document.getElementById('uploads').innerHTML = uploads.uploads.length ? uploads.uploads.map(uploadRow).join('') : '<tr><td colspan="5" class="muted">No source materials attached yet.</td></tr>';
         for (const item of uploads.uploads) toggleUploadLesson(item.upload_id);
         renderPipeline();
         renderLessonSelection();
-        renderCosts(costs);
+        // Cost loading is intentionally independent: an unavailable report
+        // must never hold up production, approvals, or revision controls.
+        renderCosts(null);
+        api('/api/costs?course=' + encodeURIComponent(course.value))
+          .then(renderCosts)
+          .catch(() => {{ document.getElementById('costProviders').textContent = 'Cost report is temporarily unavailable. Course production remains available.'; }});
       }} catch (error) {{
         msg.textContent = error.message;
       }} finally {{

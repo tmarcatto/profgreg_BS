@@ -46,6 +46,62 @@ def binding_for(role: str) -> tuple[dict[str, Any], dict[str, Any]]:
     return binding, provider
 
 
+def cost_estimate(binding: dict[str, Any], usage: dict[str, Any]) -> dict[str, Any]:
+    """Estimate a request cost from the versioned local rate card.
+
+    Provider responses expose usage, not a billing total. Keeping rates in the
+    routing configuration makes the UI auditable and lets operations update a
+    price without changing production code. An absent rate is deliberately
+    reported as unpriced instead of being treated as a free request.
+    """
+    provider = str(binding.get("provider") or "")
+    model = str(binding.get("model") or "")
+    rates = ((load_config().get("cost_tracking") or {}).get("rates") or {}).get(f"{provider}/{model}")
+    if not isinstance(rates, dict):
+        return {"currency": "USD", "status": "unpriced"}
+
+    input_tokens = int(usage.get("input_tokens") or usage.get("prompt_tokens") or 0)
+    output_tokens = int(usage.get("output_tokens") or usage.get("completion_tokens") or 0)
+    input_details = usage.get("input_tokens_details") or usage.get("prompt_tokens_details") or {}
+    cached_tokens = int(input_details.get("cached_tokens") or 0) if isinstance(input_details, dict) else 0
+    anthropic_cache_read = int(usage.get("cache_read_input_tokens") or 0)
+    if anthropic_cache_read:
+        cached_tokens = anthropic_cache_read
+    input_rate = rates.get("input_per_million_usd")
+    output_rate = rates.get("output_per_million_usd")
+    cached_rate = rates.get("cached_input_per_million_usd", input_rate)
+    images = int(usage.get("images") or 0)
+    if images and not input_tokens and not output_tokens:
+        per_image = rates.get("per_image_usd")
+        if isinstance(per_image, (int, float)):
+            return {"currency": "USD", "status": "estimated", "estimated_usd": round(images * float(per_image), 8), "rate_version": str(rates.get("rate_version") or "")}
+        return {"currency": "USD", "status": "unpriced"}
+    if not all(isinstance(value, (int, float)) for value in (input_rate, output_rate, cached_rate)):
+        per_image = rates.get("per_image_usd")
+        if images and isinstance(per_image, (int, float)):
+            return {"currency": "USD", "status": "estimated", "estimated_usd": round(images * float(per_image), 8), "rate_version": str(rates.get("rate_version") or "")}
+        return {"currency": "USD", "status": "unpriced"}
+    # Anthropic reports cache reads separately from input_tokens, while the
+    # OpenAI-compatible usage shape includes cached input in input_tokens.
+    uncached_tokens = input_tokens if anthropic_cache_read else max(0, input_tokens - cached_tokens)
+    estimated = (
+        uncached_tokens * float(input_rate)
+        + cached_tokens * float(cached_rate)
+        + output_tokens * float(output_rate)
+    ) / 1_000_000
+    result = {
+        "currency": "USD",
+        "status": "estimated",
+        "estimated_usd": round(estimated, 8),
+        "rate_version": str(rates.get("rate_version") or ""),
+    }
+    web_runs = int(usage.get("web_search_runs") or 0)
+    web_rate = rates.get("web_search_per_1000_usd")
+    if web_runs and isinstance(web_rate, (int, float)):
+        result["estimated_usd"] = round(result["estimated_usd"] + (web_runs * float(web_rate) / 1000), 8)
+    return result
+
+
 def append_usage(
     course_slug: str,
     *,
@@ -69,6 +125,7 @@ def append_usage(
         # Keep the operational log small and private: usage metadata is enough
         # for cost reporting and never includes a prompt or generated content.
         row["usage"] = usage
+        row["cost"] = cost_estimate(binding, usage) if outcome == "completed" else {"currency": "USD", "status": "not_chargeable"}
     with path.open("a", encoding="utf-8") as handle:
         handle.write(json.dumps(row, ensure_ascii=False) + "\n")
 
@@ -142,12 +199,13 @@ def request_image(course_slug: str, prompt: str, output_path: Path, *, size: str
     except (ModelRequestError, ValueError) as error:
         append_usage(course_slug, role=role, binding=binding, outcome="failed", detail=str(error))
         raise ModelRequestError(str(error)) from error
+    usage = {**dict(response.get("usage") or {}), "images": 1, "size": size, "quality": payload["quality"]}
     append_usage(
         course_slug,
         role=role,
         binding=binding,
         outcome="completed",
-        usage={"images": 1, "size": size, "quality": payload["quality"]},
+        usage=usage,
     )
     return output_path
 
@@ -230,6 +288,9 @@ def openai_text(
             f"reason={reason!r}, output={output_shapes!r})."
         )
     usage = dict(response.get("usage") or {})
+    web_search_runs = sum(1 for item in response.get("output") or [] if item.get("type") == "web_search_call")
+    if web_search_runs:
+        usage["web_search_runs"] = web_search_runs
     return (text.strip(), usage) if return_usage else text.strip()
 
 

@@ -121,12 +121,19 @@ Every production run should log:
 - reason for selection;
 - fallback used, if any;
 - source/research calls, when relevant.
+- token or image usage and the estimated USD cost when a rate is configured.
 
 The recommended run-level log path is:
 
 ```text
 runs/[course-slug]/ops/model_usage_log.jsonl
 ```
+
+The operator console reports costs from this run-scoped log. Each request is a
+separate row, so an artifact that uses multiple providers remains traceable by
+provider and model. Rates are versioned in `cost_tracking.rates` within
+`workspace/config/model-routing.json`; a completed call with no configured rate
+must be shown as unpriced and excluded from the estimated total.
 
 ## Fallback Rules
 

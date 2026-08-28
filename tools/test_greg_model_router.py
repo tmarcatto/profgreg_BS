@@ -9,6 +9,21 @@ import greg_model_router
 
 
 class ModelRouterRetryTests(unittest.TestCase):
+    @patch("greg_model_router.load_config")
+    def test_cost_estimate_uses_input_cached_and_output_rates(self, load_config):
+        load_config.return_value = {
+            "cost_tracking": {"rates": {"openai/test-model": {
+                "input_per_million_usd": 2, "cached_input_per_million_usd": 0.2,
+                "output_per_million_usd": 10, "rate_version": "test-rate"
+            }}}
+        }
+        cost = greg_model_router.cost_estimate(
+            {"provider": "openai", "model": "test-model"},
+            {"input_tokens": 1_000_000, "output_tokens": 1_000_000, "input_tokens_details": {"cached_tokens": 200_000}},
+        )
+        self.assertEqual("estimated", cost["status"])
+        self.assertEqual(11.64, cost["estimated_usd"])
+
     @patch("greg_model_router.time.sleep")
     @patch("greg_model_router.urllib.request.urlopen")
     def test_retries_remote_disconnect_then_returns_json(self, urlopen, sleep):
