@@ -31,6 +31,20 @@ except ModuleNotFoundError as error:
 
 
 class RenderStudyGuideFromSpecTests(unittest.TestCase):
+    def test_localized_source_accepts_plain_localized_callout_labels(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            source = Path(directory) / "lesson_01_pt_br.md"
+            source.write_text(
+                "\n".join([
+                    "# Seção 01: Primeiro", "# Seção 02: Segundo", "# Seção 03: Terceiro", "# Seção 04: Quarto",
+                    "> TERMO-CHAVE  ", "> Definição.", "> APLIQUE  ", "> Ação.",
+                    "# Resumo e Principais Conclusões", "- Um", "- Dois", "- Três", "- Quatro",
+                    "# Referências",
+                ]),
+                encoding="utf-8",
+            )
+            renderer.validate_localized_source(source, "pt_br")
+
     def test_card_row_never_draws_unwrapped_detail_text(self) -> None:
         if pdf_renderer is None:
             self.skipTest("ReportLab is not installed in this Python environment.")

@@ -82,7 +82,14 @@ def validate_localized_source(source_path: Path, locale: str) -> None:
         raise RuntimeError("Localized source must contain at least four numbered sections.")
     if not re.search(rf"(?im)^#\s+{re.escape(rules['references'])}\s*$", text):
         raise RuntimeError(f"Localized source is missing `{rules['references']}`.")
+    # Localized production removes arbitrary inline bold so translated opening
+    # phrases do not look like headings.  Callout labels may therefore arrive
+    # as either `> **TERMO-CHAVE**` or the renderer's equally valid plain
+    # form, `> TERMO-CHAVE`.  Plain blockquote body lines must not be mistaken
+    # for labels, so only the approved vocabulary is accepted without bold.
     labels = re.findall(r"(?im)^>\s*\*\*([^*]+)\*\*\s*$", text)
+    plain_pattern = "|".join(re.escape(label) for label in rules["callouts"])
+    labels.extend(re.findall(rf"(?im)^>\s*({plain_pattern})[ \t]*$", text))
     if not 2 <= len(labels) <= 4:
         raise RuntimeError("Localized source must contain 2 to 4 callout blocks.")
     invalid = [label for label in labels if label.strip().upper() not in rules["callouts"]]
