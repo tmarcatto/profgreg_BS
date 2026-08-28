@@ -204,6 +204,21 @@ class GregLiveProductionTests(unittest.TestCase):
             self.assertEqual(1, len(merged["sources"]))
             self.assertIn("Cost Estimate Classification: Building Construction.", references)
 
+    def test_lesson_reference_merge_excludes_unrelated_refresh_sources(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            run = Path(directory)
+            (run / "sources").mkdir()
+            ledger = {"sources": [{
+                "source_id": "S01", "title": "General handbook", "formal_reference": "Authority. General handbook.",
+                "currency_validation": {"status": "validated-current"}, "claims_supported": [{"lesson_numbers": [1]}],
+            }]}
+            refresh = {"sources": [{
+                "source_id": "S01", "title": "General handbook", "formal_reference": "Authority. General handbook.",
+                "currency_validation": {"status": "validated-current"}, "claims_supported": [{"lesson_numbers": [1]}],
+            }]}
+            _, references = production.merge_lesson_sources(run, ledger, refresh, 3)
+            self.assertEqual("# References\n\n", references)
+
     def test_cached_draft_is_invalid_when_a_mandatory_attachment_is_missing(self) -> None:
         ledger = {"sources": [{
             "title": "Attached Construction Handbook",

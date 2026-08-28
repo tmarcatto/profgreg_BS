@@ -1066,10 +1066,19 @@ def merge_lesson_sources(run: Path, ledger: dict[str, Any], refresh: dict[str, A
         item for item in ledger.get("sources") or []
         if item.get("origin") == "operator_upload" and item.get("mandatory_use") is True
     ]
-    lesson_source_ids.update(str(item.get("source_id") or "") for item in mandatory_sources)
+    mandatory_source_ids = {str(item.get("source_id") or "") for item in mandatory_sources}
+    lesson_source_ids.update(mandatory_source_ids)
+    def supports_lesson(item: dict[str, Any]) -> bool:
+        if str(item.get("source_id") or "") in mandatory_source_ids:
+            return True
+        for claim in item.get("claims_supported") or []:
+            if lesson_number in [int(value) for value in claim.get("lesson_numbers") or [] if str(value).isdigit()]:
+                return True
+        return False
     lesson_sources = [
         item for item in ledger.get("sources") or []
         if str(item.get("source_id") or "") in lesson_source_ids
+        and supports_lesson(item)
         and item.get("formal_reference")
         and (item.get("currency_validation") or {}).get("status") != "unresolved"
     ]
