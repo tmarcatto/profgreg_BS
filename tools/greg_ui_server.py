@@ -40,7 +40,7 @@ REFERENCE_POLICIES = {
     "reference_and_images": "May appear in student references and images may be reused when properly referenced.",
 }
 DEFAULT_LESSON_COUNT_BY_LEVEL = {"Basic": 10, "Intermediate": 15, "Advanced": 15}
-UPLOAD_PURPOSES = {"source_material", "visual_response", "revision_material"}
+UPLOAD_PURPOSES = {"source_material", "visual_response", "revision_material", "revision_evidence"}
 
 
 def operator_visible_jobs(jobs: list[dict[str, object]], *, limit: int = 30) -> list[dict[str, object]]:
@@ -1112,8 +1112,8 @@ def ui_shell(default_course: str) -> str:
         <div id="uploadQueue" class="upload-queue" aria-live="polite"></div>
         <div class="table-wrap">
           <table>
-            <thead><tr><th>File</th><th>Scope</th><th>Reference policy</th><th>Size</th><th>Actions</th></tr></thead>
-            <tbody id="uploads"><tr><td colspan="5" class="muted">No uploads loaded.</td></tr></tbody>
+            <thead><tr><th>File</th><th>Scope</th><th>Use</th><th>Reference policy</th><th>Size</th><th>Actions</th></tr></thead>
+            <tbody id="uploads"><tr><td colspan="6" class="muted">No uploads loaded.</td></tr></tbody>
           </table>
         </div>
       </div>
@@ -1438,7 +1438,7 @@ def ui_shell(default_course: str) -> str:
       }} else {{
         const group = target.group;
         const filename = downloadFilename(group, target.path, target);
-        const supportingFiles = action.value === 'request_edits' ? `<label>Supporting files or images <span class="muted">(optional)</span></label><input id="operatorRevisionFiles" type="file" multiple accept=".pdf,.docx,.txt,.md,.png,.jpg,.jpeg,.webp"><div class="hint">These materials are bound to this edit request. Images can be used in the next course-book visual revision; they are not added as student references automatically.</div><label>Sources and URLs <span class="muted">(recommended for images)</span></label><textarea id="operatorRevisionSources" placeholder="filename.ext | source or attribution | https://source-url\nOne line per file."></textarea>` : '';
+        const supportingFiles = action.value === 'request_edits' ? `<label>Supporting files or images <span class="muted">(optional)</span></label><input id="operatorRevisionFiles" type="file" multiple accept=".pdf,.docx,.txt,.md,.png,.jpg,.jpeg,.webp"><label>Attachment use</label><select id="operatorRevisionAttachmentMode"><option value="evidence_only">Review evidence only — do not use or cite</option><option value="use_in_revision">Use in the requested revision</option></select><div class="hint">Evidence files document the issue only. Files marked for use can guide the requested edit; neither becomes a student reference automatically.</div><label>Sources and URLs <span class="muted">(recommended for usable images)</span></label><textarea id="operatorRevisionSources" placeholder="filename.ext | source or attribution | https://source-url\nOne line per file."></textarea>` : '';
         details.innerHTML = `<div><a class="download-link" href="/artifact?path=${{encodeURIComponent(target.path)}}&filename=${{encodeURIComponent(filename)}}" target="_blank" rel="noopener">Download selected file</a></div><textarea id="operatorNote" placeholder="Required for edit requests; optional for approvals."></textarea>${{supportingFiles}}`;
       }}
     }}
@@ -1482,6 +1482,7 @@ def ui_shell(default_course: str) -> str:
       const id = esc(u.upload_id);
       const scope = scopeKind(u.scope);
       const lesson = lessonNumber(u.scope);
+      const role = u.purpose === 'revision_evidence' ? 'Review evidence only' : u.purpose === 'revision_material' ? 'Use in requested revision' : u.purpose === 'visual_response' ? 'Requested visual response' : 'Course source';
       return `<tr>
         <td><strong>${{esc(u.filename)}}</strong></td>
         <td><div class="upload-edit">
@@ -1491,6 +1492,7 @@ def ui_shell(default_course: str) -> str:
           </select>
           <input class="mini" id="lesson-${{id}}" type="number" min="1" value="${{lesson}}">
         </div></td>
+        <td>${{esc(role)}}</td>
         <td><select class="mini" id="policy-${{id}}">
           <option value="context_only" ${{selected(u.reference_policy, 'context_only')}}>Context only - do not cite</option>
           <option value="image_only" ${{selected(u.reference_policy, 'image_only')}}>Do not cite text - images allowed</option>
@@ -1546,7 +1548,7 @@ def ui_shell(default_course: str) -> str:
       uploadQueue = [];
       renderUploadQueue();
       setLevel('Basic');
-      document.getElementById('uploads').innerHTML = '<tr><td colspan="5" class="muted">No source materials attached yet.</td></tr>';
+      document.getElementById('uploads').innerHTML = '<tr><td colspan="6" class="muted">No source materials attached yet.</td></tr>';
       toggleLessonInput();
       renderPipeline();
       renderLessonSelection();
@@ -1617,7 +1619,7 @@ def ui_shell(default_course: str) -> str:
         currentJobs = jobs.jobs || [];
         renderJobs();
         const uploads = await api('/api/uploads?course=' + encodeURIComponent(course.value));
-        document.getElementById('uploads').innerHTML = uploads.uploads.length ? uploads.uploads.map(uploadRow).join('') : '<tr><td colspan="5" class="muted">No source materials attached yet.</td></tr>';
+        document.getElementById('uploads').innerHTML = uploads.uploads.length ? uploads.uploads.map(uploadRow).join('') : '<tr><td colspan="6" class="muted">No source materials attached yet.</td></tr>';
         for (const item of uploads.uploads) toggleUploadLesson(item.upload_id);
         renderPipeline();
         renderLessonSelection();
@@ -1649,6 +1651,11 @@ def ui_shell(default_course: str) -> str:
       const waiting = (currentStatus?.lessons || []).filter(item => item.visual_status === 'waiting_images');
       if (!active && waiting.length) {{
         holder.innerHTML = `<span class="state queued">waiting for images</span> · Lesson ${{waiting.map(item => Number(item.lesson)).join(', ')}}`;
+        return;
+      }}
+      const corrected = (currentStatus?.lessons || []).find(item => Object.entries(item).some(([key, value]) => key.endsWith('_status') && value === 'ready_for_review'));
+      if (!active && corrected) {{
+        holder.innerHTML = `<span class="state completed">ready for review</span> · A corrected file is available for Lesson ${{String(corrected.lesson).padStart(2, '0')}}.`;
         return;
       }}
       if (!latest) {{
@@ -1880,6 +1887,7 @@ def ui_shell(default_course: str) -> str:
       form.append('artifact_type', artifactType);
       form.append('artifact_path', artifactPath);
       form.append('note', note);
+      form.append('revision_attachment_mode', document.getElementById('operatorRevisionAttachmentMode')?.value || 'evidence_only');
       form.append('source_manifest', document.getElementById('operatorRevisionSources')?.value || '');
       for (const file of document.getElementById('operatorRevisionFiles')?.files || []) form.append('files', file);
       try {{
@@ -2297,6 +2305,8 @@ class GregUiHandler(BaseHTTPRequestHandler):
                     self.send_json(HTTPStatus.BAD_REQUEST, {"error": "Unsupported artifact type for revision."})
                     return
                 source_manifest = parse_visual_source_manifest(str(body.get("source_manifest") or ""))
+                attachment_mode = str(body.get("revision_attachment_mode") or "evidence_only")
+                attachment_purpose = "revision_material" if attachment_mode == "use_in_revision" else "revision_evidence"
                 attachments = []
                 for field in revision_files:
                     filename = str(field.get("filename") or "")
@@ -2309,8 +2319,8 @@ class GregUiHandler(BaseHTTPRequestHandler):
                     attachments.append(save_uploaded_file(
                         upload_root=getattr(self.server, "upload_root"), course_slug=course, filename=filename, data=data,
                         scope="lesson", lesson=lesson,
-                        reference_policy="image_only" if is_image else "context_only",
-                        purpose="revision_material", revision_artifact_type=artifact_type,
+                        reference_policy="image_only" if is_image and attachment_purpose == "revision_material" else "context_only",
+                        purpose=attachment_purpose, revision_artifact_type=artifact_type,
                         source_label=str(source_meta.get("source_label") or "Operator-supplied revision material"),
                         source_url=str(source_meta.get("source_url") or ""),
                     ))

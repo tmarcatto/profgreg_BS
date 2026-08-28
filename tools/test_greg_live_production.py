@@ -143,6 +143,14 @@ class GregLiveProductionTests(unittest.TestCase):
             self.assertEqual("No readable uploaded excerpts were available.", wrong_lesson)
             self.assertEqual("No readable uploaded excerpts were available.", wrong_artifact)
 
+    def test_revision_evidence_never_guides_drafting(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            evidence = Path(directory) / "issue.txt"
+            evidence.write_text("This is only evidence of a display error.", encoding="utf-8")
+            uploads = [{"filename": evidence.name, "stored_path": str(evidence), "purpose": "revision_evidence", "scope": "lesson_01", "reference_policy": "context_only"}]
+            with patch.object(production, "read_uploads", return_value=uploads):
+                self.assertEqual("No readable uploaded excerpts were available.", production.source_excerpts("demo", lesson=1, artifact_type="study_guide"))
+
     def test_required_upload_binding_marks_every_citable_attachment_mandatory(self) -> None:
         uploads = [
             {"filename": "Construction Project Management Handbook.pdf", "upload_id": "u1", "reference_policy": "reference_only"},

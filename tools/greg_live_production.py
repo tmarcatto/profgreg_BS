@@ -1296,6 +1296,7 @@ def visual_plan_prompt(seed, lesson: dict[str, Any], draft: str, uploads: list[d
         }
         for item in uploads
         if item.get("scope") in {"course", lesson_scope}
+        and item.get("purpose") != "revision_evidence"
         and (item.get("purpose") != "revision_material" or item.get("revision_artifact_type") in {"", "study_guide"})
         and (item.get("purpose") == "visual_response" or item.get("images_allowed"))
     ]
@@ -1532,6 +1533,7 @@ def create_visual_assets(seed, lesson: dict[str, Any], draft: str, run: Path, le
     allowed_source_images = [
         item for item in uploads
         if item.get("scope") in {"course", lesson_scope}
+        and item.get("purpose") != "revision_evidence"
         and (item.get("purpose") != "revision_material" or item.get("revision_artifact_type") in {"", "study_guide"})
         and item.get("images_allowed")
         and Path(str(item.get("stored_path") or "")).suffix.lower() in {".png", ".jpg", ".jpeg", ".webp"}

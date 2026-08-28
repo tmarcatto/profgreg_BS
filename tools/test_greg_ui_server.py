@@ -304,6 +304,18 @@ class GregUiServerTests(unittest.TestCase):
             if run.exists():
                 shutil.rmtree(run)
 
+    def test_revision_evidence_is_preserved_without_becoming_revision_material(self) -> None:
+        base = ROOT / "tmp" / "uploads"
+        base.mkdir(parents=True, exist_ok=True)
+        with tempfile.TemporaryDirectory(dir=base) as tmp:
+            attachment = ui.save_uploaded_file(
+                upload_root=Path(tmp), course_slug="Revision Evidence Test", filename="issue.png",
+                data=b"\x89PNG\r\n\x1a\nminimal-test-payload", scope="lesson", lesson=3,
+                reference_policy="context_only", purpose="revision_evidence", revision_artifact_type="study_guide",
+            )
+        self.assertEqual(attachment["purpose"], "revision_evidence")
+        self.assertFalse(attachment["images_allowed"])
+
     def test_visual_batch_maps_ids_by_filename_then_order(self) -> None:
         files = [{"filename": "L01V02-plan.png"}, {"filename": "field-photo.jpg"}]
         mapped = ui.map_visual_batch(files, ["L01V01", "L01V02"])
