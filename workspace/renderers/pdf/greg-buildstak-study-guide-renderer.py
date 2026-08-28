@@ -374,7 +374,10 @@ class ProcessFlowDiagram(Flowable):
             # approved node structure and use the smallest still-readable
             # label size before rejecting the visual for overflow.
             for candidate in (8.5, 8.0, 7.5, 7.0, 6.5, 6.0):
-                title_lines = wrap_lines(title_text, FONT_BOLD, candidate, box_w - 18)
+                # A slash is a meaningful, safe break in compact localized
+                # labels (for example, "Lead/Viabilidade").  Do not split
+                # ordinary words merely to force them into a narrow node.
+                title_lines = wrap_lines(re.sub(r"/(?=\S)", "/ ", title_text), FONT_BOLD, candidate, box_w - 18, break_long_words=False)
                 title_size = candidate
                 if len(title_lines) <= 3 and all(stringWidth(line, FONT_BOLD, candidate) <= box_w - 18 for line in title_lines):
                     break
@@ -385,7 +388,7 @@ class ProcessFlowDiagram(Flowable):
                     FONT_BOLD,
                     candidate,
                     box_w - 18,
-                    break_long_words=True,
+                    break_long_words=False,
                 )
                 if len(title_lines) <= 3 and all(stringWidth(line, FONT_BOLD, candidate) <= box_w - 18 for line in title_lines):
                     break
