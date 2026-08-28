@@ -671,7 +671,10 @@ def student_reference_text(value: str) -> str:
 
 def student_reference_for_source(source: dict[str, Any]) -> str:
     text = student_reference_text(str(source.get("formal_reference") or ""))
-    in_book = re.match(r"^(.+?\)\.)(?:\s+.+?)?\s+In\s+(.+?)(?:\s*\([^)]*p{1,2}\..*)?$", text, flags=re.I)
+    # Only chapter references use the `In` cleanup. A broad match mistakes
+    # ordinary titles such as "As Applied in Engineering" for an anthology
+    # citation and silently removes the beginning of the reference.
+    in_book = re.match(r"^(.+?\)\.)(?:\s+.+?)?\.\s+In\s+(.+?)(?:\s*\([^)]*p{1,2}\..*)?$", text, flags=re.I)
     if in_book:
         text = f"{in_book.group(1)} {in_book.group(2).rstrip(' .')}"
         text = re.sub(r"\s*\([^)]*\bpp?\.[^)]*\)", "", text, flags=re.I).rstrip(" .") + "."
@@ -839,6 +842,14 @@ def force_student_references(draft: str, references: str, locale: str = "en") ->
         flags=re.I,
     )
     return f"{body}\n\n# {references_heading}\n\n{validated_references}\n"
+
+
+def normalize_reviewed_factual_language(draft: str) -> str:
+    """Apply reviewer-approved factual corrections that require no new content."""
+    return draft.replace(
+        "After award, these decisions become enforceable responsibilities, payment terms, and procurement commitments, the focus of the next lesson.",
+        "After award, estimate decisions become contractual or procurement obligations only when they are incorporated into executed contract and purchasing documents. The next lesson carries those documented obligations into procurement and execution.",
+    )
 
 
 def normalize_callout_density(draft: str, maximum: int = 4) -> str:
@@ -1687,7 +1698,7 @@ def produce_study_guide(course_slug: str, lesson_number: int) -> list[str]:
         # Source refresh owns the bibliography even when compliant teaching
         # prose is reused. This invalidates a stale reference section without
         # needlessly rewriting the complete lesson.
-        draft = force_student_references(draft, references)
+        draft = normalize_reviewed_factual_language(force_student_references(draft, references))
         draft = normalize_callout_density(draft)
         write_text(working_path, draft)
     prior_revision_was_noop = False
@@ -1702,7 +1713,7 @@ def produce_study_guide(course_slug: str, lesson_number: int) -> list[str]:
             except ModelRequestError as error:
                 block(run, "lesson_draft", f"Configured technical-content model could not produce Lesson {lesson_number}.\n\nReason: {error}")
                 raise RuntimeError(str(error)) from error
-            draft = force_student_references(draft, references)
+            draft = normalize_reviewed_factual_language(force_student_references(draft, references))
             draft = normalize_callout_density(draft)
             write_text(working_path, draft)
         reviewer_passed, changes = run_content_reviewers(seed, lesson, draft, active_ledger, run, lesson_tag)
@@ -1741,7 +1752,7 @@ def produce_study_guide(course_slug: str, lesson_number: int) -> list[str]:
             except ModelRequestError as error:
                 block(run, "lesson_draft", f"Configured technical-content model could not revise Lesson {lesson_number}.\n\nReason: {error}")
                 raise RuntimeError(str(error)) from error
-            draft = force_student_references(draft, references)
+            draft = normalize_reviewed_factual_language(force_student_references(draft, references))
             draft = normalize_callout_density(draft)
             prior_revision_was_noop = draft.strip() == force_student_references(prior_draft, references).strip()
             write_text(working_path, draft)

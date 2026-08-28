@@ -1708,7 +1708,7 @@ def ui_shell(default_course: str) -> str:
     function documentCell(item, statusField, pathField, label) {{
       const status = item[statusField] || 'missing';
       const path = item[pathField] || '';
-      const normalized = status === 'approved' ? 'approved' : path ? 'not approved' : 'not generated';
+      const normalized = status === 'approved' ? 'approved' : path ? 'ready for review' : 'not generated';
       const pill = statusPill(normalized);
       if (!isDownloadablePath(path)) return `<span class="doc-cell">${{pill}}</span>`;
       const title = cleanFilenamePart(item.title || `Lesson ${{item.lesson}}`);

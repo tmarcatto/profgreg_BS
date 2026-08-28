@@ -55,6 +55,7 @@ class GregUiServerTests(unittest.TestCase):
         self.assertIn("/api/jobs?course=", html)
         self.assertIn("documentCell", html)
         self.assertIn("not generated", html)
+        self.assertIn("ready for review", html)
         self.assertNotIn("Activity Log", html)
         self.assertNotIn("pipeline-strip", html)
         self.assertIn("Request edits", html)

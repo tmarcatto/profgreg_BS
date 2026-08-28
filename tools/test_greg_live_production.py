@@ -337,6 +337,24 @@ class GregLiveProductionTests(unittest.TestCase):
             reference,
         )
 
+    def test_student_reference_does_not_strip_title_containing_applied_in(self) -> None:
+        source = {
+            "formal_reference": (
+                "AACE International. (2020, August 7). Recommended Practice No. 56R-08: Cost Estimate "
+                "Classification System; As Applied in Engineering, Procurement, and Construction for the Building "
+                "and General Construction Industries."
+            ),
+            "source_type": "standard",
+            "url": "https://web.aacei.org/docs/default-source/toc/toc_56r-08.pdf",
+        }
+        self.assertIn("Recommended Practice No. 56R-08", production.student_reference_for_source(source))
+        self.assertIn("Cost Estimate Classification System", production.student_reference_for_source(source))
+
+    def test_reviewed_factual_language_is_corrected_without_new_claims(self) -> None:
+        draft = "After award, these decisions become enforceable responsibilities, payment terms, and procurement commitments, the focus of the next lesson."
+        corrected = production.normalize_reviewed_factual_language(draft)
+        self.assertIn("only when they are incorporated into executed contract and purchasing documents", corrected)
+
     def test_visual_plan_prompt_requires_highlight_reason(self) -> None:
         seed = type("Seed", (), {"title": "Course"})()
         lesson = {"lesson_number": 1, "title": "Lesson"}
