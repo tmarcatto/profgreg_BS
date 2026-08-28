@@ -243,7 +243,7 @@ class GregLiveProductionTests(unittest.TestCase):
         )
 
     def test_localized_callout_count_uses_target_language_labels(self) -> None:
-        pt = "> **TERMO-CHAVE**\n> Definição.\n\n> **CENÁRIO**\n> Situação."
+        pt = "> TERMO-CHAVE  \n> Definição.\n\n> **CENÁRIO**\n> Situação."
         es = "> **TÉRMINO CLAVE**\n> Definición.\n\n> **ESCENARIO**\n> Situación."
         self.assertEqual(2, production.localized_callout_count(pt, "pt_br"))
         self.assertEqual(2, production.localized_callout_count(es, "es"))

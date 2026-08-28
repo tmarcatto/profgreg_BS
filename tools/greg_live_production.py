@@ -1995,7 +1995,7 @@ def localized_callout_count(markdown: str, locale: str) -> int:
         "es": ("TÉRMINO CLAVE", "APLICACIÓN", "EJEMPLO PRÁCTICO", "ESCENARIO", "RETOMAR", "PUENTE"),
     }[locale]
     pattern = "|".join(re.escape(label) for label in labels)
-    return len(re.findall(rf"(?im)^>\s*(?:\*\*)?(?:{pattern})(?:\*\*)?\s*(?::|$)", markdown))
+    return len(re.findall(rf"(?im)^>\s*(?:\*\*)?(?:{pattern})(?:\*\*)?[ \t]*(?::[ \t]*.*)?$", markdown))
 
 
 def localize_book(course_slug: str, lesson_number: int, locale: str) -> list[str]:
