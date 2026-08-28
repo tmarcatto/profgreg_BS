@@ -19,7 +19,7 @@ class Finding:
 GENERATED_TYPES = {"generated-conceptual-image"}
 SOURCE_TYPES = {"trusted-source-image", "real-source-image"}
 DIAGRAM_TYPES = {"deterministic-diagram", "chart", "process-flow", "structured-visual"}
-DIAGRAM_MECHANISMS = {"process-flow", "relationship-map", "comparison-matrix", "card-sequence"}
+DIAGRAM_MECHANISMS = {"process-flow", "relationship-map", "comparison-matrix", "card-sequence", "cost-stack"}
 BRAND_TYPES = {"brand-mark", "logo"}
 ALLOWED_HIGHLIGHT_REASONS = {
     "exception",
@@ -209,8 +209,8 @@ def run_checks(plan_path: Path) -> dict[str, Any]:
                         if len(str(row.get("left") or "")) > 40 or len(str(row.get("right") or "")) > 130:
                             diagram_capacity_violations.append((label, "comparison-matrix cell exceeds 40/130 characters"))
                             break
-                elif mechanism == "card-sequence" and not 2 <= len(nodes) <= 8:
-                    diagram_capacity_violations.append((label, "card-sequence requires 2-8 visible cards"))
+                elif mechanism in {"card-sequence", "cost-stack"} and not 2 <= len(nodes) <= 8:
+                    diagram_capacity_violations.append((label, f"{mechanism} requires 2-8 visible cards"))
 
     if required_missing:
         findings.append(Finding("fail", "required_visual_fields", f"Missing required visual fields: {required_missing}."))

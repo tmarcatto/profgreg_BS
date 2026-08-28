@@ -332,6 +332,44 @@ class CardRowDiagram(Flowable):
             c.drawCentredString(w / 2, 26, self.pill)
 
 
+class CostStackDiagram(Flowable):
+    """A literal vertical stack for layered cost and price calculations."""
+    def __init__(self, title: str, layers: list[dict[str, Any]]):
+        super().__init__()
+        self.title = title
+        self.layers = layers[:8]
+        self.height = 330
+
+    def wrap(self, availWidth, availHeight):
+        self.width = availWidth
+        return availWidth, self.height
+
+    def draw(self):
+        c = self.canv
+        w = self.width
+        draw_visual_title(c, self.title, w, self.height)
+        count = max(len(self.layers), 1)
+        layer_h = min(42, 225 / count)
+        start_y = 38
+        for index, layer in enumerate(self.layers):
+            inset = min(index * 13, 75)
+            x = 44 + inset
+            box_w = w - 88 - inset * 2
+            y = start_y + index * layer_h
+            c.setFillColor(PALE_ORANGE if index == count - 1 else LIGHT)
+            c.setStrokeColor(ORANGE if index == count - 1 else LINE)
+            c.roundRect(x, y, box_w, layer_h - 4, 5, stroke=1, fill=1)
+            title = str(layer.get("title") or "")
+            detail = str(layer.get("detail") or "")
+            c.setFillColor(NAVY)
+            c.setFont(FONT_BOLD, 8.5)
+            c.drawString(x + 10, y + layer_h - 16, title[:58])
+            if detail:
+                c.setFillColor(colors.HexColor("#4b5563"))
+                c.setFont(FONT_REGULAR, 7.4)
+                c.drawString(x + 10, y + 8, detail[:72])
+
+
 class ProcessFlowDiagram(Flowable):
     def __init__(self, title: str, nodes: list[dict[str, Any]]):
         super().__init__()
@@ -866,6 +904,8 @@ def visual_flowables(visual: dict[str, Any]) -> list[Any]:
         flowable.hAlign = "CENTER"
     elif diagram_type == "card_row":
         flowable = CardRowDiagram(visual["title"], visual["cards"], visual.get("pill"))
+    elif diagram_type == "cost_stack":
+        flowable = CostStackDiagram(visual["title"], visual["nodes"])
     elif diagram_type == "timeline":
         flowable = TimelineDiagram(visual["title"])
     elif diagram_type == "source_to_wbs_matrix":
@@ -931,6 +971,11 @@ def validate_visuals(visuals: list[dict[str, Any]]) -> None:
             for row in rows:
                 if len(str(row.get("left") or "")) > 40 or len(str(row.get("right") or "")) > 130:
                     raise ValueError("Comparison-matrix cell exceeds the visible 40/130 character limit.")
+        if visual_type == "cost_stack":
+            nodes = visual.get("nodes")
+            if not isinstance(nodes, list) or not 2 <= len(nodes) <= 8:
+                raise ValueError("cost_stack diagram must contain 2-8 visible layers.")
+            continue
         if visual_type != "card_row":
             continue
         cards = visual.get("cards")

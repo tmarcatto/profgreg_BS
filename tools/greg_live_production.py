@@ -1317,17 +1317,18 @@ For every deterministic diagram, explicitly choose the mechanism that best match
 - relationship-map for roles, stakeholders, coordination, or influence;
 - comparison-matrix only when learners must compare the same attributes across alternatives;
 - card-sequence for a small ordered or grouped set that does not require arrows.
+- cost-stack for cumulative cost, price, or allowance layers that must read as a vertical stack.
 Do not choose the same mechanism repeatedly without a distinct pedagogical reason. A table is not a neutral default.
 
 Design within the renderer's visible capacity. Never rely on omitted or hidden items:
 - process-flow: 2-6 nodes; each title at most 30 characters and each visible detail at most 36 characters;
 - relationship-map: 2-6 nodes including the center;
 - comparison-matrix: 2-5 rows; each left label at most 40 characters and each right cell at most 130 characters;
-- card-sequence: 2-8 cards, and every item named by the title or caption must be one of the visible cards.
+- card-sequence and cost-stack: 2-8 cards, and every item named by the title or caption must be one of the visible cards.
 The diagram title, learning claim, caption, visible nodes/cards/rows, and lesson prose must agree exactly. Do not promise a lifecycle endpoint, responsibility, role, comparison attribute, or item that the visible diagram omits.
 
 Return:
-{{"artifact_type":"study-guide","visual_curation_required":false,"visuals":[{{"visual_id":"L{int(lesson['lesson_number']):02d}V01","visual_type":"deterministic-diagram|generated-conceptual-image|trusted-source-image","placement":"after Section 01 - exact heading","purpose":"at least four words","learning_claim":"at least five words and unique","source_status":"not-required|verified|source-needed","source_id":"","source_url":"","attribution":"","prompt":"detailed English image prompt when generated","google_search_phrase":"English keywords only for a fidelity-sensitive technical object","diagram_type":"process-flow|relationship-map|comparison-matrix|card-sequence","diagram_rationale":"why this mechanism teaches this claim better than the alternatives","diagram_title":"short student-facing title","diagram_nodes":[{{"title":"short label","detail":"short explanation"}}],"diagram_rows":[{{"left":"specific concept","right":"specific field meaning"}}],"context_focus":"U.S. residential construction","depicts_people":false,"workforce_representation":"","core_message_depends_on_real_example":false,"technical_fidelity_required":false,"technical_object_type":"","max_area_percent":45,"highlighted":false,"highlight_reason":"exception|warning|decision-point|risk-threshold|contrast|lesson-emphasis, required only when highlighted is true","internal_text":false,"internal_text_position":"top"}}]}}"""
+{{"artifact_type":"study-guide","visual_curation_required":false,"visuals":[{{"visual_id":"L{int(lesson['lesson_number']):02d}V01","visual_type":"deterministic-diagram|generated-conceptual-image|trusted-source-image","placement":"after Section 01 - exact heading","purpose":"at least four words","learning_claim":"at least five words and unique","source_status":"not-required|verified|source-needed","source_id":"","source_url":"","attribution":"","prompt":"detailed English image prompt when generated","google_search_phrase":"English keywords only for a fidelity-sensitive technical object","diagram_type":"process-flow|relationship-map|comparison-matrix|card-sequence|cost-stack","diagram_rationale":"why this mechanism teaches this claim better than the alternatives","diagram_title":"short student-facing title","diagram_nodes":[{{"title":"short label","detail":"short explanation"}}],"diagram_rows":[{{"left":"specific concept","right":"specific field meaning"}}],"context_focus":"U.S. residential construction","depicts_people":false,"workforce_representation":"","core_message_depends_on_real_example":false,"technical_fidelity_required":false,"technical_object_type":"","max_area_percent":45,"highlighted":false,"highlight_reason":"exception|warning|decision-point|risk-threshold|contrast|lesson-emphasis, required only when highlighted is true","internal_text":false,"internal_text_position":"top"}}]}}"""
 
 
 def visual_semantic_review_prompt(seed, lesson: dict[str, Any], draft: str, plan: dict[str, Any]) -> str:
@@ -1374,7 +1375,7 @@ DIAGRAM_VISUAL_TERMS = re.compile(
 
 def infer_diagram_type(visual: dict[str, Any]) -> str:
     requested = str(visual.get("diagram_type") or "").strip().lower()
-    if requested in {"process-flow", "relationship-map", "comparison-matrix", "card-sequence"}:
+    if requested in {"process-flow", "relationship-map", "comparison-matrix", "card-sequence", "cost-stack"}:
         return requested
     description = " ".join(str(visual.get(key) or "") for key in ("purpose", "learning_claim")).lower()
     if re.search(r"\b(sequence|lifecycle|workflow|process|handoff|phase)\b", description):
@@ -1446,7 +1447,17 @@ def create_visual_assets(seed, lesson: dict[str, Any], draft: str, run: Path, le
         and prior_visual_qa.exists()
         and "Visual plan QA passed: yes" in prior_visual_qa.read_text(encoding="utf-8", errors="replace")
     )
-    if prior_plan_passed or (prior_request.exists() and prior_plan.exists()):
+    revision_feedback = feedback_for(run, lesson_tag, "study_guide")
+    if revision_feedback and prior_plan.exists():
+        existing_plan = json.loads(prior_plan.read_text(encoding="utf-8"))
+        revision_prompt = visual_plan_prompt(seed, lesson, draft, read_uploads(seed.slug)) + (
+            "\n\nApply only the operator's requested visual correction below. Preserve every unmentioned visual "
+            "verbatim: same visual IDs, ordering, placements, figures, type, and content. Return the complete plan JSON. "
+            "When the request calls for a stack diagram, use `cost-stack` so the visible layers are vertically stacked.\n"
+            f"Operator request:\n{revision_feedback}\n\nExisting plan:\n{json.dumps(existing_plan, ensure_ascii=False)[:24000]}"
+        )
+        plan = request_json_with_retry(seed.slug, "visual_planning", revision_prompt, max_tokens=12000)
+    elif prior_plan_passed or (prior_request.exists() and prior_plan.exists()):
         plan = json.loads(prior_plan.read_text(encoding="utf-8"))
     elif attempted_plans:
         # A rejected plan already has focused reviewer feedback. Resume it
@@ -1554,6 +1565,7 @@ def create_visual_assets(seed, lesson: dict[str, Any], draft: str, run: Path, le
                 "relationship-map": "relationship_map",
                 "comparison-matrix": "source_to_wbs_matrix",
                 "card-sequence": "card_row",
+                "cost-stack": "cost_stack",
             }[diagram_type]
             rendered = {
                 "after_heading": str(visual.get("placement") or "").removeprefix("after ").strip(),
