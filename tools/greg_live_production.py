@@ -1939,7 +1939,7 @@ def localized_book_visuals(seed, run: Path, lesson_tag: str, locale: str, langua
     headings = re.findall(r"(?im)^#\s+(.+)$", translated)
     def translate_visual(source_visual: dict[str, Any]) -> dict[str, Any]:
         prompt = f"""Translate every student-visible text value in this single course-book visual specification into {language}.
-Return exactly one JSON object in the form {{"visual": {{...}}}}. The first response character must be `{{` and the last must be `}}`; do not use Markdown or commentary. Preserve every key, visual type, visual_id, figure number, node count, row count, and ordering. Translate `after_heading` to one of the exact target Markdown headings listed below so placement remains exact. Keep process-flow titles at most 30 characters and details at most 36 characters. Keep comparison-matrix left cells at most 40 characters and right cells at most 130 characters. Do not omit, merge, or add nodes or rows. Preserve U.S. construction meaning.
+Return exactly one JSON object in the form {{"visual": {{...}}}}. The first response character must be `{{` and the last must be `}}`; do not use Markdown or commentary. Preserve every key, visual type, visual_id, figure number, node count, row count, and ordering. Translate `after_heading` to one of the exact target Markdown headings listed below so placement remains exact. Keep each process-flow title short enough to occupy at most three narrow box lines (prefer 22 characters or fewer and no unbreakable word longer than 12 characters); keep details at most 36 characters. If a literal translation is too long, use a concise equivalent that preserves the central construction meaning. Keep comparison-matrix left cells at most 40 characters and right cells at most 130 characters. Do not omit, merge, or add nodes or rows. Preserve U.S. construction meaning.
 
 Exact target headings:
 {json.dumps(headings, ensure_ascii=False)}
@@ -2015,7 +2015,7 @@ def localize_book(course_slug: str, lesson_number: int, locale: str) -> list[str
             block(run, "localization", f"Localization model could not produce Lesson {lesson_number} {locale} course book.\n\nReason: {error}")
             raise RuntimeError(str(error)) from error
         revision, draft_name = revisioned(run, f"localization/{folder}", f"{lesson_tag}_study_guide_{locale}", ".md")
-    translated = force_student_references(translated, references, locale)
+    translated = remove_unnecessary_localized_emphasis(force_student_references(translated, references, locale))
     draft_path = run / "localization" / folder / draft_name
     if not pending_draft or translated.rstrip() != prior_translated.rstrip():
         write_text(draft_path, translated)
@@ -2167,7 +2167,7 @@ def localize_deck(course_slug: str, lesson_number: int, locale: str) -> list[str
         raise RuntimeError("The approved English presentation has no revisioned deck spec for localization.")
     language, folder = localization_name(locale)
     source = json.loads(source_spec.read_text(encoding="utf-8"))
-    prompt = f"""Translate every student-visible text value in this Prof Greg deck JSON into {language}. Return JSON only in the form {{"slides": [...]}}. Preserve all keys, layout names, numbers, filenames, asset paths, and slide count exactly. Do not add slides or speaker notes. Preserve U.S. construction terms, units, and facts.\n\n{json.dumps(source['slides'], ensure_ascii=False)}"""
+    prompt = f"""Translate every student-visible text value in this Prof Greg deck JSON into {language}. Return JSON only in the form {{"slides": [...]}}. Preserve all keys, layout names, numbers, filenames, asset paths, and slide count exactly. Do not add slides or speaker notes. Preserve U.S. construction terms, units, and facts. If localized copy would overflow its approved layout, use a shorter equivalent that preserves the central message; do not add emphasis Markdown or bold markers.\n\n{json.dumps(source['slides'], ensure_ascii=False)}"""
     try:
         data = request_json_with_retry(seed.slug, "localization", prompt, max_tokens=12000)
     except ModelRequestError as error:
@@ -2199,6 +2199,14 @@ def normalize_localized_dash_punctuation(value: Any) -> Any:
     if isinstance(value, dict):
         return {key: normalize_localized_dash_punctuation(item) for key, item in value.items()}
     return value
+
+
+def remove_unnecessary_localized_emphasis(markdown: str) -> str:
+    """Remove unsupported inline bold while preserving the translated words."""
+    # The PDF renderer supplies hierarchy for headings and callout labels.
+    # Inline emphasis from a translation model otherwise makes arbitrary
+    # opening phrases look like a new heading in the localized course book.
+    return re.sub(r"\*\*(.+?)\*\*", r"\1", markdown)
 
 
 def run_stage(course_slug: str, stage: str, lessons: list[int] | None = None) -> list[str]:

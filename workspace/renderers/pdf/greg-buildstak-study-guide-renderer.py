@@ -144,7 +144,11 @@ def wrap_lines(text: str, font: str, size: int, max_width: float, *, break_long_
         # such as "Pre-Construction". Split first at hyphens, then at the
         # character boundary as a last resort. No rendered line may exceed its
         # declared box merely because the token itself is long.
-        pieces = re.findall(r"[^-]+-?", raw_word) or [raw_word]
+        # Process-flow labels commonly use a slash to join two short concepts
+        # (for example, "Lead/Viabilidade").  Treat it as an approved visible
+        # break point so a translated label stays inside its node instead of
+        # running through the arrow between nodes.
+        pieces = re.findall(r"[^-/]+[-/]?", raw_word) or [raw_word]
         for piece in pieces:
             pending = piece
             while pending and stringWidth(pending, font, size) > max_width:
@@ -365,8 +369,12 @@ class ProcessFlowDiagram(Flowable):
             c.setFillColor(NAVY)
             title_size = 8.5
             title_text = str(node.get("title", ""))
-            for candidate in (8.5, 8.0, 7.5, 7.0):
-                title_lines = wrap_lines(title_text, FONT_BOLD, candidate, box_w - 18, break_long_words=False)
+            # Localized labels can contain an individual Portuguese or Spanish
+            # word that is wider than its English counterpart.  Keep the
+            # approved node structure and use the smallest still-readable
+            # label size before rejecting the visual for overflow.
+            for candidate in (8.5, 8.0, 7.5, 7.0, 6.5, 6.0):
+                title_lines = wrap_lines(title_text, FONT_BOLD, candidate, box_w - 18)
                 title_size = candidate
                 if len(title_lines) <= 3 and all(stringWidth(line, FONT_BOLD, candidate) <= box_w - 18 for line in title_lines):
                     break
@@ -377,7 +385,7 @@ class ProcessFlowDiagram(Flowable):
                     FONT_BOLD,
                     candidate,
                     box_w - 18,
-                    break_long_words=False,
+                    break_long_words=True,
                 )
                 if len(title_lines) <= 3 and all(stringWidth(line, FONT_BOLD, candidate) <= box_w - 18 for line in title_lines):
                     break

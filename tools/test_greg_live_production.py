@@ -235,6 +235,13 @@ class GregLiveProductionTests(unittest.TestCase):
         self.assertEqual(production.localized_slide_visible_items({"title": "Título"}), ["Título"])
         self.assertEqual(production.localized_slide_visible_items({"title": "T", "topics": ["Um", "Dois"]}), ["Um", "Dois"])
 
+    def test_localized_book_removes_unjustified_inline_bold(self) -> None:
+        source = "**El gerente completo** comienza el trabajo.\n\n# Introducción"
+        self.assertEqual(
+            "El gerente completo comienza el trabajo.\n\n# Introducción",
+            production.remove_unnecessary_localized_emphasis(source),
+        )
+
     def test_localized_retry_ignores_newer_incomplete_revision(self) -> None:
         from tempfile import TemporaryDirectory
 

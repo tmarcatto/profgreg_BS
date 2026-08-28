@@ -281,6 +281,26 @@ class GregServerStatusTests(unittest.TestCase):
             updated = checker.list_jobs(root)[0]
             self.assertEqual(updated["artifacts"][0]["kind"], "operator_report")
 
+    def test_production_stage_timeout_is_recorded_as_a_retryable_failure(self) -> None:
+        (ROOT / "tmp" / "jobs").mkdir(parents=True, exist_ok=True)
+        with tempfile.TemporaryDirectory(dir=ROOT / "tmp" / "jobs") as tmp:
+            root = Path(tmp)
+            job = checker.create_job(
+                job_root=root,
+                request_type="production_stage",
+                course_slug="demo-course",
+                payload={"stage": "translations_book", "lessons": [1]},
+            )
+            with patch.object(checker, "run_command", return_value=(124, "Worker safety timeout: production did not finish after 95 minutes.")) as runner:
+                result = checker.process_one_worker_job(root)
+            self.assertEqual(result["state"], "failed")
+            self.assertIn("Worker safety timeout", checker.list_jobs(root)[0]["last_error"])
+            self.assertEqual(runner.call_args.kwargs["timeout_seconds"], 95 * 60)
+            self.assertEqual(job["job_id"], result["job_id"])
+
+    def test_translation_deck_timeout_scales_with_selected_lessons(self) -> None:
+        self.assertEqual(checker.production_stage_timeout_seconds("translations_deck", 2), 95 * 60)
+
 
 if __name__ == "__main__":
     unittest.main()

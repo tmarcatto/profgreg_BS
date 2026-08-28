@@ -437,13 +437,16 @@ async function renderTakeaway(deck, slideSpec) {
     bold: true,
     color: C.navy,
   });
-  addShape(slide, "takeaway-box", "roundRect", 96, 306, 1088, 186, C.light, C.line, 1.4);
-  addText(slide, "takeaway-copy", slideSpec.body, 142, 348, 996, 96, {
-    fontSize: 27,
+  // Localized takeaway copy often needs one additional line.  Give the copy
+  // a deliberate, readable fit rather than allowing the final line to cross
+  // the panel border.
+  addShape(slide, "takeaway-box", "roundRect", 96, 306, 1088, 216, C.light, C.line, 1.4);
+  addText(slide, "takeaway-copy", slideSpec.body, 142, 344, 996, 146, {
+    fontSize: 24,
     color: C.gray,
     alignment: "center",
   });
-  addText(slide, "final-line", slideSpec.final_line, 214, 548, 852, 42, {
+  addText(slide, "final-line", slideSpec.final_line, 214, 554, 852, 42, {
     fontSize: 28,
     bold: true,
     color: C.navy,

@@ -69,10 +69,40 @@ def read_text(path: Path) -> str:
     return path.read_text(encoding="utf-8", errors="replace") if path.exists() else ""
 
 
-def run_command(command: list[str], cwd: Path) -> tuple[int, str]:
-    result = subprocess.run(command, cwd=cwd, text=True, capture_output=True, check=False)
+def run_command(command: list[str], cwd: Path, *, timeout_seconds: int | None = None) -> tuple[int, str]:
+    """Run a worker command without allowing one stalled child to block the queue forever."""
+    try:
+        result = subprocess.run(command, cwd=cwd, text=True, capture_output=True, check=False, timeout=timeout_seconds)
+    except subprocess.TimeoutExpired as error:
+        output = "\n".join(
+            part for part in [
+                str(error.stdout or "").strip(),
+                str(error.stderr or "").strip(),
+            ]
+            if part
+        )
+        limit = f" after {timeout_seconds // 60} minutes" if timeout_seconds else ""
+        message = f"Worker safety timeout: production did not finish{limit}. Start the translation again from the operator console."
+        return 124, "\n".join(part for part in [message, output] if part)
     output = "\n".join(part for part in [result.stdout.strip(), result.stderr.strip()] if part)
     return result.returncode, output
+
+
+def production_stage_timeout_seconds(stage: str, lesson_count: int) -> int:
+    """Return a generous, finite deadline for a single queued production request."""
+    per_lesson_minutes = {
+        "study_guide": 45,
+        "deck": 20,
+        "translations_book": 90,
+        "translations_deck": 45,
+        "pt_br_book": 45,
+        "es_book": 45,
+        "pt_br_deck": 25,
+        "es_deck": 25,
+    }
+    # Five minutes of setup/cleanup keeps a small job from failing during
+    # startup while still releasing a stuck worker lane predictably.
+    return (per_lesson_minutes.get(stage, 45) * max(1, lesson_count) + 5) * 60
 
 
 def iso_now() -> str:
@@ -471,7 +501,11 @@ def execute_worker_job(job_root: Path, job: dict[str, Any], *, backup_root: Path
         command = ["python3", "tools/greg_live_production.py", str(course_slug), "--stage", stage, "--timing-file", str(trace_path)]
         if lessons:
             command.extend(["--lessons", ",".join(str(value) for value in lessons)])
-        code, output = run_command(command, ROOT)
+        code, output = run_command(
+            command,
+            ROOT,
+            timeout_seconds=production_stage_timeout_seconds(stage, len(lessons)),
+        )
         if code != 0:
             raise RuntimeError(output or f"production_stage failed with exit code {code}")
         artifacts = [

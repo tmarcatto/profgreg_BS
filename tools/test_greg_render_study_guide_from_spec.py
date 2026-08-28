@@ -117,7 +117,7 @@ class RenderStudyGuideFromSpecTests(unittest.TestCase):
                 return Path()
             def drawPath(self, *_, **__): pass
         nodes = [
-            {"title": "Opportunity & Fit", "detail": "Screen job; brief risks and gaps"},
+            {"title": "Porta de Lead/Viabilidade", "detail": "Screen job; brief risks and gaps"},
             {"title": "Pre-Construction Plan", "detail": "Define scope, budget, controls"},
             {"title": "Design & Permit Readiness", "detail": "Route questions; permit filed"},
             {"title": "Procurement & Mobilization", "detail": "Order long-leads; set up site"},
@@ -132,7 +132,8 @@ class RenderStudyGuideFromSpecTests(unittest.TestCase):
         self.assertTrue(node_text)
         self.assertTrue(all(y >= 52 for y, _ in node_text))
         rendered_lines = {text for _, text in node_text}
-        self.assertIn("Opportunity", rendered_lines)
+        self.assertTrue(any("Lead/" in line for line in rendered_lines))
+        self.assertIn("Viabilidade", rendered_lines)
         self.assertIn("Procurement", rendered_lines)
         self.assertIn("Construction", rendered_lines)
         self.assertNotIn("Opportun", rendered_lines)
