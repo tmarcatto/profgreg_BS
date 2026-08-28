@@ -1989,6 +1989,15 @@ def latest_complete_localized_draft(folder: Path, lesson_tag: str, locale: str) 
     return None
 
 
+def localized_callout_count(markdown: str, locale: str) -> int:
+    labels = {
+        "pt_br": ("TERMO-CHAVE", "APLIQUE", "EXEMPLO PRÁTICO", "CENÁRIO", "RETOMADA", "PONTE"),
+        "es": ("TÉRMINO CLAVE", "APLICACIÓN", "EJEMPLO PRÁCTICO", "ESCENARIO", "RETOMAR", "PUENTE"),
+    }[locale]
+    pattern = "|".join(re.escape(label) for label in labels)
+    return len(re.findall(rf"(?im)^>\s*(?:\*\*)?(?:{pattern})(?:\*\*)?\s*(?::|$)", markdown))
+
+
 def localize_book(course_slug: str, lesson_number: int, locale: str) -> list[str]:
     seed = parse_intake(course_slug)
     run = RUNS / seed.slug
@@ -2007,13 +2016,13 @@ def localize_book(course_slug: str, lesson_number: int, locale: str) -> list[str
     pending_draft = latest_complete_localized_draft(run / "localization" / folder, lesson_tag, locale)
     pending_match = re.search(r"_r(\d+)\.md$", pending_draft.name) if pending_draft else None
     prior_translated = ""
-    if pending_draft and pending_match:
+    if pending_draft and pending_match and 2 <= localized_callout_count(pending_draft.read_text(encoding="utf-8", errors="replace"), locale) <= 4:
         translated = pending_draft.read_text(encoding="utf-8", errors="replace")
         prior_translated = translated
         revision = int(pending_match.group(1))
         draft_name = pending_draft.name
     else:
-        prompt = f"""Translate the following student-facing construction course book into {language}. Return Markdown only. Preserve the structural order: Introduction, Learning Objectives, numbered Sections, Summary and Key Takeaways, Glossary, and References. Do not add a Lesson Roadmap. Translate all body text and section titles. Preserve every Summary and Key Takeaways item as a concise bullet point; never convert that section into paragraphs. Keep U.S. construction terminology, units, codes, and market context. Preserve the six approved callout labels semantically in the target language and never invent a new callout type. Do not add or remove facts, activities, citations, or references. Do not use em dashes, en dashes, or spaced hyphens as punctuation.\n\n{source_draft.read_text(encoding='utf-8', errors='replace')[:48000]}"""
+        prompt = f"""Translate the following student-facing construction course book into {language}. Return Markdown only. Preserve the structural order: Introduction, Learning Objectives, numbered Sections, Summary and Key Takeaways, Glossary, and References. Do not add a Lesson Roadmap. Translate all body text and section titles. Preserve every Summary and Key Takeaways item as a concise bullet point; never convert that section into paragraphs. Keep U.S. construction terminology, units, codes, and market context. Preserve the six approved callout labels semantically in the target language and never invent a new callout type. Preserve exactly the same number of callout blocks as the English source, with 2-4 blocks formatted as Markdown blockquotes: `> **LOCALIZED LABEL**` followed by one or more `>` body lines. Do not turn a callout into ordinary prose. Do not add or remove facts, activities, citations, or references. Do not use em dashes, en dashes, or spaced hyphens as punctuation.\n\n{source_draft.read_text(encoding='utf-8', errors='replace')[:48000]}"""
         try:
             translated = request_text(seed.slug, "localization", prompt, max_tokens=24000)
         except ModelRequestError as error:

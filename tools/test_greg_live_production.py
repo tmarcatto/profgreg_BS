@@ -242,6 +242,12 @@ class GregLiveProductionTests(unittest.TestCase):
             production.remove_unnecessary_localized_emphasis(source),
         )
 
+    def test_localized_callout_count_uses_target_language_labels(self) -> None:
+        pt = "> **TERMO-CHAVE**\n> Definição.\n\n> **CENÁRIO**\n> Situação."
+        es = "> **TÉRMINO CLAVE**\n> Definición.\n\n> **ESCENARIO**\n> Situación."
+        self.assertEqual(2, production.localized_callout_count(pt, "pt_br"))
+        self.assertEqual(2, production.localized_callout_count(es, "es"))
+
     def test_localized_retry_ignores_newer_incomplete_revision(self) -> None:
         from tempfile import TemporaryDirectory
 
