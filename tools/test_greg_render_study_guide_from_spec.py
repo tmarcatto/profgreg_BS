@@ -72,6 +72,15 @@ class RenderStudyGuideFromSpecTests(unittest.TestCase):
                 "cards": [{"title": "Item"}] * 5,
             }])
 
+    def test_cost_stack_is_a_supported_pdf_visual(self) -> None:
+        if pdf_renderer is None:
+            self.skipTest("ReportLab is not installed in this Python environment.")
+        pdf_renderer.validate_visuals([{
+            "type": "cost_stack",
+            "title": "Cost Stack",
+            "nodes": [{"title": "Direct cost", "detail": "Measured work"}, {"title": "Price", "detail": "Final proposal"}],
+        }])
+
     def test_card_row_uses_first_count_declared_in_title(self) -> None:
         if pdf_renderer is None:
             self.skipTest("ReportLab is not installed in this Python environment.")
