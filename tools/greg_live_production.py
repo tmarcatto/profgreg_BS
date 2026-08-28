@@ -1928,7 +1928,7 @@ def localized_book_visuals(seed, run: Path, lesson_tag: str, locale: str, langua
     cache_path = run / "localization" / folder / f"{lesson_tag}_visuals_{locale}.json"
     if cache_path.exists():
         cached = json.loads(cache_path.read_text(encoding="utf-8"))
-        if isinstance(cached.get("visuals"), list):
+        if cached.get("fit_contract") == "localized-visual-fit-v2" and isinstance(cached.get("visuals"), list):
             return cached["visuals"]
     source_spec_path = latest_matching_path(run / "docx_pdf", f"{lesson_tag}_study_guide_spec_r*.json")
     if not source_spec_path:
@@ -1952,6 +1952,11 @@ English visual specification:
             try:
                 parsed = request_json_with_retry(seed.slug, "diagram_planning", prompt, max_tokens=4000)
                 if isinstance(parsed.get("visual"), dict):
+                    visual = parsed["visual"]
+                    if str(visual.get("type") or "") == "process_flow" and any(
+                        len(str(node.get("title") or "")) > 22 for node in visual.get("nodes") or [] if isinstance(node, dict)
+                    ):
+                        raise ModelRequestError("Localized process-flow titles must be 22 characters or fewer so they fit their visible nodes.")
                     break
                 raise ModelRequestError("The diagram model did not return the required `visual` object.")
             except (ModelRequestError, json.JSONDecodeError) as error:
@@ -1968,7 +1973,7 @@ English visual specification:
     for source_visual, localized_visual in zip(source_visuals, visuals):
         if source_visual.get("type") != localized_visual.get("type"):
             raise RuntimeError("Localized visual plan changed a renderer type.")
-    write_json(cache_path, {"locale": locale, "visuals": visuals})
+    write_json(cache_path, {"locale": locale, "fit_contract": "localized-visual-fit-v2", "visuals": visuals})
     return visuals
 
 
