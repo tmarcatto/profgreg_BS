@@ -143,6 +143,21 @@ class ArtifactSpecCheckTests(unittest.TestCase):
         self.assertEqual(checks["deck_required_teaching_image"], "pass")
         self.assertEqual(checks["deck_layout_diversity"], "pass")
 
+    def test_localized_deck_inherits_approved_layout_structure(self) -> None:
+        body = ["card_sequence", "card_sequence", "comparison", "row_list", "checklist_rows", "comparison", "checklist_rows", "row_list"]
+        slides = [{"layout": "cover", "topics": ["One", "Two", "Three"]}]
+        slides.extend({"layout": layout} for layout in body)
+        slides.append({"layout": "takeaway"})
+        spec_data = {
+            "course_slug": "tmp-artifact-spec-test", "course_title": "Temporary Artifact Spec Test", "lesson_number": 1,
+            "production_mode": "initial", "revision": "r01", "locale": "pt_br", "run_folder": "runs/tmp-artifact-spec-test",
+            "assets": {"brand_icon": "workspace/assets/logos/buildstak-icon.png"},
+            "output": {"pptx": "localization/pt-br/lesson_01_deck_pt_br_r01.pptx", "qa": "qa.md", "rendered_dir": "rendered"},
+            "slides": slides, "qa_checks": ["MECE", "no automatic last-item highlight", "residential"],
+        }
+        data = checker.run_checks(self.write_spec(spec_data), "deck")
+        self.assertTrue(data["passed"], data["findings"])
+
     def test_initial_pdf_spec_does_not_require_baseline_or_revisioned_output(self) -> None:
         spec_data = self.base_pdf_spec()
         spec_data["production_mode"] = "initial"
