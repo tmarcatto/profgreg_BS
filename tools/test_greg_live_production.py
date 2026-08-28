@@ -186,6 +186,24 @@ class GregLiveProductionTests(unittest.TestCase):
             self.assertIn("Attached Construction Handbook", references)
             self.assertIn("Current External Guidance", references)
 
+    def test_lesson_reference_merge_uses_the_ledgered_duplicate_reference(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            run = Path(directory)
+            (run / "sources").mkdir()
+            ledger = {"sources": [{
+                "source_id": "S01", "title": "Estimate Guidance", "url": "https://example.com/estimate.pdf",
+                "formal_reference": "Authority. Old title.", "source_type": "standard",
+                "currency_validation": {"status": "validated-current"}, "claims_supported": [],
+            }]}
+            refresh = {"sources": [{
+                "source_id": "L03S02", "title": "Estimate Guidance", "url": "https://example.com/estimate.pdf",
+                "formal_reference": "Authority. Cost Estimate Classification: Building Construction.", "source_type": "standard",
+                "currency_validation": {"status": "validated-current"}, "claims_supported": [{"lesson_numbers": [3]}],
+            }]}
+            merged, references = production.merge_lesson_sources(run, ledger, refresh, 3)
+            self.assertEqual(1, len(merged["sources"]))
+            self.assertIn("Cost Estimate Classification: Building Construction.", references)
+
     def test_cached_draft_is_invalid_when_a_mandatory_attachment_is_missing(self) -> None:
         ledger = {"sources": [{
             "title": "Attached Construction Handbook",
@@ -353,7 +371,7 @@ class GregLiveProductionTests(unittest.TestCase):
     def test_reviewed_factual_language_is_corrected_without_new_claims(self) -> None:
         draft = "After award, these decisions become enforceable responsibilities, payment terms, and procurement commitments, the focus of the next lesson."
         corrected = production.normalize_reviewed_factual_language(draft)
-        self.assertIn("only when they are incorporated into executed contract and purchasing documents", corrected)
+        self.assertIn("An estimate is not itself a binding project obligation", corrected)
 
     def test_visual_plan_prompt_requires_highlight_reason(self) -> None:
         seed = type("Seed", (), {"title": "Course"})()

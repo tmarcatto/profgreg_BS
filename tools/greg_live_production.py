@@ -660,6 +660,7 @@ def produce_source_ledger(course_slug: str) -> list[str]:
 
 def student_reference_text(value: str) -> str:
     text = str(value or "").strip()
+    text = text.replace(" – ", ": ").replace(" — ", ": ")
     text = re.sub(r"\s+accessed\s+[A-Z][a-z]+\s+\d{1,2},\s+\d{4}\.?", ".", text, flags=re.I)
     text = re.sub(r"\s+accessed\s+\d{4}-\d{2}-\d{2}\.?", ".", text, flags=re.I)
     text = re.sub(r"\s+retrieved\s+[A-Z][a-z]+\s+\d{1,2},\s+\d{4}\.?", ".", text, flags=re.I)
@@ -846,9 +847,13 @@ def force_student_references(draft: str, references: str, locale: str = "en") ->
 
 def normalize_reviewed_factual_language(draft: str) -> str:
     """Apply reviewer-approved factual corrections that require no new content."""
-    return draft.replace(
+    corrected = draft.replace(
         "After award, these decisions become enforceable responsibilities, payment terms, and procurement commitments, the focus of the next lesson.",
+        "An estimate is not itself a binding project obligation. The applicable proposal, contract, subcontract, purchase order, and governing law control the parties' commitments as procurement and execution begin.",
+    )
+    return corrected.replace(
         "After award, estimate decisions become contractual or procurement obligations only when they are incorporated into executed contract and purchasing documents. The next lesson carries those documented obligations into procurement and execution.",
+        "An estimate is not itself a binding project obligation. The applicable proposal, contract, subcontract, purchase order, and governing law control the parties' commitments as procurement and execution begin.",
     )
 
 
@@ -1029,16 +1034,31 @@ def normalize_lesson_source_refresh(
 
 
 def merge_lesson_sources(run: Path, ledger: dict[str, Any], refresh: dict[str, Any], lesson_number: int) -> tuple[dict[str, Any], str]:
-    existing = {(str(item.get("title") or "").lower(), str(item.get("url") or "")) for item in ledger.get("sources") or []}
+    existing = {
+        (str(item.get("title") or "").lower(), str(item.get("url") or "")): item
+        for item in ledger.get("sources") or []
+    }
+    lesson_source_ids: set[str] = set()
     for item in refresh.get("sources") or []:
         key = (str(item.get("title") or "").lower(), str(item.get("url") or ""))
-        if not key[0] or key in existing:
+        if not key[0]:
+            continue
+        if key in existing:
+            current = existing[key]
+            lesson_source_ids.add(str(current.get("source_id") or ""))
+            current_claims = current.setdefault("claims_supported", [])
+            for claim in item.get("claims_supported") or []:
+                if claim not in current_claims:
+                    current_claims.append(claim)
+            if item.get("formal_reference"):
+                current["formal_reference"] = item["formal_reference"]
             continue
         item.setdefault("source_id", f"S{len(ledger.get('sources') or []) + 1:02d}")
         item.setdefault("claims_supported", [])
         item.setdefault("currency_validation", {"required": True, "status": "validated-current", "note": "Validated during lesson research."})
         ledger.setdefault("sources", []).append(item)
-        existing.add(key)
+        existing[key] = item
+        lesson_source_ids.add(str(item.get("source_id") or ""))
     ledger["validation"] = {"weak_sources_to_replace": [], "unsupported_claims": [], "all_sources_verified": True}
     ledger_path = run / "sources" / "source_ledger.json"
     write_json(ledger_path, ledger)
@@ -1046,9 +1066,12 @@ def merge_lesson_sources(run: Path, ledger: dict[str, Any], refresh: dict[str, A
         item for item in ledger.get("sources") or []
         if item.get("origin") == "operator_upload" and item.get("mandatory_use") is True
     ]
+    lesson_source_ids.update(str(item.get("source_id") or "") for item in mandatory_sources)
     lesson_sources = [
-        item for item in [*mandatory_sources, *(refresh.get("sources") or [])]
-        if item.get("formal_reference") and (item.get("currency_validation") or {}).get("status") != "unresolved"
+        item for item in ledger.get("sources") or []
+        if str(item.get("source_id") or "") in lesson_source_ids
+        and item.get("formal_reference")
+        and (item.get("currency_validation") or {}).get("status") != "unresolved"
     ]
     reference_lines: list[str] = []
     seen_references: set[str] = set()
