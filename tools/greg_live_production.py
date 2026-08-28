@@ -857,6 +857,19 @@ def normalize_reviewed_factual_language(draft: str) -> str:
     )
 
 
+def preserves_complete_study_guide_structure(candidate: str, previous: str) -> bool:
+    """Reject a truncated model revision before it can replace a complete chapter."""
+    required_headings = ("Introduction", "Learning Objectives", "Summary and Key Takeaways", "Glossary", "References")
+    if any(not re.search(rf"(?im)^#\s+{re.escape(heading)}\s*$", candidate) for heading in required_headings):
+        return False
+    prior_sections = re.findall(r"(?im)^#\s+Section\s+\d{2}\s+-\s+.+$", previous)
+    candidate_sections = re.findall(r"(?im)^#\s+Section\s+\d{2}\s+-\s+.+$", candidate)
+    if len(candidate_sections) < len(prior_sections):
+        return False
+    prior_words = len(previous.split())
+    return not prior_words or len(candidate.split()) >= min(3400, int(prior_words * 0.75))
+
+
 def normalize_callout_density(draft: str, maximum: int = 4) -> str:
     """Keep the most useful approved callouts and preserve excess content as prose."""
     lines = draft.splitlines()
@@ -1770,7 +1783,7 @@ def produce_study_guide(course_slug: str, lesson_number: int) -> list[str]:
         if attempt < 3:
             try:
                 prior_draft = draft
-                draft = request_text(
+                revised_draft = request_text(
                     seed.slug,
                     "technical_content",
                     study_guide_revision_prompt(
@@ -1785,8 +1798,12 @@ def produce_study_guide(course_slug: str, lesson_number: int) -> list[str]:
             except ModelRequestError as error:
                 block(run, "lesson_draft", f"Configured technical-content model could not revise Lesson {lesson_number}.\n\nReason: {error}")
                 raise RuntimeError(str(error)) from error
-            draft = normalize_reviewed_factual_language(force_student_references(draft, references))
-            draft = normalize_callout_density(draft)
+            revised_draft = normalize_reviewed_factual_language(force_student_references(revised_draft, references))
+            revised_draft = normalize_callout_density(revised_draft)
+            if not preserves_complete_study_guide_structure(revised_draft, prior_draft):
+                prior_revision_was_noop = True
+                continue
+            draft = revised_draft
             prior_revision_was_noop = draft.strip() == force_student_references(prior_draft, references).strip()
             write_text(working_path, draft)
     else:

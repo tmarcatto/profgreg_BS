@@ -397,6 +397,17 @@ class GregLiveProductionTests(unittest.TestCase):
         corrected = production.normalize_reviewed_factual_language(draft)
         self.assertIn("An estimate is not itself a binding project obligation", corrected)
 
+    def test_incomplete_revision_cannot_replace_complete_chapter(self) -> None:
+        complete = "\n".join([
+            "# Introduction", "Full introduction.", "# Learning Objectives", "- Learn.",
+            "# Section 01 - One", "Body.", "# Section 02 - Two", "Body.",
+            "# Section 03 - Three", "Body.", "# Section 04 - Four", "Body.",
+            "# Summary and Key Takeaways", "- One", "- Two", "- Three", "- Four",
+            "# Glossary", "- **Term:** Definition.", "# References", "- Authority.",
+        ])
+        partial = "# Introduction\n\nPartial text.\n\n# Learning Objectives\n\n- Learn.\n\n# Section 01 - One\n\nBody."
+        self.assertFalse(production.preserves_complete_study_guide_structure(partial, complete))
+
     def test_visual_plan_prompt_requires_highlight_reason(self) -> None:
         seed = type("Seed", (), {"title": "Course"})()
         lesson = {"lesson_number": 1, "title": "Lesson"}
