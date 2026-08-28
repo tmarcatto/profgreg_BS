@@ -408,6 +408,16 @@ class GregLiveProductionTests(unittest.TestCase):
         partial = "# Introduction\n\nPartial text.\n\n# Learning Objectives\n\n- Learn.\n\n# Section 01 - One\n\nBody."
         self.assertFalse(production.preserves_complete_study_guide_structure(partial, complete))
 
+    def test_complete_structure_accepts_template_learning_objectives_heading(self) -> None:
+        complete = "\n".join([
+            "# Introduction", "Full introduction.", "## Learning Objectives", "- Learn.",
+            "# Section 01 - One", "Body.", "# Section 02 - Two", "Body.",
+            "# Section 03 - Three", "Body.", "# Section 04 - Four", "Body.",
+            "# Summary and Key Takeaways", "- One", "- Two", "- Three", "- Four",
+            "# Glossary", "- **Term:** Definition.", "# References", "- Authority.",
+        ])
+        self.assertTrue(production.preserves_complete_study_guide_structure(complete, ""))
+
     def test_visual_plan_prompt_requires_highlight_reason(self) -> None:
         seed = type("Seed", (), {"title": "Course"})()
         lesson = {"lesson_number": 1, "title": "Lesson"}

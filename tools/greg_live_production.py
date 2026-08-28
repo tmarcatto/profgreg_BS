@@ -717,7 +717,7 @@ def study_guide_prompt(seed, lesson: dict[str, Any], references: str, ledger: di
     )
     depth_targets = {
         "basic": "Aim for roughly 2,800-4,000 words before references unless the lesson function clearly needs less.",
-        "intermediate": "Aim for roughly 3,800-5,400 words before references, with more developed explanations and examples.",
+        "intermediate": "Aim for 3,800-4,500 words before references. Complete every required section, Summary and Key Takeaways, Glossary, and References within that limit; prioritize a complete concise chapter over extra examples.",
         "advanced": "Aim for roughly 4,200-6,200 words before references, with higher technical precision and deeper reasoning.",
     }
     target = depth_targets.get(str(seed.level).lower(), "Use the depth required by the lesson function; do not underwrite.")
@@ -860,7 +860,12 @@ def normalize_reviewed_factual_language(draft: str) -> str:
 def preserves_complete_study_guide_structure(candidate: str, previous: str) -> bool:
     """Reject a truncated model revision before it can replace a complete chapter."""
     required_headings = ("Introduction", "Learning Objectives", "Summary and Key Takeaways", "Glossary", "References")
-    if any(not re.search(rf"(?im)^#\s+{re.escape(heading)}\s*$", candidate) for heading in required_headings):
+    # Learning Objectives is intentionally an H2 in the prescribed course-book
+    # template; the remaining structural headings are H1s.
+    if any(
+        not re.search(rf"(?im)^#{{1,2}}\s+{re.escape(heading)}\s*$", candidate)
+        for heading in required_headings
+    ):
         return False
     prior_sections = re.findall(r"(?im)^#\s+Section\s+\d{2}\s+-\s+.+$", previous)
     candidate_sections = re.findall(r"(?im)^#\s+Section\s+\d{2}\s+-\s+.+$", candidate)
@@ -1761,6 +1766,11 @@ def produce_study_guide(course_slug: str, lesson_number: int) -> list[str]:
                 raise RuntimeError(str(error)) from error
             draft = normalize_reviewed_factual_language(force_student_references(draft, references))
             draft = normalize_callout_density(draft)
+            if not preserves_complete_study_guide_structure(draft, ""):
+                raise RuntimeError(
+                    "The technical-content model returned an incomplete course book. "
+                    "No partial draft was saved or released."
+                )
             write_text(working_path, draft)
         reviewer_passed, changes = run_content_reviewers(seed, lesson, draft, active_ledger, run, lesson_tag)
         deterministic_qa = deterministic_checker.run_checks(working_path, seed.level)
