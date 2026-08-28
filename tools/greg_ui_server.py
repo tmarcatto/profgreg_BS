@@ -1614,7 +1614,14 @@ def ui_shell(default_course: str) -> str:
         currentJobs = jobs.jobs || [];
         renderJobs();
         const uploads = await api('/api/uploads?course=' + encodeURIComponent(course.value));
-        const costs = await api('/api/costs?course=' + encodeURIComponent(course.value));
+        let costs = null;
+        try {{
+          costs = await api('/api/costs?course=' + encodeURIComponent(course.value));
+        }} catch (costError) {{
+          // Cost reporting is optional. It must never prevent the saved
+          // course workspace, files, or active revision from loading.
+          console.warn('Cost report unavailable:', costError.message);
+        }}
         document.getElementById('uploads').innerHTML = uploads.uploads.length ? uploads.uploads.map(uploadRow).join('') : '<tr><td colspan="5" class="muted">No source materials attached yet.</td></tr>';
         for (const item of uploads.uploads) toggleUploadLesson(item.upload_id);
         renderPipeline();
