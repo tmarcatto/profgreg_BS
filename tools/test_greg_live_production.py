@@ -240,6 +240,15 @@ class GregLiveProductionTests(unittest.TestCase):
         self.assertEqual([item["source_id"] for item in compact["sources"]], ["A"])
         self.assertNotIn("unused_bulk", compact["sources"][0])
 
+    def test_reviewer_ledger_keeps_mandatory_uploaded_source_without_lesson_claim(self) -> None:
+        ledger = {"course_slug": "demo", "sources": [{
+            "source_id": "S01", "title": "Uploaded handbook", "formal_reference": "Authority. Uploaded handbook.",
+            "origin": "operator_upload", "mandatory_use": True, "claims_supported": [{"lesson_numbers": [1]}],
+        }]}
+        compact = production.compact_reviewer_ledger(ledger, 3)
+        self.assertEqual(["S01"], [item["source_id"] for item in compact["sources"]])
+        self.assertEqual(["Mandatory operator-provided course source."], compact["sources"][0]["claims_supported"])
+
     def test_localized_deck_removes_dash_punctuation_recursively(self) -> None:
         value = {"topics": ["planejar–acompanhar–ajustar", "Escopo — não tarefas"]}
         cleaned = production.normalize_localized_dash_punctuation(value)

@@ -1124,7 +1124,8 @@ def compact_reviewer_ledger(ledger: dict[str, Any], lesson_number: int) -> dict[
             for claim in source.get("claims_supported") or []
             if lesson_number in (claim.get("lesson_numbers") or [])
         ]
-        if not claims:
+        mandatory = source.get("origin") == "operator_upload" and source.get("mandatory_use") is True
+        if not claims and not mandatory:
             continue
         sources.append({
             "source_id": source.get("source_id"),
@@ -1134,7 +1135,7 @@ def compact_reviewer_ledger(ledger: dict[str, Any], lesson_number: int) -> dict[
             "publication_date": source.get("publication_date"),
             "url": source.get("url"),
             "currency_validation": source.get("currency_validation"),
-            "claims_supported": claims,
+            "claims_supported": claims or ["Mandatory operator-provided course source."],
         })
     return {"course_slug": ledger.get("course_slug"), "lesson_number": lesson_number, "sources": sources}
 
