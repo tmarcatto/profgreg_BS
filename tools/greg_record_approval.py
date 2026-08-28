@@ -115,6 +115,18 @@ def record_approval(
     out.parent.mkdir(parents=True, exist_ok=True)
     out.write_text(render_approval(record), encoding="utf-8")
 
+    # A revision stays visible to the operator until it is explicitly approved.
+    # Once approved, this exact file becomes the sole current artifact; prior
+    # versions remain archival only and cannot be selected as the active file.
+    state_path = RUNS / course_slug / "operator_feedback" / f"lesson_{lesson:02d}_{artifact_type}_revision_state.json"
+    if state_path.exists():
+        try:
+            state = json.loads(state_path.read_text(encoding="utf-8"))
+        except json.JSONDecodeError:
+            state = {}
+        state.update({"state": "approved", "approved_artifact": str(artifact_path.relative_to(RUNS / course_slug))})
+        state_path.write_text(json.dumps(state, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
+
     canonical_paths: tuple[Path, Path] | None = None
     if write_canonical:
         canonical = load_canonical_module()
@@ -135,7 +147,7 @@ def main() -> int:
     parser = argparse.ArgumentParser(description="Record Prof Greg lesson approval and update canonical artifacts.")
     parser.add_argument("course_slug")
     parser.add_argument("--lesson", type=int, required=True)
-    parser.add_argument("--artifact-type", choices=["study_guide", "deck"], required=True)
+    parser.add_argument("--artifact-type", choices=["study_guide", "deck", "pt_br_study_guide", "pt_br_deck", "es_study_guide", "es_deck"], required=True)
     parser.add_argument("--artifact", required=True, help="Approved artifact path, relative to run folder, repo root, or absolute.")
     parser.add_argument("--status", default="approved")
     parser.add_argument("--approver", default="user")

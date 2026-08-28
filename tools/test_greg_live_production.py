@@ -326,6 +326,12 @@ class GregLiveProductionTests(unittest.TestCase):
         self.assertIn("Revision attempt: 2", prompt)
         self.assertIn("must not exceed 5,400 words", prompt)
 
+    def test_deck_revision_prompt_preserves_unmentioned_slides(self) -> None:
+        prompt = production.deck_revision_prompt([{"layout": "cover", "title": "Existing"}], "Fix one diagram.")
+        self.assertIn("Apply only the requested changes", prompt)
+        self.assertIn("Do not rebuild the presentation", prompt)
+        self.assertIn("Fix one diagram.", prompt)
+
         advanced = production.study_guide_revision_prompt(
             "# Existing", "Complete the ending.", "# References", attempt=1, level="Advanced"
         )

@@ -406,6 +406,20 @@ def summarize_lessons(run: Path, manifest: dict) -> list[dict]:
             # content QA. It is not a standalone deliverable: the visual and the PDF
             # remain one connected production item until the book is rendered.
             row["visual_status"] = "included" if row.get("study_guide") in {"active", "approved"} else "content_ready"
+        # A request is a first-class state. Keep the approved baseline
+        # downloadable, but never make the operator guess whether the change
+        # request was accepted by the system.
+        for artifact_type, field in (
+            ("study_guide", "study_guide"), ("deck", "deck"),
+            ("pt_br_study_guide", "pt_br_study_guide"), ("pt_br_deck", "pt_br_deck"),
+            ("es_study_guide", "es_study_guide"), ("es_deck", "es_deck"),
+        ):
+            state_path = run / "operator_feedback" / f"lesson_{lesson}_{artifact_type}_revision_state.json"
+            state = load_json(state_path) if state_path.exists() else {}
+            if state.get("state") == "revision_requested":
+                row[field] = "revision_requested"
+            elif state.get("state") == "ready_for_review":
+                row[field] = "ready_for_review"
     return [lessons[key] for key in sorted(lessons)]
 
 

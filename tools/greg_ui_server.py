@@ -559,7 +559,7 @@ def record_ui_artifact_approval(*, course_slug: str, lesson: int, artifact_type:
 
 
 def record_revision_request(
-    *, course_slug: str, lesson: int, artifact_type: str, note: str, attachments: list[dict] | None = None
+    *, course_slug: str, lesson: int, artifact_type: str, note: str, artifact_path: str = "", attachments: list[dict] | None = None
 ) -> dict:
     course_slug = slugify(course_slug)
     lesson_tag = f"lesson_{lesson:02d}"
@@ -591,7 +591,19 @@ def record_revision_request(
         ),
         encoding="utf-8",
     )
-    return {"feedback_path": str(target.relative_to(ROOT)), "attachments": attachments}
+    state_path = target.with_name(f"{lesson_tag}_{artifact_type}_revision_state.json")
+    state_path.write_text(
+        json.dumps({
+            "state": "revision_requested",
+            "course_slug": course_slug,
+            "lesson": lesson,
+            "artifact_type": artifact_type,
+            "baseline_artifact": artifact_path,
+            "feedback_path": str(target.relative_to(ROOT)),
+        }, indent=2, ensure_ascii=False) + "\n",
+        encoding="utf-8",
+    )
+    return {"feedback_path": str(target.relative_to(ROOT)), "state_path": str(state_path.relative_to(ROOT)), "attachments": attachments}
 
 
 def ui_shell(default_course: str) -> str:
@@ -839,7 +851,7 @@ def ui_shell(default_course: str) -> str:
     th {{ color: var(--muted); font-size: 12px; text-transform: uppercase; letter-spacing: .04em; background: #f7f9fc; }}
     .operator-tool {{
       display: grid;
-      grid-template-columns: minmax(260px, 1.25fr) minmax(220px, .75fr);
+      grid-template-columns: minmax(180px, .6fr) minmax(260px, 1.25fr) minmax(220px, .75fr);
       gap: 14px;
       align-items: end;
     }}
@@ -1119,11 +1131,12 @@ def ui_shell(default_course: str) -> str:
       <div class="section-head">
         <div class="title-row">
           <div class="step-num">5</div>
-          <div><h2>Operator Action</h2><div class="hint">Choose a file or image request, then approve it, request edits with supporting files, or attach the requested image. Files remain managed in the lesson table.</div></div>
+          <div><h2>Operator Action</h2><div class="hint">Choose a lesson first, then select its file or image request to approve it, request edits, or attach requested images. Files remain managed in the lesson table.</div></div>
         </div>
       </div>
       <div class="body">
         <div class="operator-tool">
+          <div><label for="operatorLesson">Lesson</label><select id="operatorLesson"></select></div>
           <div><label for="operatorTarget">File or image request</label><select id="operatorTarget"></select></div>
           <div><label for="operatorAction">Action</label><select id="operatorAction"><option value="approve">Approve</option><option value="request_edits">Request edits</option><option value="attach_images">Attach requested images</option></select></div>
           <div class="operator-tool-details" id="operatorToolDetails"></div>
@@ -1140,6 +1153,7 @@ def ui_shell(default_course: str) -> str:
     let currentStatus = null;
     let currentJobs = [];
     let operatorTargetMap = {{}};
+    let operatorTargetsByLesson = {{}};
     let workspaceLoadInFlight = false;
     let operatorActionInFlight = false;
     let uploadQueue = [];
@@ -1279,11 +1293,14 @@ def ui_shell(default_course: str) -> str:
     }}
     function renderOperatorTool() {{
       const select = document.getElementById('operatorTarget');
+      const lessonSelect = document.getElementById('operatorLesson');
       const previouslySelected = select.value;
+      const previouslySelectedLesson = lessonSelect.value;
       const previousAction = document.getElementById('operatorAction').value;
       operatorTargetMap = {{}};
-      const options = [];
+      operatorTargetsByLesson = {{}};
       for (const lesson of currentStatus?.lessons || []) {{
+        const lessonTargets = [];
         for (const group of approvalGroups) {{
           const pathField = `${{group.key}}_path`;
           const path = lesson[pathField];
@@ -1291,21 +1308,37 @@ def ui_shell(default_course: str) -> str:
           if (!isDownloadablePath(path) || status === 'blocked') continue;
           const id = `artifact:${{lesson.lesson}}:${{group.key}}`;
           operatorTargetMap[id] = {{kind:'artifact', lesson:Number(lesson.lesson), group, path, status, title:lesson.title}};
-          options.push(`<option value="${{esc(id)}}">Lesson ${{esc(lesson.lesson)}} · ${{esc(group.title)}} · ${{esc(status === 'approved' ? 'approved' : 'ready for review')}}</option>`);
+          lessonTargets.push({{id, label: `${{group.title}} · ${{status === 'approved' ? 'approved' : 'ready for review'}}`}});
         }}
         const requests = lesson.image_requests || [];
         if (requests.length) {{
           const id = `image-batch:${{lesson.lesson}}`;
           operatorTargetMap[id] = {{kind:'image', lesson:Number(lesson.lesson), requests}};
-          options.push(`<option value="${{esc(id)}}">Lesson ${{esc(lesson.lesson)}} · ${{requests.length}} requested image${{requests.length === 1 ? '' : 's'}}</option>`);
+          lessonTargets.push({{id, label: `${{requests.length}} requested image${{requests.length === 1 ? '' : 's'}}`}});
         }}
+        if (lessonTargets.length) operatorTargetsByLesson[String(lesson.lesson)] = lessonTargets;
       }}
-      select.innerHTML = options.length ? options.join('') : '<option value="">No file or image request needs operator action</option>';
-      select.disabled = !options.length;
-      const keptSelection = Boolean(previouslySelected && operatorTargetMap[previouslySelected]);
-      if (keptSelection) select.value = previouslySelected;
+      const availableLessons = Object.keys(operatorTargetsByLesson);
+      const targetLesson = operatorTargetMap[previouslySelected]?.lesson;
+      const selectedLesson = String(targetLesson || (availableLessons.includes(previouslySelectedLesson) ? previouslySelectedLesson : availableLessons[0] || ''));
+      lessonSelect.innerHTML = availableLessons.length
+        ? availableLessons.map(number => `<option value="${{esc(number)}}">Lesson ${{String(number).padStart(2, '0')}}</option>`).join('')
+        : '<option value="">No lesson needs operator action</option>';
+      lessonSelect.disabled = !availableLessons.length;
+      if (selectedLesson) lessonSelect.value = selectedLesson;
+      renderOperatorTargetsForLesson(previouslySelected);
+      const keptSelection = Boolean(previouslySelected && operatorTargetMap[previouslySelected] && String(operatorTargetMap[previouslySelected].lesson) === lessonSelect.value);
       renderOperatorToolDetails(!keptSelection);
       if (keptSelection) document.getElementById('operatorAction').value = previousAction;
+    }}
+    function renderOperatorTargetsForLesson(preferredTarget = '') {{
+      const select = document.getElementById('operatorTarget');
+      const targets = operatorTargetsByLesson[document.getElementById('operatorLesson').value] || [];
+      select.innerHTML = targets.length
+        ? targets.map(target => `<option value="${{esc(target.id)}}">${{esc(target.label)}}</option>`).join('')
+        : '<option value="">Choose a lesson with a file or image request</option>';
+      select.disabled = !targets.length;
+      if (targets.some(target => target.id === preferredTarget)) select.value = preferredTarget;
     }}
     function renderOperatorToolDetails(resetAction = true) {{
       const target = operatorTargetMap[document.getElementById('operatorTarget').value];
@@ -1340,7 +1373,7 @@ def ui_shell(default_course: str) -> str:
         const note = document.getElementById('operatorNote')?.value || '';
         if (action === 'request_edits' && !note.trim()) {{ msg.textContent = 'Write the requested edits before sending the file back.'; return; }}
         if (action === 'approve') {{ await approveArtifact(target.group.artifactType, null, target.path, target.lesson, note); return; }}
-        await requestEdits(target.group.artifactType, null, target.lesson, note);
+        await requestEdits(target.group.artifactType, null, target.lesson, note, target.path);
       }} finally {{
         operatorActionInFlight = false;
         button.disabled = false;
@@ -1410,6 +1443,7 @@ def ui_shell(default_course: str) -> str:
       currentStatus = null;
       currentJobs = [];
       operatorTargetMap = {{}};
+      operatorTargetsByLesson = {{}};
       course.value = '';
       document.getElementById('courseTitle').value = '';
       document.getElementById('courseSlug').value = '';
@@ -1738,7 +1772,7 @@ def ui_shell(default_course: str) -> str:
         note: noteOverride ?? document.getElementById(noteId)?.value ?? ''
       }});
     }}
-    async function requestEdits(artifactType, noteId, lessonOverride, noteOverride) {{
+    async function requestEdits(artifactType, noteId, lessonOverride, noteOverride, artifactPath = '') {{
       const note = noteOverride ?? document.getElementById(noteId)?.value ?? '';
       if (!note.trim()) {{
         msg.textContent = 'Write the requested edits before sending the artifact back.';
@@ -1748,6 +1782,7 @@ def ui_shell(default_course: str) -> str:
       form.append('course', course.value);
       form.append('lesson', String(Number(lessonOverride || 1)));
       form.append('artifact_type', artifactType);
+      form.append('artifact_path', artifactPath);
       form.append('note', note);
       form.append('source_manifest', document.getElementById('operatorRevisionSources')?.value || '');
       for (const file of document.getElementById('operatorRevisionFiles')?.files || []) form.append('files', file);
@@ -1833,6 +1868,10 @@ def ui_shell(default_course: str) -> str:
     document.getElementById('uploadScope').onchange = toggleLessonInput;
     document.getElementById('files').onchange = event => setUploadQueue(event.target.files);
     document.getElementById('upload').onclick = uploadFiles;
+    document.getElementById('operatorLesson').onchange = () => {{
+      renderOperatorTargetsForLesson();
+      renderOperatorToolDetails();
+    }};
     document.getElementById('operatorTarget').onchange = renderOperatorToolDetails;
     document.getElementById('operatorAction').onchange = () => renderOperatorToolDetails(false);
     document.getElementById('applyOperatorAction').onclick = applyOperatorAction;
@@ -2171,7 +2210,14 @@ class GregUiHandler(BaseHTTPRequestHandler):
                         source_label=str(source_meta.get("source_label") or "Operator-supplied revision material"),
                         source_url=str(source_meta.get("source_url") or ""),
                     ))
-                feedback = record_revision_request(course_slug=course, lesson=lesson, artifact_type=artifact_type, note=note, attachments=attachments)
+                feedback = record_revision_request(
+                    course_slug=course,
+                    lesson=lesson,
+                    artifact_type=artifact_type,
+                    note=note,
+                    artifact_path=str(body.get("artifact_path") or ""),
+                    attachments=attachments,
+                )
                 result = enqueue_job(
                     job_root=job_root,
                     request_type="production_stage",

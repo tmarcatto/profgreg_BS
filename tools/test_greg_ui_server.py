@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import importlib.util
+import json
 import shutil
 import sys
 import tempfile
@@ -61,6 +62,9 @@ class GregUiServerTests(unittest.TestCase):
         self.assertIn("Request edits", html)
         self.assertIn("Download", html)
         self.assertIn("operatorTarget", html)
+        self.assertIn("operatorLesson", html)
+        self.assertIn("Choose a lesson first", html)
+        self.assertIn("function renderOperatorTargetsForLesson", html)
         self.assertIn("Attach requested images", html)
         self.assertIn("Supporting files or images", html)
         self.assertIn("operatorRevisionFiles", html)
@@ -267,9 +271,11 @@ class GregUiServerTests(unittest.TestCase):
                     attachments=[attachment],
                 )
             text = (ROOT / feedback["feedback_path"]).read_text(encoding="utf-8")
+            state = json.loads((ROOT / feedback["state_path"]).read_text(encoding="utf-8"))
             self.assertIn("Supporting materials attached to this revision", text)
             self.assertIn("field-photo.png", text)
             self.assertIn("https://example.com/field-photo", text)
+            self.assertEqual("revision_requested", state["state"])
         finally:
             if run.exists():
                 shutil.rmtree(run)

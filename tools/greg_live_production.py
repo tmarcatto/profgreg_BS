@@ -970,7 +970,29 @@ def approved_study_guide_baseline(run: Path, lesson_tag: str) -> str | None:
 
 def feedback_for(run: Path, lesson_tag: str, artifact_type: str) -> str:
     path = run / "operator_feedback" / f"{lesson_tag}_{artifact_type}_revision_request.md"
+    state_path = run / "operator_feedback" / f"{lesson_tag}_{artifact_type}_revision_state.json"
+    if state_path.exists():
+        try:
+            if json.loads(state_path.read_text(encoding="utf-8")).get("state") != "revision_requested":
+                return ""
+        except json.JSONDecodeError:
+            return ""
     return path.read_text(encoding="utf-8", errors="replace")[-7000:] if path.exists() else ""
+
+
+def complete_revision_request(run: Path, lesson_tag: str, artifact_type: str, candidate: Path) -> None:
+    """Publish a reviewed candidate without replacing the approved baseline."""
+    state_path = run / "operator_feedback" / f"{lesson_tag}_{artifact_type}_revision_state.json"
+    if not state_path.exists():
+        return
+    try:
+        state = json.loads(state_path.read_text(encoding="utf-8"))
+    except json.JSONDecodeError:
+        state = {}
+    if state.get("state") != "revision_requested":
+        return
+    state.update({"state": "ready_for_review", "candidate_artifact": rel(candidate)})
+    write_json(state_path, state)
 
 
 def lesson_sources_are_adequate(data: dict[str, Any]) -> bool:
@@ -1650,6 +1672,7 @@ def render_reviewed_study_guide(seed, lesson: dict[str, Any], draft_path: Path, 
     )
     if not layout["passed"]:
         raise RuntimeError("Study guide layout automatic QA failed; no student PDF was released.")
+    complete_revision_request(run, lesson_tag, "study_guide", pdf_path)
     update_canonical_manifest(seed.slug)
     return [f"Study guide revision r{revision:02d} created: {rel(run / spec['output']['pdf'])}", "All required automatic content, reviewer, visual, MECE, and layout gates passed."]
 
@@ -1751,6 +1774,22 @@ def produce_study_guide(course_slug: str, lesson_number: int) -> list[str]:
         # needlessly rewriting the complete lesson.
         draft = normalize_reviewed_factual_language(force_student_references(draft, references))
         draft = normalize_callout_density(draft)
+        write_text(working_path, draft)
+    if revision_feedback and draft:
+        # Start with the saved approved draft and make only the operator's
+        # requested correction. The renderer will create a separate candidate
+        # file, leaving the approved PDF untouched.
+        try:
+            draft = request_text(
+                seed.slug,
+                "technical_content",
+                study_guide_revision_prompt(draft, revision_feedback, references, attempt=0, level=seed.level),
+                max_tokens=24000,
+            )
+        except ModelRequestError as error:
+            block(run, "lesson_draft", f"Configured technical-content model could not revise Lesson {lesson_number}.\n\nReason: {error}")
+            raise RuntimeError(str(error)) from error
+        draft = normalize_callout_density(normalize_reviewed_factual_language(force_student_references(draft, references)))
         write_text(working_path, draft)
     prior_revision_was_noop = False
     deterministic_checker = load_module("greg_study_guide_content_check_loop", "tools/greg_study_guide_content_check.py")
@@ -1872,6 +1911,18 @@ Return exactly 10 slides; the first is cover and the final is takeaway. Keep tex
 Approved course book:\n{book[:42000]}\nRevision feedback:\n{feedback or 'None.'}"""
 
 
+def deck_revision_prompt(slides: list[dict[str, Any]], feedback: str) -> str:
+    return f"""Revise this existing Prof Greg presentation JSON. Return JSON only as {{"slides":[...]}}.
+
+Apply only the requested changes. Preserve every unmentioned slide, layout, slide order, image path, and student-visible value exactly. Do not rebuild the presentation, add or remove slides, or alter an unrelated diagram or image. The returned `slides` array must contain all 10 slides so the renderer can produce a separate review candidate.
+
+Requested changes:
+{feedback}
+
+Existing slides:
+{json.dumps(slides, ensure_ascii=False)}"""
+
+
 def normalize_deck_slides(data: dict[str, Any], lesson: dict[str, Any]) -> list[dict[str, Any]]:
     slides = data.get("slides") if isinstance(data.get("slides"), list) else []
     allowed = {"cover", "intro_image_bullets", "image_bullets", "card_sequence", "comparison", "planned_actual", "row_list", "checklist_rows", "takeaway"}
@@ -1935,6 +1986,7 @@ def produce_deck(course_slug: str, lesson_number: int) -> list[str]:
     lesson = lesson_by_number(course_map, lesson_number)
     lesson_tag = lid(lesson_number)
     approved = latest_approved_book(run, lesson_tag)
+    revision_feedback = feedback_for(run, lesson_tag, "deck")
     revision, filename = revisioned(run, "deck", f"{lesson_tag}_deck", ".pptx")
     spec_path = run / "deck" / f"{lesson_tag}_deck_spec_r{revision:02d}.json"
     resumable_spec = spec_path.exists() and not (run / "deck" / filename).exists()
@@ -1943,12 +1995,17 @@ def produce_deck(course_slug: str, lesson_number: int) -> list[str]:
             saved = json.loads(spec_path.read_text(encoding="utf-8"))
             slides = normalize_deck_slides({"slides": saved.get("slides")}, lesson)
         else:
-            plan = request_json_with_retry(
-                seed.slug,
-                "technical_content",
-                deck_prompt(seed, lesson, approved.read_text(encoding="utf-8", errors="replace"), feedback_for(run, lesson_tag, "deck")),
-                max_tokens=12000,
-            )
+            prior_spec = latest_matching_path(run / "deck", f"{lesson_tag}_deck_spec_r*.json") if revision_feedback else None
+            if prior_spec:
+                prior_slides = json.loads(prior_spec.read_text(encoding="utf-8")).get("slides") or []
+                plan = request_json_with_retry(seed.slug, "technical_content", deck_revision_prompt(prior_slides, revision_feedback), max_tokens=12000)
+            else:
+                plan = request_json_with_retry(
+                    seed.slug,
+                    "technical_content",
+                    deck_prompt(seed, lesson, approved.read_text(encoding="utf-8", errors="replace"), revision_feedback),
+                    max_tokens=12000,
+                )
             slides = normalize_deck_slides(plan, lesson)
         create_deck_visual_assets(seed, lesson, slides, run, lesson_tag)
     except ModelRequestError as error:
@@ -1959,7 +2016,7 @@ def produce_deck(course_slug: str, lesson_number: int) -> list[str]:
         "course_title": seed.title,
         "lesson_number": lesson_number,
         "created": date.today().isoformat(),
-        "production_mode": "initial",
+        "production_mode": "revision" if (run / "approval" / f"{lesson_tag}_deck_approval.md").exists() else "initial",
         "revision": f"r{revision:02d}",
         "run_folder": f"runs/{seed.slug}",
         "assets": {"brand_icon": BRAND_ICON, "negative_wordmark": NEGATIVE_WORDMARK},
@@ -1968,11 +2025,15 @@ def produce_deck(course_slug: str, lesson_number: int) -> list[str]:
         "qa_checks": ["10 slides.", "MECE: each slide has a distinct teaching job.", "At least six distinct body layouts and no adjacent layout repetition.", "At least one half-slide teaching image with text on the other half.", "No automatic last-item highlight.", "Residential-construction-first audience anchor.", "No visible timing or speaker notes."],
         "inspection_notes": ["Live deck copy was generated from the approved course book.", "A half-slide teaching image was generated for each image-led slide.", "Deck plan and images are reused after an interrupted render when available.", "Deck is released for review only after renderer QA passes and is visually rechecked."],
     }
+    baseline = approved_deck_baseline(run, lesson_tag) if (run / "approval" / f"{lesson_tag}_deck_approval.md").exists() else None
+    if baseline:
+        spec["approved_baseline_artifact"] = str(baseline.relative_to(run))
     write_json(spec_path, spec)
     subprocess.run([sys.executable, str(ROOT / "tools" / "greg_render_deck_from_spec.py"), str(spec_path)], cwd=ROOT, check=True)
     qa_path = run / spec["output"]["qa"]
     if not qa_path.exists() or "fail" in qa_path.read_text(encoding="utf-8", errors="replace").lower():
         raise RuntimeError("Presentation automatic QA failed; no deck was released for review.")
+    complete_revision_request(run, lesson_tag, "deck", run / spec["output"]["pptx"])
     update_canonical_manifest(seed.slug)
     return [f"Presentation revision r{revision:02d} created: {rel(run / spec['output']['pptx'])}", "Presentation renderer QA passed."]
 
@@ -2085,15 +2146,19 @@ def localize_book(course_slug: str, lesson_number: int, locale: str) -> list[str
     localized_level = localized_metadata["levels"].get(str(seed.level).lower(), str(seed.level))
     references = (run / "sources" / "student_references.md").read_text(encoding="utf-8")
     pending_draft = latest_complete_localized_draft(run / "localization" / folder, lesson_tag, locale)
+    revision_feedback = feedback_for(run, lesson_tag, f"{locale}_study_guide")
     pending_match = re.search(r"_r(\d+)\.md$", pending_draft.name) if pending_draft else None
     prior_translated = ""
-    if pending_draft and pending_match and 2 <= localized_callout_count(pending_draft.read_text(encoding="utf-8", errors="replace"), locale) <= 4:
+    if pending_draft and pending_match and not revision_feedback and 2 <= localized_callout_count(pending_draft.read_text(encoding="utf-8", errors="replace"), locale) <= 4:
         translated = pending_draft.read_text(encoding="utf-8", errors="replace")
         prior_translated = translated
         revision = int(pending_match.group(1))
         draft_name = pending_draft.name
     else:
-        prompt = f"""Translate the following student-facing construction course book into {language}. Return Markdown only. Preserve the structural order: Introduction, Learning Objectives, numbered Sections, Summary and Key Takeaways, Glossary, and References. Do not add a Lesson Roadmap. Translate all body text and section titles. Preserve every Summary and Key Takeaways item as a concise bullet point; never convert that section into paragraphs. Keep U.S. construction terminology, units, codes, and market context. Preserve the six approved callout labels semantically in the target language and never invent a new callout type. Preserve exactly the same number of callout blocks as the English source, with 2-4 blocks formatted as Markdown blockquotes: `> **LOCALIZED LABEL**` followed by one or more `>` body lines. Do not turn a callout into ordinary prose. Do not add or remove facts, activities, citations, or references. Do not use em dashes, en dashes, or spaced hyphens as punctuation.\n\n{source_draft.read_text(encoding='utf-8', errors='replace')[:48000]}"""
+        if revision_feedback and pending_draft:
+            prompt = f"""Revise this existing {language} course book. Return the complete Markdown only. Apply only the requested changes and preserve every unmentioned paragraph, heading, diagram placement, reference, and translation verbatim. Do not translate or recreate the whole book.\n\nRequested changes:\n{revision_feedback}\n\nExisting course book:\n{pending_draft.read_text(encoding='utf-8', errors='replace')[:48000]}"""
+        else:
+            prompt = f"""Translate the following student-facing construction course book into {language}. Return Markdown only. Preserve the structural order: Introduction, Learning Objectives, numbered Sections, Summary and Key Takeaways, Glossary, and References. Do not add a Lesson Roadmap. Translate all body text and section titles. Preserve every Summary and Key Takeaways item as a concise bullet point; never convert that section into paragraphs. Keep U.S. construction terminology, units, codes, and market context. Preserve the six approved callout labels semantically in the target language and never invent a new callout type. Preserve exactly the same number of callout blocks as the English source, with 2-4 blocks formatted as Markdown blockquotes: `> **LOCALIZED LABEL**` followed by one or more `>` body lines. Do not turn a callout into ordinary prose. Do not add or remove facts, activities, citations, or references. Do not use em dashes, en dashes, or spaced hyphens as punctuation.\n\n{source_draft.read_text(encoding='utf-8', errors='replace')[:48000]}"""
         try:
             translated = request_text(seed.slug, "localization", prompt, max_tokens=24000)
         except ModelRequestError as error:
@@ -2128,6 +2193,7 @@ def localize_book(course_slug: str, lesson_number: int, locale: str) -> list[str
     )
     if not layout["passed"]:
         raise RuntimeError("Localized course book layout QA failed.")
+    complete_revision_request(run, lesson_tag, f"{locale}_study_guide", run / spec["output"]["pdf"])
     update_canonical_manifest(seed.slug)
     return [f"{locale} course book r{revision:02d} created: {rel(run / spec['output']['pdf'])}"]
 
@@ -2252,7 +2318,13 @@ def localize_deck(course_slug: str, lesson_number: int, locale: str) -> list[str
         raise RuntimeError("The approved English presentation has no revisioned deck spec for localization.")
     language, folder = localization_name(locale)
     source = json.loads(source_spec.read_text(encoding="utf-8"))
-    prompt = f"""Translate every student-visible text value in this Prof Greg deck JSON into {language}. Return JSON only in the form {{"slides": [...]}}. Preserve all keys, layout names, numbers, filenames, asset paths, and slide count exactly. Do not add slides or speaker notes. Preserve U.S. construction terms, units, and facts. If localized copy would overflow its approved layout, use a shorter equivalent that preserves the central message; do not add emphasis Markdown or bold markers.\n\n{json.dumps(source['slides'], ensure_ascii=False)}"""
+    revision_feedback = feedback_for(run, lesson_tag, f"{locale}_deck")
+    prior_spec = latest_matching_path(run / "localization" / folder, f"{lesson_tag}_deck_{locale}_spec_r*.json") if revision_feedback else None
+    if revision_feedback and prior_spec:
+        prior_slides = json.loads(prior_spec.read_text(encoding="utf-8")).get("slides") or []
+        prompt = deck_revision_prompt(prior_slides, revision_feedback)
+    else:
+        prompt = f"""Translate every student-visible text value in this Prof Greg deck JSON into {language}. Return JSON only in the form {{"slides": [...]}}. Preserve all keys, layout names, numbers, filenames, asset paths, and slide count exactly. Do not add slides or speaker notes. Preserve U.S. construction terms, units, and facts. If localized copy would overflow its approved layout, use a shorter equivalent that preserves the central message; do not add emphasis Markdown or bold markers.\n\n{json.dumps(source['slides'], ensure_ascii=False)}"""
     try:
         data = request_json_with_retry(seed.slug, "localization", prompt, max_tokens=12000)
     except ModelRequestError as error:
@@ -2272,6 +2344,7 @@ def localize_deck(course_slug: str, lesson_number: int, locale: str) -> list[str
     if not qa.exists() or "fail" in qa.read_text(encoding="utf-8", errors="replace").lower():
         raise RuntimeError("Localized presentation QA failed.")
     write_localized_deck_text_map(run, lesson_tag, folder, source["slides"], slides, seed.slug, approved_deck_baseline(run, lesson_tag))
+    complete_revision_request(run, lesson_tag, f"{locale}_deck", run / spec["output"]["pptx"])
     update_canonical_manifest(seed.slug)
     return [f"{locale} presentation r{revision:02d} created: {rel(run / spec['output']['pptx'])}"]
 

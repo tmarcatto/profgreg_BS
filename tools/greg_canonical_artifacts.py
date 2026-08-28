@@ -122,6 +122,22 @@ def artifact_from_approval(run: Path, approval: Path) -> Path | None:
     return None
 
 
+def revision_candidate(run: Path, lesson: str, artifact_type: str) -> Path | None:
+    """Return the review candidate only while it is awaiting operator approval."""
+    state_path = run / "operator_feedback" / f"lesson_{lesson}_{artifact_type}_revision_state.json"
+    if not state_path.exists():
+        return None
+    try:
+        state = json.loads(read_text(state_path))
+    except json.JSONDecodeError:
+        return None
+    if state.get("state") != "ready_for_review":
+        return None
+    candidate = str(state.get("candidate_artifact") or "").strip()
+    path = run / candidate
+    return path if candidate and path.exists() and path.is_file() else None
+
+
 def artifact(
     run: Path,
     key: str,
@@ -147,6 +163,9 @@ def artifact(
 
 
 def approved_or_default_study_guide(run: Path, lesson: str, approval: Path) -> Path | None:
+    candidate = revision_candidate(run, lesson, "study_guide")
+    if candidate:
+        return candidate
     approved = artifact_from_approval(run, approval)
     if approved:
         return approved
@@ -160,6 +179,9 @@ def approved_or_default_study_guide(run: Path, lesson: str, approval: Path) -> P
 
 
 def approved_or_default_deck(run: Path, lesson: str, approval: Path) -> Path | None:
+    candidate = revision_candidate(run, lesson, "deck")
+    if candidate:
+        return candidate
     approved = artifact_from_approval(run, approval)
     if approved:
         return approved
