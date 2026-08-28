@@ -185,6 +185,47 @@ def list_course_workspaces() -> list[dict]:
     return workspaces
 
 
+def model_usage_path(course_slug: str) -> Path:
+    return SESSION_RUN_ROOT / slugify(course_slug) / "ops" / "model_usage_log.jsonl"
+
+
+def course_cost_report(course_slug: str) -> dict:
+    """Return request-level AI spend for one workspace only."""
+    path = model_usage_path(course_slug)
+    rows: list[dict] = []
+    if path.exists():
+        for line in path.read_text(encoding="utf-8", errors="replace").splitlines():
+            try:
+                item = json.loads(line)
+            except json.JSONDecodeError:
+                continue
+            if isinstance(item, dict):
+                # Older logs predate the cost field. Recalculate them from the
+                # current versioned rate card so historic course spend is not
+                # silently omitted from the workspace total.
+                if item.get("outcome") == "completed" and item.get("usage") and not item.get("cost"):
+                    from greg_model_router import cost_estimate
+                    item["cost"] = cost_estimate(
+                        {"provider": item.get("provider"), "model": item.get("model")},
+                        item["usage"],
+                    )
+                rows.append(item)
+    rows.sort(key=lambda item: str(item.get("at") or ""), reverse=True)
+    completed = [item for item in rows if item.get("outcome") == "completed"]
+    priced = [item for item in completed if isinstance(item.get("cost"), dict) and item["cost"].get("status") == "estimated"]
+    total = sum(float(item["cost"].get("estimated_usd") or 0) for item in priced)
+    provider_totals: dict[tuple[str, str], float] = {}
+    for item in priced:
+        key = (str(item.get("provider") or "Unknown"), str(item.get("model") or "Unknown"))
+        provider_totals[key] = provider_totals.get(key, 0) + float(item["cost"].get("estimated_usd") or 0)
+    return {
+        "course_slug": slugify(course_slug), "currency": "USD", "total_estimated_usd": round(total, 8),
+        "request_count": len(rows), "completed_count": len(completed), "unpriced_completed_count": len(completed) - len(priced),
+        "providers": [{"provider": provider, "model": model, "estimated_usd": round(value, 8)} for (provider, model), value in sorted(provider_totals.items())],
+        "requests": rows,
+    }
+
+
 def safe_filename(value: str) -> str:
     name = Path(value or "uploaded-file").name
     clean = re.sub(r"[^a-zA-Z0-9._ -]+", "-", name).strip(" .-_")
@@ -857,6 +898,9 @@ def ui_shell(default_course: str) -> str:
     }}
     .operator-tool-details {{ grid-column: 1 / -1; display: grid; gap: 10px; }}
     .operator-tool-actions {{ display: flex; justify-content: flex-end; gap: 10px; }}
+    .operator-result {{ grid-column: 1 / -1; min-height: 20px; color: var(--muted); font-size: 14px; }}
+    .operator-result.error {{ color: var(--bad); }}
+    .operator-result.success {{ color: var(--ok); }}
     .download-link {{
       display: inline-flex;
       align-items: center;
@@ -922,6 +966,7 @@ def ui_shell(default_course: str) -> str:
     .upload-edit {{ display: grid; grid-template-columns: 130px 70px; gap: 6px; }}
     .upload-actions {{ display: flex; gap: 6px; flex-wrap: wrap; }}
     .log-tools {{ display: grid; grid-template-columns: minmax(240px, 1fr) 180px 180px; gap: 10px; }}
+    .cost-provider-list {{ margin: 12px 0 0; color: var(--muted); font-size: 13px; }}
     .hidden {{ display: none !important; }}
     code {{ font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; font-size: 12px; }}
     @media (max-width: 980px) {{
@@ -959,6 +1004,7 @@ def ui_shell(default_course: str) -> str:
       <a href="#materials">Materials</a>
       <a href="#course-map">Course Map</a>
       <a href="#pipeline">Lessons</a>
+      <a href="#costs">AI Costs</a>
       <a href="#approvals">Approvals</a>
     </nav>
   </header>
@@ -1127,10 +1173,19 @@ def ui_shell(default_course: str) -> str:
       </div>
     </section>
 
+    <section id="costs" class="card">
+      <div class="section-head"><div class="title-row"><div class="step-num">5</div><div><h2>AI Costs</h2><div class="hint">Every provider call made for this course workspace is listed separately. Totals use the configured API rate card.</div></div></div></div>
+      <div class="body">
+        <div class="status-summary" id="costSummary"><div class="metric"><div class="label">Total estimated investment</div><div class="value">Loading…</div></div></div>
+        <div class="cost-provider-list" id="costProviders"></div>
+        <div class="table-wrap"><table><thead><tr><th>Date / time</th><th>Artifact / stage</th><th>Provider</th><th>Model</th><th>Usage</th><th>Cost (USD)</th><th>Status</th></tr></thead><tbody id="costRows"><tr><td colspan="7" class="muted">No AI calls recorded for this workspace.</td></tr></tbody></table></div>
+      </div>
+    </section>
+
     <section id="approvals" class="card">
       <div class="section-head">
         <div class="title-row">
-          <div class="step-num">5</div>
+          <div class="step-num">6</div>
           <div><h2>Operator Action</h2><div class="hint">Choose a lesson first, then select its file or image request to approve it, request edits, or attach requested images. Files remain managed in the lesson table.</div></div>
         </div>
       </div>
@@ -1140,6 +1195,7 @@ def ui_shell(default_course: str) -> str:
           <div><label for="operatorTarget">File or image request</label><select id="operatorTarget"></select></div>
           <div><label for="operatorAction">Action</label><select id="operatorAction"><option value="approve">Approve</option><option value="request_edits">Request edits</option><option value="attach_images">Attach requested images</option></select></div>
           <div class="operator-tool-details" id="operatorToolDetails"></div>
+          <div class="operator-result" id="operatorResult" role="status" aria-live="polite"></div>
           <div class="operator-tool-actions"><button class="primary" id="applyOperatorAction">Apply action</button></div>
         </div>
       </div>
@@ -1271,6 +1327,31 @@ def ui_shell(default_course: str) -> str:
       renderCourseMapPanel();
       renderOperatorTool();
     }}
+    function formatUsd(value) {{
+      return new Intl.NumberFormat('en-US', {{style: 'currency', currency: 'USD', minimumFractionDigits: 2, maximumFractionDigits: 6}}).format(Number(value || 0));
+    }}
+    function usageLabel(usage) {{
+      if (!usage) return '—';
+      if (usage.images) return `${{usage.images}} image${{Number(usage.images) === 1 ? '' : 's'}} · ${{esc(usage.size || '')}}`;
+      const input = usage.input_tokens ?? usage.prompt_tokens ?? 0;
+      const output = usage.output_tokens ?? usage.completion_tokens ?? 0;
+      return `${{Number(input).toLocaleString()}} in · ${{Number(output).toLocaleString()}} out`;
+    }}
+    const roleLabels = {{course_architect:'Course Map', source_research:'Source research', technical_content:'Course book', pedagogy_review:'Pedagogy review', citation_review:'Citation review', design_review:'Design review', visual_planning:'Visual plan', visual_review:'Visual review', image_generation:'Generated image', localization:'Translation', localization_review:'Translation review'}};
+    function renderCosts(report) {{
+      const total = formatUsd(report?.total_estimated_usd);
+      const unpriced = Number(report?.unpriced_completed_count || 0);
+      document.getElementById('costSummary').innerHTML = `<div class="metric"><div class="label">Total estimated investment</div><div class="value">${{total}}</div></div><div class="metric"><div class="label">Recorded API calls</div><div class="value">${{Number(report?.request_count || 0)}}</div></div><div class="metric"><div class="label">Calls awaiting a rate</div><div class="value">${{unpriced}}</div></div>`;
+      const providers = report?.providers || [];
+      document.getElementById('costProviders').textContent = providers.length ? providers.map(item => `${{item.provider}} / ${{item.model}}: ${{formatUsd(item.estimated_usd)}}`).join(' · ') : (unpriced ? 'Some completed calls have no configured rate yet, so they are excluded from the estimated total.' : 'Costs will appear after this workspace makes an AI call.');
+      const rows = report?.requests || [];
+      document.getElementById('costRows').innerHTML = rows.length ? rows.map(item => {{
+        const cost = item.cost || {{}};
+        const costText = cost.status === 'estimated' ? formatUsd(cost.estimated_usd) : (item.outcome === 'completed' ? 'Rate not configured' : '—');
+        const status = item.outcome === 'completed' ? (cost.status === 'estimated' ? 'Estimated' : 'Needs rate') : esc(item.outcome || 'unknown');
+        return `<tr><td>${{esc(item.at || '—')}}</td><td>${{esc(roleLabels[item.role] || item.role || '—')}}</td><td>${{esc(item.provider || '—')}}</td><td>${{esc(item.model || '—')}}</td><td>${{usageLabel(item.usage)}}</td><td>${{costText}}</td><td><span class="status-pill ${{esc(item.outcome || 'missing')}}">${{status}}</span></td></tr>`;
+      }}).join('') : '<tr><td colspan="7" class="muted">No AI calls recorded for this workspace.</td></tr>';
+    }}
     function renderCourseMapPanel() {{
       const map = artifactByNames(['course_map_md']);
       const panel = document.getElementById('courseMapPanel');
@@ -1358,6 +1439,11 @@ def ui_shell(default_course: str) -> str:
         details.innerHTML = `<div><a class="download-link" href="/artifact?path=${{encodeURIComponent(target.path)}}&filename=${{encodeURIComponent(filename)}}" target="_blank" rel="noopener">Download selected file</a></div><textarea id="operatorNote" placeholder="Required for edit requests; optional for approvals."></textarea>${{supportingFiles}}`;
       }}
     }}
+    function showOperatorResult(text, tone = '') {{
+      const result = document.getElementById('operatorResult');
+      result.textContent = text;
+      result.className = `operator-result ${{tone}}`;
+    }}
     async function applyOperatorAction() {{
       if (operatorActionInFlight) return;
       const target = operatorTargetMap[document.getElementById('operatorTarget').value];
@@ -1368,6 +1454,7 @@ def ui_shell(default_course: str) -> str:
       button.disabled = true;
       button.textContent = 'Applying…';
       msg.textContent = 'Applying operator action…';
+      showOperatorResult('Saving your action…');
       try {{
         if (action === 'attach_images') {{ await uploadVisualBatch(target.lesson, target.requests); return; }}
         const note = document.getElementById('operatorNote')?.value || '';
@@ -1527,10 +1614,12 @@ def ui_shell(default_course: str) -> str:
         currentJobs = jobs.jobs || [];
         renderJobs();
         const uploads = await api('/api/uploads?course=' + encodeURIComponent(course.value));
+        const costs = await api('/api/costs?course=' + encodeURIComponent(course.value));
         document.getElementById('uploads').innerHTML = uploads.uploads.length ? uploads.uploads.map(uploadRow).join('') : '<tr><td colspan="5" class="muted">No source materials attached yet.</td></tr>';
         for (const item of uploads.uploads) toggleUploadLesson(item.upload_id);
         renderPipeline();
         renderLessonSelection();
+        renderCosts(costs);
       }} catch (error) {{
         msg.textContent = error.message;
       }} finally {{
@@ -1789,8 +1878,12 @@ def ui_shell(default_course: str) -> str:
       try {{
         const data = await api('/api/request-changes', {{method: 'POST', body: form}});
         msg.textContent = data.message || 'Edit request recorded and queued.';
+        showOperatorResult(data.message || 'Edit request recorded and queued.', 'success');
         await loadWorkspace();
-      }} catch (error) {{ msg.textContent = error.message; }}
+      }} catch (error) {{
+        msg.textContent = error.message;
+        showOperatorResult(`Could not save the edit request: ${{error.message}}`, 'error');
+      }}
     }}
     async function uploadFiles() {{
       try {{
@@ -1949,6 +2042,10 @@ class GregUiHandler(BaseHTTPRequestHandler):
             if parsed.path == "/api/uploads":
                 course = parse_qs(parsed.query).get("course", [getattr(self.server, "default_course", DEFAULT_COURSE)])[0]
                 self.send_json(HTTPStatus.OK, {"uploads": list_uploads(getattr(self.server, "upload_root"), course)})
+                return
+            if parsed.path == "/api/costs":
+                course = parse_qs(parsed.query).get("course", [getattr(self.server, "default_course", DEFAULT_COURSE)])[0]
+                self.send_json(HTTPStatus.OK, course_cost_report(course))
                 return
             if parsed.path == "/artifact":
                 query = parse_qs(parsed.query)

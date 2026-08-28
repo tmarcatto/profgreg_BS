@@ -32,6 +32,9 @@ class GregUiServerTests(unittest.TestCase):
         self.assertIn("Lesson Production", html)
         self.assertIn("Operator Action", html)
         self.assertIn("Lessons", html)
+        self.assertIn("AI Costs", html)
+        self.assertIn("/api/costs?course=", html)
+        self.assertIn("Total estimated investment", html)
         self.assertIn("Do not cite text - images allowed", html)
         self.assertIn("Can cite + images allowed", html)
         self.assertIn("Start Course Map with current brief and sources", html)
@@ -65,6 +68,8 @@ class GregUiServerTests(unittest.TestCase):
         self.assertIn("operatorLesson", html)
         self.assertIn("Choose a lesson first", html)
         self.assertIn("function renderOperatorTargetsForLesson", html)
+        self.assertIn('id="operatorResult"', html)
+        self.assertIn("showOperatorResult", html)
         self.assertIn("Attach requested images", html)
         self.assertIn("Supporting files or images", html)
         self.assertIn("operatorRevisionFiles", html)
@@ -105,6 +110,22 @@ class GregUiServerTests(unittest.TestCase):
     def test_json_bytes_preserves_utf8(self) -> None:
         data = ui.json_bytes({"message": "ação"})
         self.assertIn("ação".encode("utf-8"), data)
+
+    def test_cost_report_is_scoped_to_one_course_and_keeps_providers_separate(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            run_root = Path(tmp)
+            log = run_root / "course-a" / "ops" / "model_usage_log.jsonl"
+            log.parent.mkdir(parents=True)
+            log.write_text(
+                '{"at":"2026-08-28T10:00:00Z","role":"technical_content","provider":"openai","model":"gpt-a","outcome":"completed","cost":{"status":"estimated","estimated_usd":0.12}}\n'
+                '{"at":"2026-08-28T10:01:00Z","role":"citation_review","provider":"anthropic","model":"claude-b","outcome":"completed","cost":{"status":"estimated","estimated_usd":0.08}}\n',
+                encoding="utf-8",
+            )
+            with patch.object(ui, "SESSION_RUN_ROOT", run_root):
+                report = ui.course_cost_report("course-a")
+        self.assertEqual(0.2, report["total_estimated_usd"])
+        self.assertEqual(2, len(report["providers"]))
+        self.assertEqual(2, report["request_count"])
 
     def test_unfinished_workspaces_are_listed_before_completed_ones(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
