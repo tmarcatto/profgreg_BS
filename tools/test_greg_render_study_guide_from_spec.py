@@ -40,6 +40,8 @@ class RenderStudyGuideFromSpecTests(unittest.TestCase):
         self.assertEqual("table", blocks[0]["type"])
         self.assertEqual(["Item", "Amount"], blocks[0]["headers"])
         self.assertEqual(2, len(blocks[0]["rows"]))
+        table = pdf_renderer.markdown_table(blocks[0]["headers"], blocks[0]["rows"])
+        self.assertEqual(pdf_renderer.colors.white, table._cellvalues[0][0].style.textColor)
 
     def test_cost_stack_total_clears_the_title_area(self) -> None:
         if pdf_renderer is None:

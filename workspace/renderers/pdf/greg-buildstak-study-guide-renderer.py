@@ -80,6 +80,7 @@ styles.add(ParagraphStyle(name="BridgeLabel", parent=styles["CalloutLabel"], fon
 styles.add(ParagraphStyle(name="BridgeBody", parent=styles["CalloutBody"], fontSize=8.5, leading=10.5))
 styles.add(ParagraphStyle(name="BridgeLead", parent=styles["BodyGreg"], fontSize=9.2, leading=12, textColor=MUTED, spaceAfter=10))
 styles.add(ParagraphStyle(name="Caption", parent=styles["BodyGreg"], fontSize=8.6, leading=11, textColor=MUTED, alignment=TA_CENTER, spaceBefore=4, spaceAfter=10))
+styles.add(ParagraphStyle(name="TableHeader", parent=styles["BodyGreg"], fontName=FONT_BOLD, textColor=colors.white, spaceAfter=0))
 
 
 def resolve_path(value: str | Path) -> Path:
@@ -748,7 +749,7 @@ def markdown_table(headers: list[str], rows: list[list[str]]):
     width_total = sum(widths)
     widths = [width * available / width_total for width in widths]
     data = [
-        [Paragraph(inline(cell), styles["BodyGreg"]) for cell in headers],
+        [Paragraph(inline(cell), styles["TableHeader"]) for cell in headers],
         *[[Paragraph(inline(cell), styles["BodyGreg"]) for cell in row] for row in rows],
     ]
     table = Table(data, colWidths=widths, repeatRows=1, hAlign="LEFT", splitByRow=1)
