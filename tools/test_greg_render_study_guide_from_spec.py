@@ -35,15 +35,24 @@ class RenderStudyGuideFromSpecTests(unittest.TestCase):
         if pdf_renderer is None:
             self.skipTest("ReportLab is not installed in this Python environment.")
         blocks = pdf_renderer.parse_markdown(
-            "| Item | Amount |\n|---|---:|\n| Excavation | $7,500 |\n| Framing | $22,800 |\n"
+            "| Direct cost item | Quantity or pricing basis | Amount | Stated inclusions |\n"
+            "|---|---|---:|---|\n"
+            "| Excavation | Synthetic quote | $7,500 | Tax included |\n"
+            "| Framing | 600 SF | $22,800 | Delivery included |\n"
         )
         self.assertEqual("table", blocks[0]["type"])
-        self.assertEqual(["Item", "Amount"], blocks[0]["headers"])
+        self.assertEqual(["Direct cost item", "Quantity or pricing basis", "Amount", "Stated inclusions"], blocks[0]["headers"])
         self.assertEqual(2, len(blocks[0]["rows"]))
         table = pdf_renderer.markdown_table(blocks[0]["headers"], blocks[0]["rows"])
         self.assertEqual(pdf_renderer.colors.white, table._cellvalues[0][0].style.textColor)
         self.assertGreater(table._colWidths[1], table._colWidths[0])
         self.assertGreater(table._colWidths[3], table._colWidths[2])
+        for index, header in enumerate(blocks[0]["headers"]):
+            cell = table._cellvalues[0][index]
+            self.assertLessEqual(
+                pdf_renderer.stringWidth(header, pdf_renderer.FONT_BOLD, cell.style.fontSize),
+                table._colWidths[index] - 12,
+            )
 
     def test_cost_stack_total_clears_the_title_area(self) -> None:
         if pdf_renderer is None:

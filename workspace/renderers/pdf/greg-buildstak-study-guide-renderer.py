@@ -754,8 +754,20 @@ def markdown_table(headers: list[str], rows: list[list[str]]):
         # Normalize after applying minimums so the table always stays in frame.
         width_total = sum(widths)
         widths = [width * available / width_total for width in widths]
+    def header_cell(text: str, width: float) -> Paragraph:
+        usable_width = width - 12
+        plain = re.sub(r"[*_`]+", "", text).strip()
+        for size in (10.3, 9.5, 8.5, 7.5):
+            if stringWidth(plain, FONT_BOLD, size) <= usable_width:
+                style = ParagraphStyle(
+                    name=f"TableHeader{size:g}", parent=styles["TableHeader"], fontSize=size, leading=size + 1.4
+                )
+                return Paragraph(inline(text), style)
+        raise ValueError(
+            f"Table header cannot fit on one legible line: {text}. Use a shorter label or a different table layout."
+        )
     data = [
-        [Paragraph(inline(cell), styles["TableHeader"]) for cell in headers],
+        [header_cell(cell, widths[index]) for index, cell in enumerate(headers)],
         *[[Paragraph(inline(cell), styles["BodyGreg"]) for cell in row] for row in rows],
     ]
     table = Table(data, colWidths=widths, repeatRows=1, hAlign="LEFT", splitByRow=1)
