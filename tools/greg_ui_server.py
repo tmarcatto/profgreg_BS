@@ -1234,8 +1234,8 @@ def ui_shell(default_course: str) -> str:
       <div class="section-head"><div class="title-row"><div class="step-num">6</div><div><h2>AI Costs</h2><div class="hint">Every provider call made for this course workspace is listed separately. Totals use the configured API rate card.</div></div></div></div>
       <div class="body">
         <div class="status-summary" id="costSummary"><div class="metric"><div class="label">Total estimated investment</div><div class="value">Loading…</div></div></div>
-        <div class="cost-provider-list" id="costProviders"></div>
-        <div class="cost-math" id="costMath"></div>
+        <div class="cost-provider-list">Complete calculation for this course</div>
+        <div class="table-wrap"><table><thead><tr><th>Provider</th><th>Model</th><th>API calls</th><th>Cost (USD)</th></tr></thead><tbody id="costMath"><tr><td colspan="4" class="muted">No cost calculation available yet.</td></tr></tbody></table></div>
         <div class="cost-provider-list" id="costRecentLabel">Latest API requests</div>
         <div class="table-wrap"><table><thead><tr><th>Date / time</th><th>Artifact / stage</th><th>Provider</th><th>Model</th><th>Usage</th><th>Cost (USD)</th><th>Status</th></tr></thead><tbody id="costRows"><tr><td colspan="7" class="muted">No AI calls recorded for this workspace.</td></tr></tbody></table></div>
       </div>
@@ -1381,22 +1381,9 @@ def ui_shell(default_course: str) -> str:
     const roleLabels = {{course_architect:'Course Map', source_research:'Source research', technical_content:'Course book', pedagogy_review:'Pedagogy review', citation_review:'Citation review', design_review:'Design review', visual_planning:'Visual plan', visual_review:'Visual review', image_generation:'Generated image', localization:'Translation', localization_review:'Translation review'}};
     function renderCosts(report) {{
       const total = formatUsd(report?.total_estimated_usd);
-      const unpriced = Number(report?.unpriced_completed_count || 0);
-      document.getElementById('costSummary').innerHTML = `<div class="metric"><div class="label">Total estimated investment</div><div class="value">${{total}}</div></div><div class="metric"><div class="label">Recorded API calls</div><div class="value">${{Number(report?.request_count || 0)}}</div></div><div class="metric"><div class="label">Calls awaiting a rate</div><div class="value">${{unpriced}}</div></div>`;
-      const providers = report?.providers || [];
-      document.getElementById('costProviders').textContent = providers.length ? providers.map(item => `${{item.provider}} / ${{item.model}}: ${{formatUsd(item.estimated_usd)}}`).join(' · ') : (unpriced ? 'Some completed calls have no configured rate yet, so they are excluded from the estimated total.' : 'Costs will appear after this workspace makes an AI call.');
+      document.getElementById('costSummary').innerHTML = `<div class="metric"><div class="label">Total estimated investment</div><div class="value">${{total}}</div></div><div class="metric"><div class="label">Recorded API calls</div><div class="value">${{Number(report?.request_count || 0)}}</div></div>`;
       const math = report?.math || [];
-      document.getElementById('costMath').innerHTML = math.length ? `<strong>Complete calculation for this course</strong>${{math.map(item => {{
-        const parts = [];
-        const components = item.components || {{}};
-        if (components.input_usd) parts.push(`input ${{formatUsd(components.input_usd)}}`);
-        if (components.cached_input_usd) parts.push(`cached input ${{formatUsd(components.cached_input_usd)}}`);
-        if (components.output_usd) parts.push(`output ${{formatUsd(components.output_usd)}}`);
-        if (components.web_search_usd) parts.push(`web search ${{formatUsd(components.web_search_usd)}}`);
-        if (components.images_usd) parts.push(`images ${{formatUsd(components.images_usd)}}`);
-        const tokens = item.images ? `${{item.images}} image${{item.images === 1 ? '' : 's'}}` : `${{Number(item.input_tokens).toLocaleString()}} input + ${{Number(item.cached_tokens).toLocaleString()}} cached + ${{Number(item.output_tokens).toLocaleString()}} output tokens`;
-        return `<div class="cost-math-row"><strong>${{esc(item.provider)}} / ${{esc(item.model)}}</strong> · ${{item.calls}} calls · ${{tokens}}<br>${{parts.join(' + ') || 'No chargeable usage'}} = <strong>${{formatUsd(item.estimated_usd)}}</strong></div>`;
-      }}).join('')}}<div class="muted">Total = ${{math.map(item => formatUsd(item.estimated_usd)).join(' + ')}} = <strong>${{total}}</strong></div>` : '';
+      document.getElementById('costMath').innerHTML = math.length ? math.map(item => `<tr><td>${{esc(item.provider)}}</td><td>${{esc(item.model)}}</td><td>${{Number(item.calls)}}</td><td><strong>${{formatUsd(item.estimated_usd)}}</strong></td></tr>`).join('') + `<tr><td colspan="3"><strong>Total</strong></td><td><strong>${{total}}</strong></td></tr>` : '<tr><td colspan="4" class="muted">No cost calculation available yet.</td></tr>';
       const rows = report?.recent_requests || [];
       const recentLabel = Number(report?.request_count || 0) > 10 ? `Latest 10 API requests (of ${{Number(report.request_count)}} total)` : 'API requests';
       document.getElementById('costRecentLabel').textContent = recentLabel;
