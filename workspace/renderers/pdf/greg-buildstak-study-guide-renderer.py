@@ -748,12 +748,13 @@ def markdown_table(headers: list[str], rows: list[list[str]]):
         # amount column unreadably narrow and wastes the decision columns.
         widths = [available * ratio for ratio in (0.18, 0.30, 0.13, 0.39)]
     else:
-        weights = [max(10, len(headers[index]), *(len(row[index]) for row in rows)) for index in range(columns)]
+        header_minimums = [stringWidth(re.sub(r"[*_`]+", "", header), FONT_BOLD, 7.5) + 12 for header in headers]
+        if sum(header_minimums) > available:
+            raise ValueError("Table headers cannot all fit on one legible line; use shorter labels or a different table layout.")
+        weights = [max(10, *(len(row[index]) for row in rows)) for index in range(columns)]
+        remaining = available - sum(header_minimums)
         total = sum(weights)
-        widths = [max(0.72 * inch, available * weight / total) for weight in weights]
-        # Normalize after applying minimums so the table always stays in frame.
-        width_total = sum(widths)
-        widths = [width * available / width_total for width in widths]
+        widths = [header_minimums[index] + remaining * weights[index] / total for index in range(columns)]
     def header_cell(text: str, width: float) -> Paragraph:
         usable_width = width - 12
         plain = re.sub(r"[*_`]+", "", text).strip()

@@ -54,6 +54,19 @@ class RenderStudyGuideFromSpecTests(unittest.TestCase):
                 table._colWidths[index] - 12,
             )
 
+    def test_generic_table_reserves_a_single_line_header_width(self) -> None:
+        if pdf_renderer is None:
+            self.skipTest("ReportLab is not installed in this Python environment.")
+        table = pdf_renderer.markdown_table(
+            ["Estimate-control item", "Basis", "Status"],
+            [["Temporary facilities", "Quote", "Included"]],
+        )
+        first = table._cellvalues[0][0]
+        self.assertLessEqual(
+            pdf_renderer.stringWidth("Estimate-control item", pdf_renderer.FONT_BOLD, first.style.fontSize),
+            table._colWidths[0] - 12,
+        )
+
     def test_cost_stack_total_clears_the_title_area(self) -> None:
         if pdf_renderer is None:
             self.skipTest("ReportLab is not installed in this Python environment.")
