@@ -77,6 +77,7 @@ class GregUiServerTests(unittest.TestCase):
         self.assertIn("Supporting files or images", html)
         self.assertIn("operatorRevisionRequests", html)
         self.assertIn("revision-sources", html)
+        self.assertIn("revision needs attention", html)
         self.assertNotIn("visualCurationPanel", html)
         self.assertNotIn("Download blocked file", html)
         self.assertIn("/artifact?path=", html)

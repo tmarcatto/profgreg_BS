@@ -988,6 +988,8 @@ def ui_shell(default_course: str) -> str:
     .status-pill.pending {{ background: #fff6e8; color: var(--warn); }}
     .status-pill.not-generated {{ background: #f2f4f7; color: #667085; }}
     .status-pill.not-approved {{ background: #fff6e8; color: var(--warn); }}
+    .status-pill.revision-needs-attention {{ background: #fff1f0; color: var(--bad); }}
+    .status-pill.revision-in-progress {{ background: #fff6e8; color: var(--warn); }}
     .status-summary {{ display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px; }}
     .metric {{ border: 1px solid var(--line); border-radius: 8px; padding: 12px; background: #fff; }}
     .metric .label {{ color: var(--muted); font-size: 12px; text-transform: uppercase; letter-spacing: .04em; font-weight: 760; }}
@@ -1893,7 +1895,9 @@ def ui_shell(default_course: str) -> str:
       const status = item[statusField] || 'missing';
       const path = item[pathField] || '';
       const pendingRevision = status === 'revision_requested';
-      const normalized = status === 'approved' ? 'approved' : pendingRevision ? 'revision in progress' : path ? 'ready for review' : 'not generated';
+      const stageByStatus = {{study_guide:'study_guide', deck:'deck', pt_br_study_guide:'pt_br_book', pt_br_deck:'pt_br_deck', es_study_guide:'es_book', es_deck:'es_deck'}};
+      const failedRevision = pendingRevision && currentJobs.some(job => job.state === 'failed' && String(job?.payload?.stage || '') === stageByStatus[statusField] && (job?.payload?.lessons || []).map(Number).includes(Number(item.lesson)));
+      const normalized = status === 'approved' ? 'approved' : failedRevision ? 'revision needs attention' : pendingRevision ? 'revision in progress' : path ? 'ready for review' : 'not generated';
       const pill = statusPill(normalized);
       if (pendingRevision || !isDownloadablePath(path)) return `<span class="doc-cell">${{pill}}</span>`;
       const title = cleanFilenamePart(item.title || `Lesson ${{item.lesson}}`);
