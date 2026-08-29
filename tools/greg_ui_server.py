@@ -1937,7 +1937,7 @@ def ui_shell(default_course: str) -> str:
       form.append('lesson', String(Number(lessonOverride || 1)));
       form.append('artifact_type', artifactType);
       form.append('artifact_path', artifactPath);
-      form.append('note', note || requests.map(item => item.note).join('\n\n'));
+      form.append('note', note || requests.map(item => item.note).join('\\n\\n'));
       form.append('revision_requests_json', JSON.stringify(requests));
       for (const input of document.querySelectorAll('.revision-files')) for (const file of input.files || []) form.append(`revision_files_${{input.dataset.requestId}}`, file);
       try {{
