@@ -151,6 +151,13 @@ class GregLiveProductionTests(unittest.TestCase):
             with patch.object(production, "read_uploads", return_value=uploads):
                 self.assertEqual("No readable uploaded excerpts were available.", production.source_excerpts("demo", lesson=1, artifact_type="study_guide"))
 
+    def test_truncated_revision_restores_the_approved_tail(self) -> None:
+        baseline = "# Introduction\n\nStart.\n\n# Section 01 - Cost\n\nChanged area.\n\n# Section 04 - Bid\n\nComplete bid lesson.\n\n# Summary and Key Takeaways\n\n- One.\n\n# Glossary\n\nTerm.\n\n# References\n\nSource.\n"
+        partial = "# Introduction\n\nStart.\n\n# Section 01 - Cost\n\nChanged area.\n"
+        restored = production.restore_truncated_revision(partial, baseline)
+        self.assertIn("# Section 04 - Bid", restored)
+        self.assertIn("# Summary and Key Takeaways", restored)
+
     def test_required_upload_binding_marks_every_citable_attachment_mandatory(self) -> None:
         uploads = [
             {"filename": "Construction Project Management Handbook.pdf", "upload_id": "u1", "reference_policy": "reference_only"},

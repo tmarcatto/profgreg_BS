@@ -875,6 +875,24 @@ def preserves_complete_study_guide_structure(candidate: str, previous: str) -> b
     return not prior_words or len(candidate.split()) >= min(3400, int(prior_words * 0.75))
 
 
+def restore_truncated_revision(candidate: str, baseline: str) -> str:
+    """Keep an approved chapter whole when a model stops before its ending.
+
+    Operator revisions are normally local. If a model response omits an
+    untouched later section, preserve that approved tail verbatim rather than
+    allowing a partial chapter to reach reviewer QA.
+    """
+    if not baseline or preserves_complete_study_guide_structure(candidate, baseline):
+        return candidate
+    headings = re.findall(r"(?im)^#(?:#)?\s+(?:Section\s+\d{2}\s+-\s+.+|Summary and Key Takeaways|Glossary|References)\s*$", baseline)
+    for heading in headings:
+        if not re.search(rf"(?im)^{re.escape(heading)}\s*$", candidate):
+            match = re.search(rf"(?im)^{re.escape(heading)}\s*$", baseline)
+            if match:
+                return candidate.rstrip() + "\n\n" + baseline[match.start():]
+    return baseline if not preserves_complete_study_guide_structure(candidate, baseline) else candidate
+
+
 def normalize_callout_density(draft: str, maximum: int = 4) -> str:
     """Keep the most useful approved callouts and preserve excess content as prose."""
     lines = draft.splitlines()
@@ -1778,6 +1796,14 @@ def produce_study_guide(course_slug: str, lesson_number: int) -> list[str]:
     ):
         draft = latest_reusable_draft.read_text(encoding="utf-8", errors="replace")
         write_text(working_path, draft)
+    complete_drafts = [
+        path for path in reusable_drafts
+        if preserves_complete_study_guide_structure(path.read_text(encoding="utf-8", errors="replace"), "")
+    ]
+    approved_complete_draft = complete_drafts[-1].read_text(encoding="utf-8", errors="replace") if complete_drafts else ""
+    if approved_complete_draft and not preserves_complete_study_guide_structure(draft, approved_complete_draft):
+        draft = approved_complete_draft
+        write_text(working_path, draft)
     if not draft:
         existing_pdfs = list((run / "docx_pdf").glob(f"{lesson_tag}_study_guide*.pdf"))
         latest_pdf_mtime = max((path.stat().st_mtime for path in existing_pdfs), default=0)
@@ -1807,6 +1833,7 @@ def produce_study_guide(course_slug: str, lesson_number: int) -> list[str]:
         except ModelRequestError as error:
             block(run, "lesson_draft", f"Configured technical-content model could not revise Lesson {lesson_number}.\n\nReason: {error}")
             raise RuntimeError(str(error)) from error
+        draft = restore_truncated_revision(draft, approved_complete_draft)
         draft = normalize_callout_density(normalize_reviewed_factual_language(force_student_references(draft, references)))
         write_text(working_path, draft)
     prior_revision_was_noop = False
@@ -1865,6 +1892,7 @@ def produce_study_guide(course_slug: str, lesson_number: int) -> list[str]:
             except ModelRequestError as error:
                 block(run, "lesson_draft", f"Configured technical-content model could not revise Lesson {lesson_number}.\n\nReason: {error}")
                 raise RuntimeError(str(error)) from error
+            revised_draft = restore_truncated_revision(revised_draft, prior_draft)
             revised_draft = normalize_reviewed_factual_language(force_student_references(revised_draft, references))
             revised_draft = normalize_callout_density(revised_draft)
             if not preserves_complete_study_guide_structure(revised_draft, prior_draft):
