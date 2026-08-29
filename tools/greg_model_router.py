@@ -74,31 +74,39 @@ def cost_estimate(binding: dict[str, Any], usage: dict[str, Any]) -> dict[str, A
     if images and not input_tokens and not output_tokens:
         per_image = rates.get("per_image_usd")
         if isinstance(per_image, (int, float)):
-            return {"currency": "USD", "status": "estimated", "estimated_usd": round(images * float(per_image), 8), "rate_version": str(rates.get("rate_version") or "")}
+            image_usd = round(images * float(per_image), 8)
+            return {"currency": "USD", "status": "estimated", "estimated_usd": image_usd, "components": {"images_usd": image_usd}, "rate_version": str(rates.get("rate_version") or "")}
         return {"currency": "USD", "status": "unpriced"}
     if not all(isinstance(value, (int, float)) for value in (input_rate, output_rate, cached_rate)):
         per_image = rates.get("per_image_usd")
         if images and isinstance(per_image, (int, float)):
-            return {"currency": "USD", "status": "estimated", "estimated_usd": round(images * float(per_image), 8), "rate_version": str(rates.get("rate_version") or "")}
+            image_usd = round(images * float(per_image), 8)
+            return {"currency": "USD", "status": "estimated", "estimated_usd": image_usd, "components": {"images_usd": image_usd}, "rate_version": str(rates.get("rate_version") or "")}
         return {"currency": "USD", "status": "unpriced"}
     # Anthropic reports cache reads separately from input_tokens, while the
     # OpenAI-compatible usage shape includes cached input in input_tokens.
     uncached_tokens = input_tokens if anthropic_cache_read else max(0, input_tokens - cached_tokens)
-    estimated = (
-        uncached_tokens * float(input_rate)
-        + cached_tokens * float(cached_rate)
-        + output_tokens * float(output_rate)
-    ) / 1_000_000
+    input_usd = uncached_tokens * float(input_rate) / 1_000_000
+    cached_input_usd = cached_tokens * float(cached_rate) / 1_000_000
+    output_usd = output_tokens * float(output_rate) / 1_000_000
+    estimated = input_usd + cached_input_usd + output_usd
     result = {
         "currency": "USD",
         "status": "estimated",
         "estimated_usd": round(estimated, 8),
+        "components": {
+            "input_usd": round(input_usd, 8),
+            "cached_input_usd": round(cached_input_usd, 8),
+            "output_usd": round(output_usd, 8),
+        },
         "rate_version": str(rates.get("rate_version") or ""),
     }
     web_runs = int(usage.get("web_search_runs") or 0)
     web_rate = rates.get("web_search_per_1000_usd")
     if web_runs and isinstance(web_rate, (int, float)):
-        result["estimated_usd"] = round(result["estimated_usd"] + (web_runs * float(web_rate) / 1000), 8)
+        web_search_usd = web_runs * float(web_rate) / 1000
+        result["components"]["web_search_usd"] = round(web_search_usd, 8)
+        result["estimated_usd"] = round(result["estimated_usd"] + web_search_usd, 8)
     return result
 
 

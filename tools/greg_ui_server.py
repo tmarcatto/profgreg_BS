@@ -215,17 +215,42 @@ def course_cost_report(course_slug: str) -> dict:
                 rows.append(item)
     rows.sort(key=lambda item: str(item.get("at") or ""), reverse=True)
     completed = [item for item in rows if item.get("outcome") == "completed"]
+    # Recalculate every completed request using the active, versioned rate card.
+    # This also enriches older cost entries with their component math.
+    for item in completed:
+        if not item.get("usage"):
+            continue
+        try:
+            from greg_model_router import cost_estimate
+            item["cost"] = cost_estimate(
+                {"provider": item.get("provider"), "model": item.get("model")}, item["usage"]
+            )
+        except Exception:
+            item["cost"] = {"currency": "USD", "status": "unpriced"}
     priced = [item for item in completed if isinstance(item.get("cost"), dict) and item["cost"].get("status") == "estimated"]
     total = sum(float(item["cost"].get("estimated_usd") or 0) for item in priced)
     provider_totals: dict[tuple[str, str], float] = {}
+    math: dict[tuple[str, str], dict] = {}
     for item in priced:
         key = (str(item.get("provider") or "Unknown"), str(item.get("model") or "Unknown"))
         provider_totals[key] = provider_totals.get(key, 0) + float(item["cost"].get("estimated_usd") or 0)
+        usage = item.get("usage") or {}
+        row = math.setdefault(key, {"provider": key[0], "model": key[1], "calls": 0, "input_tokens": 0, "cached_tokens": 0, "output_tokens": 0, "images": 0, "web_search_runs": 0, "components": {}})
+        row["calls"] += 1
+        row["input_tokens"] += int(usage.get("input_tokens") or usage.get("prompt_tokens") or 0)
+        details = usage.get("input_tokens_details") or usage.get("prompt_tokens_details") or {}
+        row["cached_tokens"] += int(usage.get("cache_read_input_tokens") or (details.get("cached_tokens") if isinstance(details, dict) else 0) or 0)
+        row["output_tokens"] += int(usage.get("output_tokens") or usage.get("completion_tokens") or 0)
+        row["images"] += int(usage.get("images") or 0)
+        row["web_search_runs"] += int(usage.get("web_search_runs") or 0)
+        for name, value in (item["cost"].get("components") or {}).items():
+            row["components"][name] = round(float(row["components"].get(name) or 0) + float(value or 0), 8)
     return {
         "course_slug": slugify(course_slug), "currency": "USD", "total_estimated_usd": round(total, 8),
         "request_count": len(rows), "completed_count": len(completed), "unpriced_completed_count": len(completed) - len(priced),
         "providers": [{"provider": provider, "model": model, "estimated_usd": round(value, 8)} for (provider, model), value in sorted(provider_totals.items())],
-        "requests": rows,
+        "math": [{**item, "estimated_usd": round(provider_totals[key], 8)} for key, item in sorted(math.items())],
+        "recent_requests": rows[:10],
     }
 
 
@@ -970,6 +995,8 @@ def ui_shell(default_course: str) -> str:
     .upload-actions {{ display: flex; gap: 6px; flex-wrap: wrap; }}
     .log-tools {{ display: grid; grid-template-columns: minmax(240px, 1fr) 180px 180px; gap: 10px; }}
     .cost-provider-list {{ margin: 12px 0 0; color: var(--muted); font-size: 13px; }}
+    .cost-math {{ display: grid; gap: 8px; margin-top: 14px; }}
+    .cost-math-row {{ border: 1px solid var(--line); border-radius: 7px; padding: 10px 12px; background: #fbfcfe; font-size: 13px; line-height: 1.45; }}
     .hidden {{ display: none !important; }}
     code {{ font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; font-size: 12px; }}
     @media (max-width: 980px) {{
@@ -1200,6 +1227,8 @@ def ui_shell(default_course: str) -> str:
       <div class="body">
         <div class="status-summary" id="costSummary"><div class="metric"><div class="label">Total estimated investment</div><div class="value">Loading…</div></div></div>
         <div class="cost-provider-list" id="costProviders"></div>
+        <div class="cost-math" id="costMath"></div>
+        <div class="cost-provider-list" id="costRecentLabel">Latest API requests</div>
         <div class="table-wrap"><table><thead><tr><th>Date / time</th><th>Artifact / stage</th><th>Provider</th><th>Model</th><th>Usage</th><th>Cost (USD)</th><th>Status</th></tr></thead><tbody id="costRows"><tr><td colspan="7" class="muted">No AI calls recorded for this workspace.</td></tr></tbody></table></div>
       </div>
     </section>
@@ -1347,7 +1376,21 @@ def ui_shell(default_course: str) -> str:
       document.getElementById('costSummary').innerHTML = `<div class="metric"><div class="label">Total estimated investment</div><div class="value">${{total}}</div></div><div class="metric"><div class="label">Recorded API calls</div><div class="value">${{Number(report?.request_count || 0)}}</div></div><div class="metric"><div class="label">Calls awaiting a rate</div><div class="value">${{unpriced}}</div></div>`;
       const providers = report?.providers || [];
       document.getElementById('costProviders').textContent = providers.length ? providers.map(item => `${{item.provider}} / ${{item.model}}: ${{formatUsd(item.estimated_usd)}}`).join(' · ') : (unpriced ? 'Some completed calls have no configured rate yet, so they are excluded from the estimated total.' : 'Costs will appear after this workspace makes an AI call.');
-      const rows = report?.requests || [];
+      const math = report?.math || [];
+      document.getElementById('costMath').innerHTML = math.length ? `<strong>Complete calculation for this course</strong>${{math.map(item => {{
+        const parts = [];
+        const components = item.components || {{}};
+        if (components.input_usd) parts.push(`input ${{formatUsd(components.input_usd)}}`);
+        if (components.cached_input_usd) parts.push(`cached input ${{formatUsd(components.cached_input_usd)}}`);
+        if (components.output_usd) parts.push(`output ${{formatUsd(components.output_usd)}}`);
+        if (components.web_search_usd) parts.push(`web search ${{formatUsd(components.web_search_usd)}}`);
+        if (components.images_usd) parts.push(`images ${{formatUsd(components.images_usd)}}`);
+        const tokens = item.images ? `${{item.images}} image${{item.images === 1 ? '' : 's'}}` : `${{Number(item.input_tokens).toLocaleString()}} input + ${{Number(item.cached_tokens).toLocaleString()}} cached + ${{Number(item.output_tokens).toLocaleString()}} output tokens`;
+        return `<div class="cost-math-row"><strong>${{esc(item.provider)}} / ${{esc(item.model)}}</strong> · ${{item.calls}} calls · ${{tokens}}<br>${{parts.join(' + ') || 'No chargeable usage'}} = <strong>${{formatUsd(item.estimated_usd)}}</strong></div>`;
+      }}).join('')}}<div class="muted">Total = ${{math.map(item => formatUsd(item.estimated_usd)).join(' + ')}} = <strong>${{total}}</strong></div>` : '';
+      const rows = report?.recent_requests || [];
+      const recentLabel = Number(report?.request_count || 0) > 10 ? `Latest 10 API requests (of ${{Number(report.request_count)}} total)` : 'API requests';
+      document.getElementById('costRecentLabel').textContent = recentLabel;
       document.getElementById('costRows').innerHTML = rows.length ? rows.map(item => {{
         const cost = item.cost || {{}};
         const costText = cost.status === 'estimated' ? formatUsd(cost.estimated_usd) : (item.outcome === 'completed' ? 'Rate not configured' : '—');

@@ -130,6 +130,22 @@ class GregUiServerTests(unittest.TestCase):
         self.assertEqual(2, len(report["providers"]))
         self.assertEqual(2, report["request_count"])
 
+    def test_cost_report_keeps_complete_math_but_only_returns_ten_recent_requests(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            run_root = Path(tmp)
+            log = run_root / "course-a" / "ops" / "model_usage_log.jsonl"
+            log.parent.mkdir(parents=True)
+            rows = [
+                {"at": f"2026-08-28T10:{index:02d}:00Z", "role": "technical_content", "provider": "openai", "model": "gpt-a", "outcome": "completed", "usage": {"input_tokens": 1, "output_tokens": 1}, "cost": {"status": "estimated", "estimated_usd": 0.01, "components": {"input_usd": 0.005, "output_usd": 0.005}}}
+                for index in range(12)
+            ]
+            log.write_text("".join(json.dumps(row) + "\n" for row in rows), encoding="utf-8")
+            with patch.object(ui, "SESSION_RUN_ROOT", run_root), patch("greg_model_router.cost_estimate", side_effect=lambda binding, usage: {"status": "estimated", "estimated_usd": 0.01, "components": {"input_usd": 0.005, "output_usd": 0.005}}):
+                report = ui.course_cost_report("course-a")
+        self.assertEqual(12, report["request_count"])
+        self.assertEqual(10, len(report["recent_requests"]))
+        self.assertEqual(0.12, report["math"][0]["estimated_usd"])
+
     def test_unfinished_workspaces_are_listed_before_completed_ones(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             run_root = Path(tmp)
