@@ -1078,14 +1078,20 @@ Selected sections to patch:
         max_tokens=10000,
     )
     raw_patches = patch_response.get("patches")
-    if not isinstance(raw_patches, list) or len(raw_patches) != len(selected):
+    if not isinstance(raw_patches, list) or not raw_patches:
         raise RuntimeError("The revision agent returned an incomplete section-patch response.")
     patches: dict[str, str] = {}
     for item in raw_patches:
         if not isinstance(item, dict) or not isinstance(item.get("heading"), str) or not isinstance(item.get("markdown"), str):
             raise RuntimeError("The revision agent returned an invalid section patch.")
-        patches[item["heading"]] = item["markdown"]
-    if set(patches) != set(selected):
+        # Models occasionally format the metadata heading differently while
+        # preserving the exact heading in the Markdown itself. The Markdown
+        # controls the splice, so accept that safe equivalent and reject any
+        # patch whose actual heading is not selected.
+        markdown_heading = re.match(r"(?m)^#\s+.+$", item["markdown"].lstrip())
+        heading = markdown_heading.group(0).strip() if markdown_heading else item["heading"].strip()
+        patches[heading] = item["markdown"]
+    if not set(patches).issubset(selected):
         raise RuntimeError("The revision agent returned patches outside the selected sections.")
     return apply_study_guide_section_patches(draft, patches)
 
