@@ -76,6 +76,7 @@ class PdfLayoutCheckUnitTests(unittest.TestCase):
 
     def test_markdown_marker_detection_is_literal(self) -> None:
         self.assertTrue(pdf_qa.has_unrendered_markdown("Field Note: headline.** Body"))
+        self.assertTrue(pdf_qa.has_unrendered_markdown("| Item | Amount |\n|---|---:|"))
         self.assertFalse(pdf_qa.has_unrendered_markdown("Field Note headline. Body"))
 
 

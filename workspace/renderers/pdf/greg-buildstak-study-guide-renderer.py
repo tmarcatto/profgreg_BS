@@ -355,10 +355,12 @@ class CostStackDiagram(Flowable):
         if self.total:
             c.setFillColor(PALE_ORANGE)
             c.setStrokeColor(ORANGE)
-            c.roundRect(w * .25, 288, w * .5, 24, 5, stroke=1, fill=1)
+            # Keep the calculated total below the title's reserved baseline.
+            # The former 288-312 box collided with the one-line title at 312.
+            c.roundRect(w * .25, 258, w * .5, 24, 5, stroke=1, fill=1)
             c.setFillColor(NAVY)
             c.setFont(FONT_BOLD, 9)
-            c.drawCentredString(w / 2, 297, self.total[:72])
+            c.drawCentredString(w / 2, 267, self.total[:72])
         for index, layer in enumerate(self.layers):
             inset = min(index * 13, 75)
             x = 44 + inset
@@ -733,6 +735,38 @@ def bullets(items: list[str], style: str = "BodyGreg"):
     return table
 
 
+def markdown_table(headers: list[str], rows: list[list[str]]):
+    """Render source Markdown tables as real, readable PDF tables."""
+    columns = len(headers)
+    if not columns or any(len(row) != columns for row in rows):
+        raise ValueError("Markdown table has inconsistent column counts.")
+    available = 6.5 * inch
+    weights = [max(10, len(headers[index]), *(len(row[index]) for row in rows)) for index in range(columns)]
+    total = sum(weights)
+    widths = [max(0.72 * inch, available * weight / total) for weight in weights]
+    # Normalize after applying minimums so the table always stays in frame.
+    width_total = sum(widths)
+    widths = [width * available / width_total for width in widths]
+    data = [
+        [Paragraph(inline(cell), styles["BodyGreg"]) for cell in headers],
+        *[[Paragraph(inline(cell), styles["BodyGreg"]) for cell in row] for row in rows],
+    ]
+    table = Table(data, colWidths=widths, repeatRows=1, hAlign="LEFT", splitByRow=1)
+    table.setStyle(TableStyle([
+        ("BACKGROUND", (0, 0), (-1, 0), NAVY),
+        ("TEXTCOLOR", (0, 0), (-1, 0), colors.white),
+        ("FONTNAME", (0, 0), (-1, 0), FONT_BOLD),
+        ("BACKGROUND", (0, 1), (-1, -1), LIGHT),
+        ("GRID", (0, 0), (-1, -1), 0.5, LINE),
+        ("VALIGN", (0, 0), (-1, -1), "TOP"),
+        ("LEFTPADDING", (0, 0), (-1, -1), 6),
+        ("RIGHTPADDING", (0, 0), (-1, -1), 6),
+        ("TOPPADDING", (0, 0), (-1, -1), 5),
+        ("BOTTOMPADDING", (0, 0), (-1, -1), 5),
+    ]))
+    return table
+
+
 def parse_markdown(markdown: str, locale: str = "en") -> list[dict[str, Any]]:
     blocks: list[dict[str, Any]] = []
     lines = markdown.splitlines()
@@ -764,6 +798,22 @@ def parse_markdown(markdown: str, locale: str = "en") -> list[dict[str, Any]]:
         if line.startswith("### "):
             blocks.append({"type": "paragraph", "text": f"**{line[4:].strip()}**"})
             index += 1
+            continue
+        if line.startswith("|") and index + 1 < len(lines) and re.match(r"^\s*\|?\s*:?-{3,}:?\s*(?:\|\s*:?-{3,}:?\s*)+\|?\s*$", lines[index + 1]):
+            def cells(value: str) -> list[str]:
+                return [cell.strip() for cell in value.strip().strip("|").split("|")]
+            headers = cells(line)
+            index += 2
+            rows: list[list[str]] = []
+            while index < len(lines) and lines[index].strip().startswith("|"):
+                row = cells(lines[index])
+                if len(row) != len(headers):
+                    raise ValueError("Markdown table row does not match its header.")
+                rows.append(row)
+                index += 1
+            if not rows:
+                raise ValueError("Markdown table needs at least one data row.")
+            blocks.append({"type": "table", "headers": headers, "rows": rows})
             continue
         if re.match(r"^[-*+]\s+\S", line):
             items: list[str] = []
@@ -1081,6 +1131,12 @@ def build_story(blocks: list[dict[str, Any]], visuals: list[dict[str, Any]], loc
         elif block_type == "bullets":
             style = "RefGreg" if normalized_heading(current_heading) == normalized_heading(locale_labels(locale)["references"]) else "BodyGreg"
             story.append(bullets(block["items"], style=style))
+        elif block_type == "table":
+            if pending_section_header:
+                story.extend(pending_section_header)
+                pending_section_header = []
+            story.append(markdown_table(block["headers"], block["rows"]))
+            story.append(Spacer(1, 8))
         elif block_type == "callout":
             story.append(Callout(block["label"], block["body"]).flowable())
         elif block_type == "paragraph":

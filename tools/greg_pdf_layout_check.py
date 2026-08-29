@@ -63,7 +63,14 @@ def contains(text: str, pattern: str) -> bool:
 
 
 def has_unrendered_markdown(text: str) -> bool:
-    return "**" in text or bool(re.search(r"(?:^|\s)\*(?:\s|$)", text))
+    return (
+        "**" in text
+        or bool(re.search(r"(?:^|\s)\*(?:\s|$)", text))
+        # A Markdown table delimiter is never student-facing PDF content. If
+        # it appears after export, the renderer printed source syntax rather
+        # than building an actual table.
+        or bool(re.search(r"\|\s*:?-{3,}:?\s*\|", text))
+    )
 
 
 def meaningful_lines(text: str) -> list[str]:

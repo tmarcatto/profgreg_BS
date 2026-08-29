@@ -31,6 +31,35 @@ except ModuleNotFoundError as error:
 
 
 class RenderStudyGuideFromSpecTests(unittest.TestCase):
+    def test_markdown_table_becomes_a_table_block_not_a_paragraph(self) -> None:
+        if pdf_renderer is None:
+            self.skipTest("ReportLab is not installed in this Python environment.")
+        blocks = pdf_renderer.parse_markdown(
+            "| Item | Amount |\n|---|---:|\n| Excavation | $7,500 |\n| Framing | $22,800 |\n"
+        )
+        self.assertEqual("table", blocks[0]["type"])
+        self.assertEqual(["Item", "Amount"], blocks[0]["headers"])
+        self.assertEqual(2, len(blocks[0]["rows"]))
+
+    def test_cost_stack_total_clears_the_title_area(self) -> None:
+        if pdf_renderer is None:
+            self.skipTest("ReportLab is not installed in this Python environment.")
+        class Canvas:
+            def __init__(self): self.boxes = []
+            def setFillColor(self, *_): pass
+            def setStrokeColor(self, *_): pass
+            def setFont(self, *_): pass
+            def roundRect(self, x, y, w, h, *_ , **__):
+                self.boxes.append((x, y, w, h))
+            def drawString(self, *_): pass
+            def drawCentredString(self, *_): pass
+        diagram = pdf_renderer.CostStackDiagram("Five Additive Cost Layers", [{"title": "Direct", "detail": "Base"}] * 5, "Calculated proposal price")
+        diagram.width = 6.5 * pdf_renderer.inch
+        diagram.canv = Canvas()
+        diagram.draw()
+        total_box = next(box for box in diagram.canv.boxes if abs(box[0] - diagram.width * .25) < 1)
+        self.assertLess(total_box[1] + total_box[3], 300)
+
     def test_localized_source_accepts_plain_localized_callout_labels(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             source = Path(directory) / "lesson_01_pt_br.md"
