@@ -742,12 +742,18 @@ def markdown_table(headers: list[str], rows: list[list[str]]):
     if not columns or any(len(row) != columns for row in rows):
         raise ValueError("Markdown table has inconsistent column counts.")
     available = 6.5 * inch
-    weights = [max(10, len(headers[index]), *(len(row[index]) for row in rows)) for index in range(columns)]
-    total = sum(weights)
-    widths = [max(0.72 * inch, available * weight / total) for weight in weights]
-    # Normalize after applying minimums so the table always stays in frame.
-    width_total = sum(widths)
-    widths = [width * available / width_total for width in widths]
+    if columns == 4 and any("amount" in header.lower() for header in headers):
+        # Estimate-control tables need a stable financial reading order:
+        # item, basis, amount, inclusion. Content-length weighting makes the
+        # amount column unreadably narrow and wastes the decision columns.
+        widths = [available * ratio for ratio in (0.18, 0.30, 0.13, 0.39)]
+    else:
+        weights = [max(10, len(headers[index]), *(len(row[index]) for row in rows)) for index in range(columns)]
+        total = sum(weights)
+        widths = [max(0.72 * inch, available * weight / total) for weight in weights]
+        # Normalize after applying minimums so the table always stays in frame.
+        width_total = sum(widths)
+        widths = [width * available / width_total for width in widths]
     data = [
         [Paragraph(inline(cell), styles["TableHeader"]) for cell in headers],
         *[[Paragraph(inline(cell), styles["BodyGreg"]) for cell in row] for row in rows],
