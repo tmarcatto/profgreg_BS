@@ -173,6 +173,22 @@ def section_body(text: str, heading: str) -> str | None:
     return match.group(1).strip() if match else None
 
 
+def dense_comparable_bullet_runs(text: str) -> list[int]:
+    """Find long bullets that repeat numeric/category fields better shown in a table."""
+    runs: list[int] = []
+    current: list[str] = []
+    for line in text.splitlines() + [""]:
+        if re.match(r"^[-*+]\s+", line) and re.search(r"\$|\b\d+(?:\.\d+)?\b", line):
+            current.append(line)
+        else:
+            if len(current) >= 7:
+                repeated = sum("included" in line.lower() or "total" in line.lower() for line in current)
+                if repeated >= max(4, len(current) - 2):
+                    runs.append(len(current))
+            current = []
+    return runs
+
+
 def run_checks(draft_path: Path, level: str | None = None) -> dict:
     findings: list[Finding] = []
     text = read_text(draft_path)
@@ -336,6 +352,12 @@ def run_checks(draft_path: Path, level: str | None = None) -> dict:
             findings.append(Finding("pass", "level_length", f"Draft stays within the {ceiling}-word maximum for {level} level."))
         else:
             findings.append(Finding("fail", "level_length", f"Draft has {words} words; {level} level must not exceed {ceiling} words before rendering."))
+
+    dense_runs = dense_comparable_bullet_runs(teaching_text)
+    if dense_runs:
+        findings.append(Finding("fail", "dense_comparable_list_requires_table", f"Found comparable numeric bullet run(s) of {dense_runs}; use a table and reserve prose for interpretation."))
+    else:
+        findings.append(Finding("pass", "dense_comparable_list_requires_table", "No dense comparable numeric bullet run needs conversion to a table."))
 
     fail_count = sum(1 for item in findings if item.status == "fail")
     warn_count = sum(1 for item in findings if item.status == "warn")

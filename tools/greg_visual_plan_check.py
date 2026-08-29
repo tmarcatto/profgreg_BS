@@ -105,6 +105,7 @@ def run_checks(plan_path: Path) -> dict[str, Any]:
     missing_diagram_decisions = []
     unsuitable_diagram_decisions = []
     diagram_capacity_violations = []
+    cost_stack_total_layers = []
     diagram_mechanisms: dict[str, list[str]] = {}
 
     for index, visual in enumerate(visuals):
@@ -211,6 +212,11 @@ def run_checks(plan_path: Path) -> dict[str, Any]:
                             break
                 elif mechanism in {"card-sequence", "cost-stack"} and not 2 <= len(nodes) <= 8:
                     diagram_capacity_violations.append((label, f"{mechanism} requires 2-8 visible cards"))
+                if mechanism == "cost-stack":
+                    if any(re.search(r"\b(proposal price|final total|total price)\b", str(node.get("title") or ""), re.I) for node in nodes):
+                        cost_stack_total_layers.append(label)
+                    if not str(visual.get("diagram_total") or "").strip():
+                        cost_stack_total_layers.append(label)
 
     if required_missing:
         findings.append(Finding("fail", "required_visual_fields", f"Missing required visual fields: {required_missing}."))
@@ -296,6 +302,11 @@ def run_checks(plan_path: Path) -> dict[str, Any]:
         findings.append(Finding("fail", "diagram_visible_capacity", f"Diagram content would be omitted or clipped by the renderer: {diagram_capacity_violations}."))
     else:
         findings.append(Finding("pass", "diagram_visible_capacity", "Every deterministic diagram fits its visible renderer capacity."))
+
+    if cost_stack_total_layers:
+        findings.append(Finding("fail", "cost_stack_total_semantics", f"Cost stacks must present the final total separately from additive layers: {cost_stack_total_layers}."))
+    else:
+        findings.append(Finding("pass", "cost_stack_total_semantics", "Cost-stack totals are presented as calculated results, not layers."))
 
     diagram_count = sum(len(labels) for labels in diagram_mechanisms.values())
     if diagram_count >= 3 and len(diagram_mechanisms) == 1:

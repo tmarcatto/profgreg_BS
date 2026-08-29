@@ -75,8 +75,8 @@ class GregUiServerTests(unittest.TestCase):
         self.assertIn("showOperatorResult", html)
         self.assertIn("Attach requested images", html)
         self.assertIn("Supporting files or images", html)
-        self.assertIn("operatorRevisionFiles", html)
-        self.assertIn("operatorRevisionSources", html)
+        self.assertIn("operatorRevisionRequests", html)
+        self.assertIn("revision-sources", html)
         self.assertNotIn("visualCurationPanel", html)
         self.assertNotIn("Download blocked file", html)
         self.assertIn("/artifact?path=", html)
@@ -312,7 +312,7 @@ class GregUiServerTests(unittest.TestCase):
                 )
             text = (ROOT / feedback["feedback_path"]).read_text(encoding="utf-8")
             state = json.loads((ROOT / feedback["state_path"]).read_text(encoding="utf-8"))
-            self.assertIn("Supporting materials attached to this revision", text)
+            self.assertIn("Supporting materials:", text)
             self.assertIn("field-photo.png", text)
             self.assertIn("https://example.com/field-photo", text)
             self.assertEqual("revision_requested", state["state"])
@@ -331,6 +331,22 @@ class GregUiServerTests(unittest.TestCase):
             )
         self.assertEqual(attachment["purpose"], "revision_evidence")
         self.assertFalse(attachment["images_allowed"])
+
+    def test_revision_requests_accumulate_instead_of_replacing_each_other(self) -> None:
+        run = ROOT / "runs" / "revision-queue-test"
+        if run.exists():
+            shutil.rmtree(run)
+        try:
+            ui.record_revision_request(course_slug="Revision Queue Test", lesson=3, artifact_type="study_guide", note="First requested change.")
+            result = ui.record_revision_request(course_slug="Revision Queue Test", lesson=3, artifact_type="study_guide", note="Second requested change.")
+            state = json.loads((ROOT / result["state_path"]).read_text(encoding="utf-8"))
+            text = (ROOT / result["feedback_path"]).read_text(encoding="utf-8")
+            self.assertEqual(2, state["request_count"])
+            self.assertIn("First requested change.", text)
+            self.assertIn("Second requested change.", text)
+        finally:
+            if run.exists():
+                shutil.rmtree(run)
 
     def test_visual_batch_maps_ids_by_filename_then_order(self) -> None:
         files = [{"filename": "L01V02-plan.png"}, {"filename": "field-photo.jpg"}]

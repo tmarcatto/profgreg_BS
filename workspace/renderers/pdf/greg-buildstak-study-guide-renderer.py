@@ -334,10 +334,11 @@ class CardRowDiagram(Flowable):
 
 class CostStackDiagram(Flowable):
     """A literal vertical stack for layered cost and price calculations."""
-    def __init__(self, title: str, layers: list[dict[str, Any]]):
+    def __init__(self, title: str, layers: list[dict[str, Any]], total: str = ""):
         super().__init__()
         self.title = title
         self.layers = layers[:8]
+        self.total = total
         self.height = 330
 
     def wrap(self, availWidth, availHeight):
@@ -351,6 +352,13 @@ class CostStackDiagram(Flowable):
         count = max(len(self.layers), 1)
         layer_h = min(42, 225 / count)
         start_y = 38
+        if self.total:
+            c.setFillColor(PALE_ORANGE)
+            c.setStrokeColor(ORANGE)
+            c.roundRect(w * .25, 288, w * .5, 24, 5, stroke=1, fill=1)
+            c.setFillColor(NAVY)
+            c.setFont(FONT_BOLD, 9)
+            c.drawCentredString(w / 2, 297, self.total[:72])
         for index, layer in enumerate(self.layers):
             inset = min(index * 13, 75)
             x = 44 + inset
@@ -905,7 +913,7 @@ def visual_flowables(visual: dict[str, Any]) -> list[Any]:
     elif diagram_type == "card_row":
         flowable = CardRowDiagram(visual["title"], visual["cards"], visual.get("pill"))
     elif diagram_type == "cost_stack":
-        flowable = CostStackDiagram(visual["title"], visual["nodes"])
+        flowable = CostStackDiagram(visual["title"], visual["nodes"], visual.get("total", ""))
     elif diagram_type == "timeline":
         flowable = TimelineDiagram(visual["title"])
     elif diagram_type == "source_to_wbs_matrix":
@@ -975,6 +983,8 @@ def validate_visuals(visuals: list[dict[str, Any]]) -> None:
             nodes = visual.get("nodes")
             if not isinstance(nodes, list) or not 2 <= len(nodes) <= 8:
                 raise ValueError("cost_stack diagram must contain 2-8 visible layers.")
+            if any(re.search(r"\b(proposal price|final total|total price)\b", str(node.get("title") or ""), re.I) for node in nodes):
+                raise ValueError("cost_stack must show a proposal price as a separate calculated total, not a stack layer.")
             continue
         if visual_type != "card_row":
             continue

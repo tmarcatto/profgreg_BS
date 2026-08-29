@@ -628,39 +628,45 @@ def record_ui_artifact_approval(*, course_slug: str, lesson: int, artifact_type:
 
 
 def record_revision_request(
-    *, course_slug: str, lesson: int, artifact_type: str, note: str, artifact_path: str = "", attachments: list[dict] | None = None
+    *, course_slug: str, lesson: int, artifact_type: str, note: str, artifact_path: str = "", attachments: list[dict] | None = None,
+    requests: list[dict] | None = None,
 ) -> dict:
     course_slug = slugify(course_slug)
     lesson_tag = f"lesson_{lesson:02d}"
     target = ROOT / "runs" / course_slug / "operator_feedback" / f"{lesson_tag}_{artifact_type}_revision_request.md"
     target.parent.mkdir(parents=True, exist_ok=True)
     attachments = attachments or []
-    attachment_lines = [
-        f"- {item.get('filename')} ({item.get('reference_policy')}; {item.get('purpose')})"
-        + (f" — {item.get('source_label')}" if item.get("source_label") else "")
-        + (f" — {item.get('source_url')}" if item.get("source_url") else "")
-        for item in attachments
-    ]
-    target.write_text(
-        "\n".join(
-            [
-                f"# {lesson_tag} {artifact_type} Revision Request",
-                "",
-                f"- Course slug: {course_slug}",
-                f"- Lesson: {lesson:02d}",
-                f"- Artifact type: {artifact_type}",
-                "",
-                "Requested changes:",
-                note.strip() or "- Revision requested from Prof Greg Operator.",
-                "",
-                "Supporting materials attached to this revision:",
-                "\n".join(attachment_lines) if attachment_lines else "- None.",
-                "",
-            ]
-        ),
-        encoding="utf-8",
-    )
+    requests = requests or [{"id": "0", "note": note, "attachments": attachments}]
+    prior_requests: list[dict] = []
     state_path = target.with_name(f"{lesson_tag}_{artifact_type}_revision_state.json")
+    if state_path.exists():
+        try:
+            prior_requests = list(json.loads(state_path.read_text(encoding="utf-8")).get("requests") or [])
+        except json.JSONDecodeError:
+            prior_requests = []
+    normalized_requests = []
+    for item in requests:
+        item_attachments = item.get("attachments") or []
+        normalized_requests.append({
+            "id": str(item.get("id") or len(prior_requests) + 1),
+            "note": str(item.get("note") or "").strip(),
+            "attachments": item_attachments,
+        })
+    all_requests = [*prior_requests, *normalized_requests]
+    lines = [f"# {lesson_tag} {artifact_type} Revision Requests", "", f"- Course slug: {course_slug}", f"- Lesson: {lesson:02d}", f"- Artifact type: {artifact_type}", ""]
+    for number, request in enumerate(all_requests, start=1):
+        lines.extend([f"## Request {number}", "", request["note"] or "Revision requested from Prof Greg Operator.", "", "Supporting materials:"])
+        if request["attachments"]:
+            lines.extend(
+                f"- {item.get('filename')} ({item.get('reference_policy')}; {item.get('purpose')})"
+                + (f" — {item.get('source_label')}" if item.get("source_label") else "")
+                + (f" — {item.get('source_url')}" if item.get("source_url") else "")
+                for item in request["attachments"]
+            )
+        else:
+            lines.append("- None.")
+        lines.append("")
+    target.write_text("\n".join(lines), encoding="utf-8")
     state_path.write_text(
         json.dumps({
             "state": "revision_requested",
@@ -669,6 +675,8 @@ def record_revision_request(
             "artifact_type": artifact_type,
             "baseline_artifact": artifact_path,
             "feedback_path": str(target.relative_to(ROOT)),
+            "requests": all_requests,
+            "request_count": len(all_requests),
         }, indent=2, ensure_ascii=False) + "\n",
         encoding="utf-8",
     )
@@ -1245,6 +1253,7 @@ def ui_shell(default_course: str) -> str:
     let workspaceLoadInFlight = false;
     let operatorActionInFlight = false;
     let uploadQueue = [];
+    let revisionRequestCount = 0;
     const progressSteps = [
       ['course_map', 'Course Map', 'Map and source research'],
       ['book', 'Course books', 'English PDFs by lesson'],
@@ -1481,9 +1490,17 @@ def ui_shell(default_course: str) -> str:
       }} else {{
         const group = target.group;
         const filename = downloadFilename(group, target.path, target);
-        const supportingFiles = action.value === 'request_edits' ? `<label>Supporting files or images <span class="muted">(optional)</span></label><input id="operatorRevisionFiles" type="file" multiple accept=".pdf,.docx,.txt,.md,.png,.jpg,.jpeg,.webp"><label>Attachment use</label><select id="operatorRevisionAttachmentMode"><option value="evidence_only">Review evidence only — do not use or cite</option><option value="use_in_revision">Use in the requested revision</option></select><div class="hint">Evidence files document the issue only. Files marked for use can guide the requested edit; neither becomes a student reference automatically.</div><label>Sources and URLs <span class="muted">(recommended for usable images)</span></label><textarea id="operatorRevisionSources" placeholder="filename.ext | source or attribution | https://source-url\nOne line per file."></textarea>` : '';
-        details.innerHTML = `<div><a class="download-link" href="/artifact?path=${{encodeURIComponent(target.path)}}&filename=${{encodeURIComponent(filename)}}" target="_blank" rel="noopener">Download selected file</a></div><textarea id="operatorNote" placeholder="Required for edit requests; optional for approvals."></textarea>${{supportingFiles}}`;
+        const supportingFiles = action.value === 'request_edits' ? `<div class="hint">Add every requested change before applying the action. The agent receives them as one revision. Evidence files document an issue only; files marked for use can guide the edit and never become student references automatically.</div><div id="operatorRevisionRequests"></div><button type="button" class="mini" onclick="addRevisionRequest()">+ Add another requested change</button>` : '';
+        details.innerHTML = `<div><a class="download-link" href="/artifact?path=${{encodeURIComponent(target.path)}}&filename=${{encodeURIComponent(filename)}}" target="_blank" rel="noopener">Download selected file</a></div>${{action.value === 'request_edits' ? '' : '<textarea id="operatorNote" placeholder="Optional approval note."></textarea>'}}${{supportingFiles}}`;
+        if (action.value === 'request_edits') {{ revisionRequestCount = 0; addRevisionRequest(); }}
       }}
+    }}
+    function addRevisionRequest() {{
+      const holder = document.getElementById('operatorRevisionRequests');
+      if (!holder) return;
+      const id = revisionRequestCount++;
+      const remove = id ? `<button type="button" class="mini danger" onclick="document.getElementById('revision-request-${{id}}').remove()">Remove</button>` : '';
+      holder.insertAdjacentHTML('beforeend', `<div class="notice" id="revision-request-${{id}}"><strong>Requested change ${{id + 1}}</strong> ${{remove}}<textarea class="revision-note" data-request-id="${{id}}" placeholder="Describe this specific requested change."></textarea><label>Supporting files or images <span class="muted">(optional)</span></label><input class="revision-files" data-request-id="${{id}}" type="file" multiple accept=".pdf,.docx,.txt,.md,.png,.jpg,.jpeg,.webp"><label>Attachment use</label><select class="revision-attachment-mode" data-request-id="${{id}}"><option value="evidence_only">Review evidence only — do not use or cite</option><option value="use_in_revision">Use in this requested change</option></select><label>Sources and URLs <span class="muted">(recommended for usable images)</span></label><textarea class="revision-sources" data-request-id="${{id}}" placeholder="filename.ext | source or attribution | https://source-url\nOne line per file."></textarea></div>`);
     }}
     function showOperatorResult(text, tone = '') {{
       const result = document.getElementById('operatorResult');
@@ -1504,7 +1521,7 @@ def ui_shell(default_course: str) -> str:
       try {{
         if (action === 'attach_images') {{ await uploadVisualBatch(target.lesson, target.requests); return; }}
         const note = document.getElementById('operatorNote')?.value || '';
-        if (action === 'request_edits' && !note.trim()) {{ msg.textContent = 'Write the requested edits before sending the file back.'; return; }}
+        if (action === 'request_edits' && ![...document.querySelectorAll('.revision-note')].some(item => item.value.trim())) {{ msg.textContent = 'Write at least one requested change before sending the file back.'; return; }}
         if (action === 'approve') {{ await approveArtifact(target.group.artifactType, null, target.path, target.lesson, note); return; }}
         await requestEdits(target.group.artifactType, null, target.lesson, note, target.path);
       }} finally {{
@@ -1920,8 +1937,12 @@ def ui_shell(default_course: str) -> str:
     }}
     async function requestEdits(artifactType, noteId, lessonOverride, noteOverride, artifactPath = '') {{
       const note = noteOverride ?? document.getElementById(noteId)?.value ?? '';
-      if (!note.trim()) {{
-        msg.textContent = 'Write the requested edits before sending the artifact back.';
+      const requests = [...document.querySelectorAll('.revision-note')].map(item => {{
+        const id = item.dataset.requestId;
+        return {{id, note: item.value, attachment_mode: document.querySelector(`.revision-attachment-mode[data-request-id="${{id}}"]`)?.value || 'evidence_only', source_manifest: document.querySelector(`.revision-sources[data-request-id="${{id}}"]`)?.value || ''}};
+      }}).filter(item => item.note.trim());
+      if (!requests.length && !note.trim()) {{
+        msg.textContent = 'Write at least one requested edit before sending the artifact back.';
         return;
       }}
       const form = new FormData();
@@ -1929,10 +1950,9 @@ def ui_shell(default_course: str) -> str:
       form.append('lesson', String(Number(lessonOverride || 1)));
       form.append('artifact_type', artifactType);
       form.append('artifact_path', artifactPath);
-      form.append('note', note);
-      form.append('revision_attachment_mode', document.getElementById('operatorRevisionAttachmentMode')?.value || 'evidence_only');
-      form.append('source_manifest', document.getElementById('operatorRevisionSources')?.value || '');
-      for (const file of document.getElementById('operatorRevisionFiles')?.files || []) form.append('files', file);
+      form.append('note', note || requests.map(item => item.note).join('\n\n'));
+      form.append('revision_requests_json', JSON.stringify(requests));
+      for (const input of document.querySelectorAll('.revision-files')) for (const file of input.files || []) form.append(`revision_files_${{input.dataset.requestId}}`, file);
       try {{
         const data = await api('/api/request-changes', {{method: 'POST', body: form}});
         msg.textContent = data.message || 'Edit request recorded and queued.';
@@ -2347,9 +2367,16 @@ class GregUiHandler(BaseHTTPRequestHandler):
                 if not stage:
                     self.send_json(HTTPStatus.BAD_REQUEST, {"error": "Unsupported artifact type for revision."})
                     return
-                source_manifest = parse_visual_source_manifest(str(body.get("source_manifest") or ""))
-                attachment_mode = str(body.get("revision_attachment_mode") or "evidence_only")
-                attachment_purpose = "revision_material" if attachment_mode == "use_in_revision" else "revision_evidence"
+                try:
+                    requested_changes = json.loads(str(body.get("revision_requests_json") or "[]"))
+                except json.JSONDecodeError:
+                    requested_changes = []
+                if not isinstance(requested_changes, list):
+                    requested_changes = []
+                if not requested_changes:
+                    requested_changes = [{"id": "0", "note": note, "attachment_mode": str(body.get("revision_attachment_mode") or "evidence_only"), "source_manifest": str(body.get("source_manifest") or "")}]
+                requests_by_id = {str(item.get("id") or index): item for index, item in enumerate(requested_changes)}
+                request_attachments: dict[str, list[dict]] = {request_id: [] for request_id in requests_by_id}
                 attachments = []
                 for field in revision_files:
                     filename = str(field.get("filename") or "")
@@ -2357,16 +2384,27 @@ class GregUiHandler(BaseHTTPRequestHandler):
                     if not filename:
                         continue
                     clean_name = safe_filename(filename)
+                    request_id = str(field.get("name") or "revision_files_0").removeprefix("revision_files_")
+                    request_meta = requests_by_id.get(request_id, requests_by_id.get("0", {}))
+                    source_manifest = parse_visual_source_manifest(str(request_meta.get("source_manifest") or ""))
                     source_meta = source_manifest.get(clean_name.casefold(), {})
                     is_image = Path(clean_name).suffix.lower() in {".png", ".jpg", ".jpeg", ".webp"}
-                    attachments.append(save_uploaded_file(
+                    attachment_purpose = "revision_material" if str(request_meta.get("attachment_mode") or "evidence_only") == "use_in_revision" else "revision_evidence"
+                    attachment = save_uploaded_file(
                         upload_root=getattr(self.server, "upload_root"), course_slug=course, filename=filename, data=data,
                         scope="lesson", lesson=lesson,
                         reference_policy="image_only" if is_image and attachment_purpose == "revision_material" else "context_only",
                         purpose=attachment_purpose, revision_artifact_type=artifact_type,
                         source_label=str(source_meta.get("source_label") or "Operator-supplied revision material"),
                         source_url=str(source_meta.get("source_url") or ""),
-                    ))
+                    )
+                    attachments.append(attachment)
+                    request_attachments.setdefault(request_id, []).append(attachment)
+                normalized_requests = [
+                    {"id": str(item.get("id") or index), "note": str(item.get("note") or ""), "attachments": request_attachments.get(str(item.get("id") or index), [])}
+                    for index, item in enumerate(requested_changes)
+                    if str(item.get("note") or "").strip()
+                ]
                 feedback = record_revision_request(
                     course_slug=course,
                     lesson=lesson,
@@ -2374,16 +2412,17 @@ class GregUiHandler(BaseHTTPRequestHandler):
                     note=note,
                     artifact_path=str(body.get("artifact_path") or ""),
                     attachments=attachments,
+                    requests=normalized_requests,
                 )
                 result = enqueue_job(
                     job_root=job_root,
                     request_type="production_stage",
                     course_slug=course,
                     lesson=lesson,
-                    summary=f"ui revision request for {artifact_type}{' with supporting files' if attachments else ''}: {note[:180]}",
+                    summary=f"ui revision request for {artifact_type} ({len(normalized_requests)} requested change(s)){' with supporting files' if attachments else ''}: {note[:180]}",
                     payload={"stage": stage, "lessons": [lesson]},
                 )
-                self.send_json(HTTPStatus.OK, {"message": "Edit request recorded and queued.", "feedback": feedback, "job": result.job})
+                self.send_json(HTTPStatus.OK, {"message": f"{len(normalized_requests)} requested change(s) recorded and queued together.", "feedback": feedback, "job": result.job})
                 return
             if parsed.path == "/api/request":
                 request_text = str(body.get("request") or "").strip()
