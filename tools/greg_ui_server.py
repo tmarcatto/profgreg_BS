@@ -1700,7 +1700,7 @@ def ui_shell(default_course: str) -> str:
         holder.innerHTML = `<span class="state queued">waiting for images</span> · Lesson ${{waiting.map(item => Number(item.lesson)).join(', ')}}`;
         return;
       }}
-      const corrected = (currentStatus?.lessons || []).find(item => Object.entries(item).some(([key, value]) => key.endsWith('_status') && value === 'ready_for_review'));
+      const corrected = (currentStatus?.lessons || []).find(item => approvalGroups.some(group => item[group.approvalField] === 'ready_for_review'));
       if (!active && corrected) {{
         holder.innerHTML = `<span class="state completed">ready for review</span> · A corrected file is available for Lesson ${{String(corrected.lesson).padStart(2, '0')}}.`;
         return;
@@ -1892,9 +1892,10 @@ def ui_shell(default_course: str) -> str:
     function documentCell(item, statusField, pathField, label) {{
       const status = item[statusField] || 'missing';
       const path = item[pathField] || '';
-      const normalized = status === 'approved' ? 'approved' : path ? 'ready for review' : 'not generated';
+      const pendingRevision = status === 'revision_requested';
+      const normalized = status === 'approved' ? 'approved' : pendingRevision ? 'revision in progress' : path ? 'ready for review' : 'not generated';
       const pill = statusPill(normalized);
-      if (!isDownloadablePath(path)) return `<span class="doc-cell">${{pill}}</span>`;
+      if (pendingRevision || !isDownloadablePath(path)) return `<span class="doc-cell">${{pill}}</span>`;
       const title = cleanFilenamePart(item.title || `Lesson ${{item.lesson}}`);
       const ext = fileExtension(path) || (label.toLowerCase().includes('deck') || label.toLowerCase().includes('presentation') ? '.pptx' : '.pdf');
       const filename = `Lesson ${{String(item.lesson).padStart(2, '0')}} - ${{title}} - ${{label}}${{ext}}`;

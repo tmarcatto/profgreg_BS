@@ -172,6 +172,12 @@ def approved_or_default_study_guide(run: Path, lesson: str, approval: Path) -> P
     canonical = run / "docx_pdf" / f"lesson_{lesson}_study_guide.pdf"
     if approval.exists() and canonical.exists():
         return canonical
+    # A failed or in-progress revision may have rendered a candidate PDF before
+    # the independent reviewers finish. Never expose that unapproved candidate
+    # merely because it is the newest revisioned file.
+    state_path = run / "operator_feedback" / f"lesson_{lesson}_study_guide_revision_state.json"
+    if state_path.exists():
+        return None
     revisioned = latest_glob(run, [f"docx_pdf/lesson_{lesson}_study_guide_r*.pdf"])
     if revisioned:
         return revisioned
