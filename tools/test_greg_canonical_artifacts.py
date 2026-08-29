@@ -93,6 +93,25 @@ class CanonicalArtifactsTests(unittest.TestCase):
             finally:
                 canonical.ROOT = original_root
 
+    def test_ready_revision_candidate_with_run_prefix_is_downloadable(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            original_root = canonical.ROOT
+            canonical.ROOT = Path(tmp)
+            try:
+                run = canonical.ROOT / "runs" / "demo"
+                pdf = run / "docx_pdf" / "lesson_03_study_guide_r06.pdf"
+                state = run / "operator_feedback" / "lesson_03_study_guide_revision_state.json"
+                pdf.parent.mkdir(parents=True)
+                state.parent.mkdir(parents=True)
+                pdf.write_bytes(b"pdf")
+                state.write_text(
+                    '{"state":"ready_for_review","candidate_artifact":"runs/demo/docx_pdf/lesson_03_study_guide_r06.pdf"}',
+                    encoding="utf-8",
+                )
+                self.assertEqual(canonical.revision_candidate(run, "03", "study_guide"), pdf)
+            finally:
+                canonical.ROOT = original_root
+
     def test_optional_missing_keys_do_not_include_approved_core(self) -> None:
         self.assertIn("localization_pt_br_deck_text_map", canonical.OPTIONAL_MISSING_KEYS)
         self.assertNotIn("deck_pptx", canonical.OPTIONAL_MISSING_KEYS)

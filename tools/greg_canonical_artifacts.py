@@ -134,7 +134,11 @@ def revision_candidate(run: Path, lesson: str, artifact_type: str) -> Path | Non
     if state.get("state") != "ready_for_review":
         return None
     candidate = str(state.get("candidate_artifact") or "").strip()
-    path = run / candidate
+    # Revision state stores a repository-relative path (``runs/<course>/…``),
+    # while callers here already hold the course run directory.  Resolve both
+    # that form and a run-relative form so a ready candidate is visible in the
+    # lesson table before the operator approves it.
+    path = normalize_approval_path(run, candidate)
     return path if candidate and path.exists() and path.is_file() else None
 
 
