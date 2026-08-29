@@ -979,6 +979,117 @@ Existing chapter to edit:
 """
 
 
+def editable_study_guide_sections(draft: str) -> dict[str, str]:
+    """Return complete, individually replaceable student-facing sections.
+
+    A revision is deliberately expressed as a replacement of one named
+    section, never as a replacement of the chapter.  This gives the operator
+    a hard preservation guarantee: text outside the requested patches stays
+    byte-for-byte as it was in the reviewed draft.
+    """
+    heading_pattern = re.compile(
+        r"(?im)^#\s+(?:Section\s+\d{2}\s+-\s+.+|Summary and Key Takeaways|Glossary)\s*$"
+    )
+    matches = list(heading_pattern.finditer(draft))
+    sections: dict[str, str] = {}
+    for index, match in enumerate(matches):
+        end = matches[index + 1].start() if index + 1 < len(matches) else len(draft)
+        heading = match.group(0).strip()
+        sections[heading] = draft[match.start() : end].rstrip() + "\n"
+    return sections
+
+
+def apply_study_guide_section_patches(draft: str, patches: dict[str, str]) -> str:
+    """Replace only complete named sections and reject malformed patches."""
+    available = editable_study_guide_sections(draft)
+    if not patches:
+        raise RuntimeError("The revision agent did not return any section patches.")
+    if not set(patches).issubset(available):
+        raise RuntimeError("The revision agent attempted to edit a section outside the approved revision scope.")
+    revised = draft
+    for heading, replacement in patches.items():
+        normalized = replacement.strip() + "\n"
+        if not normalized.startswith(heading + "\n"):
+            raise RuntimeError(f"The patch for {heading} did not preserve its required heading.")
+        if not preserves_complete_study_guide_structure(revised, draft):
+            raise RuntimeError("The saved course book is incomplete; section edits cannot proceed safely.")
+        revised = revised.replace(available[heading], normalized, 1)
+    return revised
+
+
+def targeted_study_guide_revision(
+    course_slug: str,
+    draft: str,
+    feedback: str,
+    references: str,
+    *,
+    level: str,
+) -> str:
+    """Use a model for limited section patches while preserving all other text."""
+    sections = editable_study_guide_sections(draft)
+    if not sections:
+        raise RuntimeError("The saved course book has no editable sections.")
+    headings = "\n".join(f"- {heading}" for heading in sections)
+    plan = request_json_with_retry(
+        course_slug,
+        "technical_content",
+        f"""Select the smallest set of existing course-book sections needed to address the revision request.
+Return JSON only: {{\"headings\": [\"exact heading\"]}}.
+Choose one to three headings from this exact list. Do not select Introduction, Learning Objectives, or References.
+
+Revision request:
+{feedback}
+
+Available headings:
+{headings}
+""",
+        max_tokens=1200,
+    )
+    selected = plan.get("headings")
+    if not isinstance(selected, list) or not 1 <= len(selected) <= 3 or any(not isinstance(item, str) for item in selected):
+        raise RuntimeError("The revision agent did not identify a valid, limited set of sections.")
+    selected = list(dict.fromkeys(selected))
+    if not set(selected).issubset(sections):
+        raise RuntimeError("The revision agent selected a section that does not exist in the saved course book.")
+    source = "\n\n".join(sections[heading] for heading in selected)
+    maximum_words = {"basic": 4000, "intermediate": 5400, "advanced": 6200}.get(level.lower(), 5400)
+    patch_response = request_json_with_retry(
+        course_slug,
+        "technical_content",
+        f"""Revise ONLY the supplied course-book sections. Return JSON only in this exact shape:
+{{\"patches\":[{{\"heading\":\"exact original heading\",\"markdown\":\"complete replacement section including that same heading\"}}]}}.
+
+Hard preservation contract:
+- Return one patch for each selected heading and no other patch.
+- Do not rewrite, summarize, omit, or alter any section not supplied below.
+- Keep the exact heading and use the existing student-facing tone.
+- Apply every request that belongs in the selected section.
+- When seven or more comparable category/quantity/amount items appear, use a concise Markdown table; surrounding prose may only add an interpretation, decision rule, or exception, never restate rows.
+- Keep the teaching MECE: no fact may be repeated unless it adds a distinct inference, consequence, or learner decision.
+- For a cost stack, show each additive layer separately; the proposal price is the final running total, not an additional layer.
+- Do not add sources, citations, headings, activities, or figures. The final chapter limit is {maximum_words:,} words.
+
+Revision request:
+{feedback}
+
+Selected sections to patch:
+{source}
+""",
+        max_tokens=10000,
+    )
+    raw_patches = patch_response.get("patches")
+    if not isinstance(raw_patches, list) or len(raw_patches) != len(selected):
+        raise RuntimeError("The revision agent returned an incomplete section-patch response.")
+    patches: dict[str, str] = {}
+    for item in raw_patches:
+        if not isinstance(item, dict) or not isinstance(item.get("heading"), str) or not isinstance(item.get("markdown"), str):
+            raise RuntimeError("The revision agent returned an invalid section patch.")
+        patches[item["heading"]] = item["markdown"]
+    if set(patches) != set(selected):
+        raise RuntimeError("The revision agent returned patches outside the selected sections.")
+    return apply_study_guide_section_patches(draft, patches)
+
+
 def approved_study_guide_baseline(run: Path, lesson_tag: str) -> str | None:
     approval = run / "approval" / f"{lesson_tag}_study_guide_approval.md"
     if not approval.exists():
@@ -1819,17 +1930,17 @@ def produce_study_guide(course_slug: str, lesson_number: int) -> list[str]:
         draft = normalize_reviewed_factual_language(force_student_references(draft, references))
         draft = normalize_callout_density(draft)
         write_text(working_path, draft)
-    retrying_existing_revision = bool(list((run / "review").glob(f"{lesson_tag}_automatic_revision_*.md")))
-    if revision_feedback and draft and not retrying_existing_revision:
+    if revision_feedback and draft:
         # Start with the saved approved draft and make only the operator's
         # requested correction. The renderer will create a separate candidate
         # file, leaving the approved PDF untouched.
         try:
-            draft = request_text(
+            draft = targeted_study_guide_revision(
                 seed.slug,
-                "technical_content",
-                study_guide_revision_prompt(draft, revision_feedback, references, attempt=0, level=seed.level),
-                max_tokens=24000,
+                draft,
+                revision_feedback,
+                references,
+                level=seed.level,
             )
         except ModelRequestError as error:
             block(run, "lesson_draft", f"Configured technical-content model could not revise Lesson {lesson_number}.\n\nReason: {error}")
@@ -1878,17 +1989,12 @@ def produce_study_guide(course_slug: str, lesson_number: int) -> list[str]:
         if attempt < 3:
             try:
                 prior_draft = draft
-                revised_draft = request_text(
+                revised_draft = targeted_study_guide_revision(
                     seed.slug,
-                    "technical_content",
-                    study_guide_revision_prompt(
-                        draft,
-                        revision_feedback,
-                        references,
-                        attempt=attempt,
-                        level=seed.level,
-                    ),
-                    max_tokens=24000,
+                    draft,
+                    revision_feedback,
+                    references,
+                    level=seed.level,
                 )
             except ModelRequestError as error:
                 block(run, "lesson_draft", f"Configured technical-content model could not revise Lesson {lesson_number}.\n\nReason: {error}")

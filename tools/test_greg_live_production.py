@@ -158,6 +158,35 @@ class GregLiveProductionTests(unittest.TestCase):
         self.assertIn("# Section 04 - Bid", restored)
         self.assertIn("# Summary and Key Takeaways", restored)
 
+    def test_section_patch_preserves_every_unrequested_section_verbatim(self) -> None:
+        draft = (
+            "# Introduction\n\nKeep this introduction.\n\n## Learning Objectives\n\n- Learn.\n\n"
+            "# Section 01 - Scope\n\nKeep this scope text.\n\n"
+            "# Section 03 - Cost Stack\n\nOld stack explanation.\n\n"
+            "# Section 04 - Bid\n\nKeep this bid text.\n\n"
+            "# Summary and Key Takeaways\n\n- Keep this recap.\n\n"
+            "# Glossary\n\nTerm.\n\n# References\n\nSource.\n"
+        )
+        revised = production.apply_study_guide_section_patches(
+            draft,
+            {"# Section 03 - Cost Stack": "# Section 03 - Cost Stack\n\nNew additive stack explanation.\n"},
+        )
+        self.assertIn("New additive stack explanation.", revised)
+        self.assertIn("# Section 01 - Scope\n\nKeep this scope text.", revised)
+        self.assertIn("# Section 04 - Bid\n\nKeep this bid text.", revised)
+        self.assertIn("# Summary and Key Takeaways\n\n- Keep this recap.", revised)
+
+    def test_section_patch_rejects_an_unselected_section(self) -> None:
+        draft = (
+            "# Introduction\n\nStart.\n\n## Learning Objectives\n\n- Learn.\n\n# Section 01 - Scope\n\nScope.\n\n"
+            "# Summary and Key Takeaways\n\n- One.\n\n# Glossary\n\nTerm.\n\n# References\n\nSource.\n"
+        )
+        with self.assertRaisesRegex(RuntimeError, "outside the approved revision scope"):
+            production.apply_study_guide_section_patches(
+                draft,
+                {"# Section 99 - Other": "# Section 99 - Other\n\nNo.\n"},
+            )
+
     def test_required_upload_binding_marks_every_citable_attachment_mandatory(self) -> None:
         uploads = [
             {"filename": "Construction Project Management Handbook.pdf", "upload_id": "u1", "reference_policy": "reference_only"},
