@@ -189,7 +189,11 @@ def is_brand_or_background(row: dict) -> bool:
 
 def text_capacity_warning(row: dict) -> str | None:
     text = str(row.get("text", "")).strip()
-    if len(text) < 20 or row.get("name", "").startswith("bullet-dot"):
+    # These elements intentionally sit on the open slide canvas, rather than
+    # inside a panel.  Their safety is covered by slide/footer bounds; fitting
+    # them to a fictional box would create false failures.
+    open_canvas_text = {"intro", "bottom-line", "takeaway", "final-line"}
+    if len(text) < 20 or row.get("name", "") in open_canvas_text or row.get("name", "").startswith("bullet-dot"):
         return None
     box = bbox(row)
     font_size = row.get("resolvedFontSize")
