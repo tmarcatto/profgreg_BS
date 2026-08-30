@@ -206,7 +206,9 @@ def text_capacity_warning(row: dict) -> str | None:
     # font/roomier box than to approve copy that visibly escapes its panel.
     chars_per_line = max(1.0, width / (font * 0.55))
     usable_lines = max(1.0, height / (font * 1.15))
-    capacity = chars_per_line * usable_lines * 0.90
+    # Account for the renderer's real line spacing while retaining a margin
+    # tight enough to reject copy forced into a single-line row.
+    capacity = chars_per_line * usable_lines * 1.10
     if len(text) > capacity:
         return f"slide {row.get('slide')} `{row.get('name')}` may be too dense for its text box"
     return None
