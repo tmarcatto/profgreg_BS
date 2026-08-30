@@ -425,11 +425,11 @@
       "fallbacks": [],
       "quality_gate": "rendered_page_qa"
     },
-    "localization": {
-      "primary": {
-        "provider": "openai",
-        "model": "gpt-5.6-luna",
-        "reasoning": "max"
+  "localization": {
+    "primary": {
+      "provider": "openai",
+      "model": "gpt-5.6-luna",
+      "reasoning": "low"
       },
       "fallbacks": [
         {
