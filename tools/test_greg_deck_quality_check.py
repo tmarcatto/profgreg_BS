@@ -79,6 +79,18 @@ class DeckQualityCheckTests(unittest.TestCase):
         )
         self.assertIsNone(warning)
 
+    def test_text_capacity_warning_flags_a_second_line_in_a_single_line_box(self) -> None:
+        warning = deck_qa.text_capacity_warning(
+            {
+                "slide": 4,
+                "name": "row-1-body",
+                "text": "Identify the legal parties, project or property, and people authorized to approve work or changes.",
+                "bbox": [432, 248, 704, 26],
+                "resolvedFontSize": 19,
+            }
+        )
+        self.assertIsNotNone(warning)
+
 
 if __name__ == "__main__":
     unittest.main()

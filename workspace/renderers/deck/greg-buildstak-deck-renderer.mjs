@@ -135,6 +135,9 @@ function addText(slide, name, text, x, y, w, h, style = {}) {
     textPreview: String(text).replace(/\n/g, " ").slice(0, 120),
     textChars: String(text).length,
     textLines: String(text).split("\n").length,
+    // QA must evaluate the actual text box the renderer created.  Omitting
+    // the resolved size made the fit check silently skip every live deck.
+    resolvedFontSize: style.fontSize ?? 22,
     bbox: bbox(x, y, w, h),
   });
   return shape;
@@ -395,13 +398,15 @@ async function renderRowList(deck, slideSpec) {
   await addChrome(slide, currentSlide);
   addTitle(slide, slideSpec.title, slideSpec.subtitle);
   slideSpec.items.forEach((item, i) => {
-    const yy = 236 + i * 72;
-    addShape(slide, `row-${i + 1}-bar`, "roundRect", 104, yy, 1068, 52, i % 2 === 0 ? C.light : C.white, C.line, 1);
-    addText(slide, `row-${i + 1}-title`, item.title, 128, yy + 12, 260, 26, { fontSize: 20, bold: true, color: C.navy });
-    addText(slide, `row-${i + 1}-body`, item.body, 432, yy + 12, 704, 26, { fontSize: 19, color: C.gray });
+    // Row copy regularly needs two lines.  The former 26px text boxes
+    // clipped the second line while the surrounding bar remained only 52px.
+    const yy = 224 + i * 80;
+    addShape(slide, `row-${i + 1}-bar`, "roundRect", 104, yy, 1068, 68, i % 2 === 0 ? C.light : C.white, C.line, 1);
+    addText(slide, `row-${i + 1}-title`, item.title, 128, yy + 12, 260, 44, { fontSize: 18, bold: true, color: C.navy });
+    addText(slide, `row-${i + 1}-body`, item.body, 432, yy + 10, 704, 48, { fontSize: 17, color: C.gray });
   });
-  addText(slide, "bottom-line", slideSpec.bottom_line, 164, 614, 952, 34, {
-    fontSize: 23,
+  addText(slide, "bottom-line", slideSpec.bottom_line, 164, 580, 952, 40, {
+    fontSize: 21,
     bold: true,
     color: C.navy,
     alignment: "center",
@@ -413,15 +418,15 @@ async function renderChecklistRows(deck, slideSpec) {
   await addChrome(slide, currentSlide);
   addTitle(slide, slideSpec.title, slideSpec.subtitle);
   slideSpec.items.forEach((item, i) => {
-    const y = 232 + i * 70;
-    addShape(slide, `check-${i + 1}-row`, "roundRect", 132, y, 1012, 54, i % 2 === 0 ? C.light : C.white, C.line, 1);
-    addShape(slide, `check-${i + 1}-circle`, "ellipse", 86, y + 7, 40, 40, C.orange, C.orange, 0);
-    addText(slide, `check-${i + 1}-num`, String(i + 1), 96, y + 14, 20, 24, { fontSize: 18, bold: true, color: C.white, alignment: "center" });
-    addText(slide, `check-${i + 1}-title`, item.title, 160, y + 14, 240, 26, { fontSize: 20, bold: true, color: C.navy });
-    addText(slide, `check-${i + 1}-body`, item.body, 430, y + 14, 680, 28, { fontSize: 18, color: C.gray });
+    const y = 220 + i * 80;
+    addShape(slide, `check-${i + 1}-row`, "roundRect", 132, y, 1012, 68, i % 2 === 0 ? C.light : C.white, C.line, 1);
+    addShape(slide, `check-${i + 1}-circle`, "ellipse", 86, y + 14, 40, 40, C.orange, C.orange, 0);
+    addText(slide, `check-${i + 1}-num`, String(i + 1), 96, y + 21, 20, 24, { fontSize: 18, bold: true, color: C.white, alignment: "center" });
+    addText(slide, `check-${i + 1}-title`, item.title, 160, y + 12, 240, 44, { fontSize: 18, bold: true, color: C.navy });
+    addText(slide, `check-${i + 1}-body`, item.body, 430, y + 10, 680, 48, { fontSize: 17, color: C.gray });
   });
-  addText(slide, "bottom-line", slideSpec.bottom_line, 166, 604, 948, 36, {
-    fontSize: 21,
+  addText(slide, "bottom-line", slideSpec.bottom_line, 166, 578, 948, 40, {
+    fontSize: 20,
     bold: true,
     color: C.navy,
     alignment: "center",

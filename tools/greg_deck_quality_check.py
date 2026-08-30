@@ -202,9 +202,11 @@ def text_capacity_warning(row: dict) -> str | None:
         font = float(font_size)
     except (TypeError, ValueError):
         return None
-    chars_per_line = max(1.0, width / (font * 0.46))
+    # Conservative estimate: it is better to send a deck back for a smaller
+    # font/roomier box than to approve copy that visibly escapes its panel.
+    chars_per_line = max(1.0, width / (font * 0.55))
     usable_lines = max(1.0, height / (font * 1.15))
-    capacity = chars_per_line * usable_lines * 1.25
+    capacity = chars_per_line * usable_lines * 0.90
     if len(text) > capacity:
         return f"slide {row.get('slide')} `{row.get('name')}` may be too dense for its text box"
     return None
@@ -376,9 +378,18 @@ def run_checks(deck_path: Path, qa_path: Path | None = None) -> dict:
         findings.append(Finding("pass", "footer_clearance", "No non-footer elements overlap the footer band."))
 
     if layout_rows:
-        dense = [warning for row in layout_rows if (warning := text_capacity_warning(row))]
+        dense = [warning for row in rows if row.get("kind") == "textbox" and (warning := text_capacity_warning(row))]
+        missing_font_metadata = [
+            f"slide {row.get('slide')} `{row.get('name')}`"
+            for row in rows
+            if row.get("kind") == "textbox"
+            and row.get("name") not in {"eyebrow", "footer-course", "footer-number"}
+            and not row.get("resolvedFontSize")
+        ]
         if dense:
-            findings.append(Finding("warn", "text_box_density", f"Potential text-fit issues: {dense[:8]}."))
+            findings.append(Finding("fail", "text_box_density", f"Text does not fit safely inside its rendered box: {dense[:8]}."))
+        elif missing_font_metadata:
+            findings.append(Finding("fail", "text_box_density", f"Text-fit metadata is missing for: {missing_font_metadata[:8]}."))
         else:
             findings.append(Finding("pass", "text_box_density", "No obvious text-density issues found in rendered layout metadata."))
     else:
