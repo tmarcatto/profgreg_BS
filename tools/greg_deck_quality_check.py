@@ -377,7 +377,10 @@ def run_checks(deck_path: Path, qa_path: Path | None = None) -> dict:
     else:
         findings.append(Finding("pass", "footer_clearance", "No non-footer elements overlap the footer band."))
 
-    if layout_rows:
+    # The renderer records the authoritative text boxes in the inspect file.
+    # Revisioned render folders may be retained separately, so their absence
+    # must never disable fit validation for an otherwise inspectable deck.
+    if any(row.get("kind") == "textbox" for row in rows):
         dense = [warning for row in rows if row.get("kind") == "textbox" and (warning := text_capacity_warning(row))]
         missing_font_metadata = [
             f"slide {row.get('slide')} `{row.get('name')}`"
