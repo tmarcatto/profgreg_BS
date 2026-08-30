@@ -122,7 +122,7 @@ def validate_render_source(markdown: str, locale: str = "en") -> None:
         raise ValueError("Summary and Key Takeaways must contain only 4 to 6 concise bullet points; PDF was not rendered.")
     teaching_text = re.split(rf"(?im)^#\s+{re.escape(labels['references'])}\s*$", markdown, maxsplit=1)[0]
     for line in teaching_text.splitlines():
-        if re.match(rf"^#\s+{re.escape(labels['section'])}\s+\d{{2}}\s*[:-]\s+", line):
+        if re.match(rf"^#{{1,2}}\s+{re.escape(labels['section'])}\s+\d{{1,2}}\s*(?:-|:|–|—)\s+", line):
             continue
         if "—" in line or "–" in line or re.search(r"\s-{1,2}\s", line):
             raise ValueError("Dash punctuation found in study-guide source; PDF was not rendered.")
@@ -1092,7 +1092,7 @@ def starts_structural_page(heading: str, locale: str = "en") -> bool:
     glossary = "Glossário" if locale == "pt_br" else "Glosario" if locale == "es" else "Glossary"
     if normalized in {normalized_heading(labels["introduction"]), normalized_heading(labels["summary"]), normalized_heading(glossary), normalized_heading(labels["references"])}:
         return True
-    return bool(re.match(rf"{re.escape(labels['section'])}\s+01\s*[:-]\s+", heading, flags=re.IGNORECASE))
+    return bool(re.match(rf"{re.escape(labels['section'])}\s+0?1\s*(?:-|:|–|—)\s+", heading, flags=re.IGNORECASE))
 
 
 def visual_matches_heading(visual_heading: str, rendered_heading: str) -> bool:
@@ -1134,7 +1134,7 @@ def build_story(blocks: list[dict[str, Any]], visuals: list[dict[str, Any]], loc
             if starts_structural_page(current_heading, locale):
                 add_page_break(story)
             section_label = locale_labels(locale)["section"]
-            match = re.match(rf"{re.escape(section_label)}\s+(\d{{2}})\s*[:-]\s+(.+)", block["text"], flags=re.IGNORECASE)
+            match = re.match(rf"{re.escape(section_label)}\s+(\d{{1,2}})\s*(?:-|:|–|—)\s+(.+)", block["text"], flags=re.IGNORECASE)
             if match:
                 spacer = Spacer(1, 2)
                 spacer.keepWithNext = 1

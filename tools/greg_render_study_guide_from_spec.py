@@ -78,7 +78,13 @@ def validate_localized_source(source_path: Path, locale: str) -> None:
     summary_lines = [line.strip() for line in summary.group(1).splitlines() if line.strip()]
     if not 4 <= len(summary_lines) <= 6 or not all(re.match(r"^[-*+]\s+\S", line) for line in summary_lines):
         raise RuntimeError("Localized summary must contain only 4 to 6 bullet points.")
-    if len(re.findall(rf"(?im)^#\s+{re.escape(rules['section'])}\s+\d{{2}}\s*[:-]\s+.+$", text)) < 4:
+    # Translation models sometimes preserve an H2, use an unpadded section
+    # number, or choose a Unicode dash even when the English source uses the
+    # canonical H1/zero-padded/hyphen form.  Those are equivalent learner
+    # headings, and the renderer supports them, so do not reject an otherwise
+    # complete localized book for presentation-only variation.
+    section_pattern = rf"(?im)^#{{1,2}}\s+{re.escape(rules['section'])}\s+\d{{1,2}}\s*(?:-|:|–|—)\s+.+$"
+    if len(re.findall(section_pattern, text)) < 4:
         raise RuntimeError("Localized source must contain at least four numbered sections.")
     if not re.search(rf"(?im)^#\s+{re.escape(rules['references'])}\s*$", text):
         raise RuntimeError(f"Localized source is missing `{rules['references']}`.")

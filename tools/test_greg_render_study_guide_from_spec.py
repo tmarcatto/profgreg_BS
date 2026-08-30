@@ -100,6 +100,20 @@ class RenderStudyGuideFromSpecTests(unittest.TestCase):
             )
             renderer.validate_localized_source(source, "pt_br")
 
+    def test_localized_source_accepts_equivalent_numbered_heading_formatting(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            source = Path(directory) / "lesson_01_pt_br.md"
+            source.write_text(
+                "\n".join([
+                    "## Seção 1 — Primeiro", "# Seção 2 – Segundo", "## Seção 3: Terceiro", "# Seção 4 - Quarto",
+                    "> TERMO-CHAVE", "> Definição.", "> APLIQUE", "> Ação.",
+                    "# Resumo e Principais Conclusões", "- Um", "- Dois", "- Três", "- Quatro",
+                    "# Referências",
+                ]),
+                encoding="utf-8",
+            )
+            renderer.validate_localized_source(source, "pt_br")
+
     def test_card_row_never_draws_unwrapped_detail_text(self) -> None:
         if pdf_renderer is None:
             self.skipTest("ReportLab is not installed in this Python environment.")

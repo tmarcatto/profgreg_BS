@@ -2274,7 +2274,14 @@ def latest_complete_localized_draft(folder: Path, lesson_tag: str, locale: str) 
     candidates = sorted(folder.glob(f"{lesson_tag}_study_guide_{locale}_r*.md"), key=lambda item: (item.stat().st_mtime, item.name), reverse=True)
     for candidate in candidates:
         text = candidate.read_text(encoding="utf-8", errors="replace")
-        numbered_sections = re.findall(rf"(?im)^#\s+{re.escape(section_label)}\s+\d{{2}}\s*[:-]\s+.+$", text)
+        # Keep retry detection aligned with the renderer's accepted localized
+        # heading variants.  Otherwise a complete translation with harmless
+        # H2, unpadded-number, or Unicode-dash formatting is needlessly
+        # discarded and regenerated on every retry.
+        numbered_sections = re.findall(
+            rf"(?im)^#{{1,2}}\s+{re.escape(section_label)}\s+\d{{1,2}}\s*(?:-|:|–|—)\s+.+$",
+            text,
+        )
         if len(numbered_sections) >= 4 and re.search(rf"(?im)^#\s+{re.escape(summary_label)}\s*$", text):
             return candidate
     return None
