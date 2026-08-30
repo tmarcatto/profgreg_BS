@@ -2296,6 +2296,29 @@ def localized_callout_count(markdown: str, locale: str) -> int:
     return len(re.findall(rf"(?im)^>\s*(?:\*\*)?(?:{pattern})(?:\*\*)?[ \t]*(?::[ \t]*.*)?$", markdown))
 
 
+def localized_book_structure_issues(markdown: str, locale: str) -> list[str]:
+    """Return learner-visible structural omissions before any PDF work starts.
+
+    The rendering validator remains the final authority, but checking here
+    lets production repair a truncated model response rather than publishing a
+    generic renderer failure after the expensive visual work has started.
+    """
+    labels = {
+        "pt_br": ("Resumo e Principais Conclusões", "Referências", "Seção"),
+        "es": ("Resumen y Conclusiones Clave", "Referencias", "Sección"),
+    }[locale]
+    summary, references, section = labels
+    issues: list[str] = []
+    if not re.search(rf"(?im)^#{{1,2}}\s+{re.escape(summary)}\s*$", markdown):
+        issues.append(f"missing `{summary}`")
+    if not re.search(rf"(?im)^#{{1,2}}\s+{re.escape(references)}\s*$", markdown):
+        issues.append(f"missing `{references}`")
+    section_pattern = rf"(?im)^#{{1,2}}\s+{re.escape(section)}\s+\d{{1,2}}\s*(?:-|:|–|—)\s+.+$"
+    if len(re.findall(section_pattern, markdown)) < 4:
+        issues.append("fewer than four numbered sections")
+    return issues
+
+
 def localize_book(course_slug: str, lesson_number: int, locale: str) -> list[str]:
     seed = parse_intake(course_slug)
     run = RUNS / seed.slug
@@ -2327,11 +2350,23 @@ def localize_book(course_slug: str, lesson_number: int, locale: str) -> list[str
             prompt = f"""Translate the following student-facing construction course book into {language}. Return Markdown only. Preserve the structural order: Introduction, Learning Objectives, numbered Sections, Summary and Key Takeaways, Glossary, and References. Do not add a Lesson Roadmap. Translate all body text and section titles. Preserve every Summary and Key Takeaways item as a concise bullet point; never convert that section into paragraphs. Keep U.S. construction terminology, units, codes, and market context. Preserve the six approved callout labels semantically in the target language and never invent a new callout type. Preserve exactly the same number of callout blocks as the English source, with 2-4 blocks formatted as Markdown blockquotes: `> **LOCALIZED LABEL**` followed by one or more `>` body lines. Do not turn a callout into ordinary prose. Do not add or remove facts, activities, citations, or references. Do not use em dashes, en dashes, or spaced hyphens as punctuation.\n\n{source_draft.read_text(encoding='utf-8', errors='replace')[:48000]}"""
         try:
             translated = request_text(seed.slug, "localization", prompt, max_tokens=24000)
+            translated = remove_unnecessary_localized_emphasis(force_student_references(translated, references, locale))
+            issues = localized_book_structure_issues(translated, locale)
+            if issues:
+                repair_prompt = f"""Return the complete {language} course book Markdown only. Your prior response was truncated or structurally incomplete: {', '.join(issues)}. Preserve the English source's complete order and all numbered sections. Include the exact localized headings for Introduction, Learning Objectives, every numbered Section, Summary and Key Takeaways, Glossary, and References. Return the full replacement, never a patch or explanation.\n\nEnglish source:\n{source_draft.read_text(encoding='utf-8', errors='replace')[:48000]}"""
+                translated = request_text(seed.slug, "localization", repair_prompt, max_tokens=24000)
+                translated = remove_unnecessary_localized_emphasis(force_student_references(translated, references, locale))
+                issues = localized_book_structure_issues(translated, locale)
+            if issues:
+                raise ModelRequestError("Localized course book remained structurally incomplete after repair: " + ", ".join(issues))
         except ModelRequestError as error:
             block(run, "localization", f"Localization model could not produce Lesson {lesson_number} {locale} course book.\n\nReason: {error}")
             raise RuntimeError(str(error)) from error
         revision, draft_name = revisioned(run, f"localization/{folder}", f"{lesson_tag}_study_guide_{locale}", ".md")
     translated = remove_unnecessary_localized_emphasis(force_student_references(translated, references, locale))
+    issues = localized_book_structure_issues(translated, locale)
+    if issues:
+        raise RuntimeError("Localized course book failed structural completeness QA: " + ", ".join(issues))
     draft_path = run / "localization" / folder / draft_name
     if not pending_draft or translated.rstrip() != prior_translated.rstrip():
         write_text(draft_path, translated)

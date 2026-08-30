@@ -334,6 +334,20 @@ class GregLiveProductionTests(unittest.TestCase):
         self.assertEqual(2, production.localized_callout_count(pt, "pt_br"))
         self.assertEqual(2, production.localized_callout_count(es, "es"))
 
+    def test_localized_book_structure_accepts_equivalent_complete_headings(self) -> None:
+        complete = "\n".join([
+            "## Seção 1 — Primeiro", "# Seção 2: Segundo", "# Seção 03 - Terceiro", "## Seção 4 – Quarto",
+            "# Resumo e Principais Conclusões", "- Um", "# Referências",
+        ])
+        self.assertEqual([], production.localized_book_structure_issues(complete, "pt_br"))
+
+    def test_localized_book_structure_reports_truncated_translation(self) -> None:
+        partial = "# Seção 01: Primeiro\n\nTexto.\n\n# Referências\n"
+        self.assertEqual(
+            ["missing `Resumo e Principais Conclusões`", "fewer than four numbered sections"],
+            production.localized_book_structure_issues(partial, "pt_br"),
+        )
+
     def test_localized_retry_ignores_newer_incomplete_revision(self) -> None:
         from tempfile import TemporaryDirectory
 
