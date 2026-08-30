@@ -377,14 +377,17 @@ async function renderPlannedActual(deck, slideSpec) {
   const slide = addSlide(deck);
   await addChrome(slide, currentSlide);
   addTitle(slide, slideSpec.title, slideSpec.subtitle);
-  addShape(slide, "planned-lane", "roundRect", 106, 268, 458, 178, C.light, C.line, 1.4);
-  addShape(slide, "actual-lane", "roundRect", 716, 268, 458, 178, C.light, C.line, 1.4);
-  addText(slide, "planned-title", slideSpec.left.title, 138, 294, 386, 34, { fontSize: 24, bold: true, color: C.navy, alignment: "center" });
-  addText(slide, "planned-body", slideSpec.left.body, 146, 346, 370, 70, { fontSize: 18, color: C.gray, alignment: "center" });
-  addText(slide, "actual-title", slideSpec.right.title, 748, 294, 386, 34, { fontSize: 24, bold: true, color: C.navy, alignment: "center" });
-  addText(slide, "actual-body", slideSpec.right.body, 756, 346, 370, 70, { fontSize: 18, color: C.gray, alignment: "center" });
-  addLine(slide, "variance-arrow", 586, 357, 694, 357, C.orange, 4);
-  addText(slide, "variance-label", slideSpec.bridge_label || "Variance", 582, 300, 116, 30, { fontSize: 20, bold: true, color: C.orange, alignment: "center" });
+  // Comparison copy varies substantially by lesson.  Allocate enough room
+  // for a normal four-line explanation instead of relying on a short model
+  // response to stay inside the lane.
+  addShape(slide, "planned-lane", "roundRect", 106, 258, 458, 200, C.light, C.line, 1.4);
+  addShape(slide, "actual-lane", "roundRect", 716, 258, 458, 200, C.light, C.line, 1.4);
+  addText(slide, "planned-title", slideSpec.left.title, 138, 282, 386, 38, { fontSize: 22, bold: true, color: C.navy, alignment: "center" });
+  addText(slide, "planned-body", slideSpec.left.body, 146, 332, 370, 96, { fontSize: 16, color: C.gray, alignment: "center" });
+  addText(slide, "actual-title", slideSpec.right.title, 748, 282, 386, 38, { fontSize: 22, bold: true, color: C.navy, alignment: "center" });
+  addText(slide, "actual-body", slideSpec.right.body, 756, 332, 370, 96, { fontSize: 16, color: C.gray, alignment: "center" });
+  addLine(slide, "variance-arrow", 586, 362, 694, 362, C.orange, 4);
+  addText(slide, "variance-label", slideSpec.bridge_label || "Variance", 576, 294, 128, 44, { fontSize: 14, bold: true, color: C.orange, alignment: "center" });
   addText(slide, "bottom-line", slideSpec.bottom_line, 168, 532, 944, 54, {
     fontSize: 24,
     bold: true,
