@@ -167,9 +167,10 @@ def run_checks(course_slug: str, lesson: int) -> dict[str, Any]:
     if repeated_structures:
         findings.append(
             Finding(
-                "fail",
+                "warn",
                 "visual_structure_mece",
-                f"Visual structures repeat prior lesson patterns too closely: {repeated_structures}.",
+                "Card-row structure is reused across lessons: "
+                f"{repeated_structures}. Confirm visual variety during review; structure alone does not mean the teaching scope overlaps.",
             )
         )
     else:

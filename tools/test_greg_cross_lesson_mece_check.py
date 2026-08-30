@@ -52,13 +52,14 @@ class CrossLessonMECETests(unittest.TestCase):
         checks = {item["check"]: item["status"] for item in data["findings"]}
         self.assertEqual(checks["glossary_mece"], "fail")
 
-    def test_repeated_card_row_structure_fails(self) -> None:
+    def test_repeated_card_row_structure_warns_without_blocking_distinct_teaching(self) -> None:
         visual = {"type": "card_row", "title": "Five Step Loop", "pill": "Plan", "cards": [{}, {}, {}, {}, {}]}
         self.write_lesson(1, self.lesson_markdown("Baseline Basics", ["Activity"]), [visual])
         self.write_lesson(2, self.lesson_markdown("Schedule Logic", ["Dependency"]), [visual | {"title": "Different Labels"}])
         data = checker.run_checks(self.slug, 2)
         checks = {item["check"]: item["status"] for item in data["findings"]}
-        self.assertEqual(checks["visual_structure_mece"], "fail")
+        self.assertEqual(checks["visual_structure_mece"], "warn")
+        self.assertTrue(data["passed"], data["findings"])
 
     def test_distinct_matrix_and_new_terms_pass(self) -> None:
         self.write_lesson(
