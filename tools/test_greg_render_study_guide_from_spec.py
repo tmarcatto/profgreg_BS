@@ -38,6 +38,12 @@ class RenderStudyGuideFromSpecTests(unittest.TestCase):
         self.assertEqual("callout", blocks[0]["type"])
         self.assertEqual("EXEMPLO PRÁTICO", blocks[0]["label"])
 
+    def test_colon_inside_bold_localized_label_still_renders_as_a_box(self) -> None:
+        if pdf_renderer is None:
+            self.skipTest("ReportLab is not installed in this Python environment.")
+        blocks = pdf_renderer.parse_markdown("> **ESCENARIO:** Situación.", locale="es")
+        self.assertEqual({"type": "callout", "label": "ESCENARIO", "body": "Situación."}, blocks[0])
+
     def test_markdown_table_becomes_a_table_block_not_a_paragraph(self) -> None:
         if pdf_renderer is None:
             self.skipTest("ReportLab is not installed in this Python environment.")

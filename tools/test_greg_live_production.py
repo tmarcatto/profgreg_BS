@@ -357,10 +357,11 @@ class GregLiveProductionTests(unittest.TestCase):
 
     def test_localized_contract_normalizes_section_levels_and_callout_markup(self) -> None:
         normalized = production.normalize_localized_course_contract(
-            "## Seção 01: Primeiro\n\n> EXEMPLO PRÁTICO\n> Corpo.", "pt_br"
+            "## Seção 01: Primeiro\n\n> EXEMPLO PRÁTICO\n> Corpo.\n\n> **CENÁRIO:** Situação.", "pt_br"
         )
         self.assertIn("# Seção 01: Primeiro", normalized)
         self.assertIn("> **EXEMPLO PRÁTICO**", normalized)
+        self.assertIn("> **CENÁRIO**: Situação.", normalized)
 
     def test_localized_book_parity_rejects_lost_box_and_table_row(self) -> None:
         source = (

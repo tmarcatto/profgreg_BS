@@ -25,7 +25,7 @@ from pathlib import Path
 from threading import Lock
 from typing import Any
 
-from greg_localized_book_structure import markdown_structure, structure_parity_issues
+from greg_localized_book_structure import CALLOUTS, markdown_structure, structure_parity_issues
 
 from greg_model_router import ModelRequestError, json_from_text, request_image as model_request_image, request_text as model_request_text
 from greg_security import assert_safe_run_slug
@@ -2387,6 +2387,11 @@ def normalize_localized_course_contract(markdown: str, locale: str) -> str:
     )
     label_pattern = "|".join(re.escape(label) for label in labels)
     normalized = re.sub(
+        rf"(?im)^>\s*\*\*({label_pattern}):\*\*[ \t]*(.*)$",
+        lambda match: f"> **{match.group(1)}**" + (f": {match.group(2).strip()}" if match.group(2).strip() else ""),
+        normalized,
+    )
+    normalized = re.sub(
         rf"(?im)^>\s*({label_pattern})\s*$",
         r"> **\1**",
         normalized,
@@ -2466,8 +2471,16 @@ def localize_book(course_slug: str, lesson_number: int, locale: str) -> list[str
             translated = request_text(seed.slug, "localization", prompt, max_tokens=24000)
             translated = normalize_localized_course_contract(remove_unnecessary_localized_emphasis(force_student_references(translated, references, locale)), locale)
             issues = localized_book_structure_issues(translated, locale) + localized_book_parity_issues(source_markdown, translated, locale)
-            if issues:
-                repair_prompt = f"""Return the complete {language} course book Markdown only. Your prior response was truncated or structurally incomplete: {', '.join(issues)}. Preserve the English source's complete order and all numbered sections. Preserve exactly {source_structure['callouts']} callout boxes and these table shapes: {json.dumps(source_structure['tables'])}. Include the exact localized headings for Introduction, Learning Objectives, every numbered Section, Summary and Key Takeaways, Glossary, and References. Return the full replacement, never a patch or explanation.\n\nEnglish source:\n{source_markdown[:48000]}"""
+            for _ in range(2):
+                if not issues:
+                    break
+                repair_prompt = f"""Repair this existing {language} course book and return the complete Markdown only. The current translation is structurally incomplete: {', '.join(issues)}. Preserve every correct translated paragraph, heading, table, bullet, and callout already present; do not restart the translation. Restore only missing structural elements from the English source at their corresponding positions. Preserve the English source's complete order and all numbered sections. Preserve exactly {source_structure['callouts']} callout boxes using only these localized labels: {json.dumps(CALLOUTS[locale], ensure_ascii=False)}. Every callout must remain a Markdown blockquote beginning with `> **LOCALIZED LABEL**`, followed by its translated `>` body lines. Preserve these table shapes: {json.dumps(source_structure['tables'])}. Preserve exactly {source_structure.get('summary_items', 0)} concise Summary and Key Takeaways bullets. Include the exact localized headings for Introduction, Learning Objectives, every numbered Section, Summary and Key Takeaways, Glossary, and References. Return the full replacement, never a patch or explanation.
+
+Existing localized draft to repair:
+{translated[:48000]}
+
+English source contract:
+{source_markdown[:48000]}"""
                 translated = request_text(seed.slug, "localization", repair_prompt, max_tokens=24000)
                 translated = normalize_localized_course_contract(remove_unnecessary_localized_emphasis(force_student_references(translated, references, locale)), locale)
                 issues = localized_book_structure_issues(translated, locale) + localized_book_parity_issues(source_markdown, translated, locale)

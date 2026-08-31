@@ -864,13 +864,14 @@ def parse_markdown(markdown: str, locale: str = "en") -> list[dict[str, Any]]:
             first_line = quote_lines[0] if quote_lines else ""
             callout_names = "|".join(re.escape(value) for value in locale_labels(locale)["callouts"])
             known_label = re.match(
-                rf"^(?:\*\*)?({callout_names})(?:\*\*)?\s*:\s*(.*)$|^(?:\*\*)?({callout_names})(?:\*\*)?$",
+                rf"^(?:\*\*)?({callout_names})(?:\*\*)?\s*:\s*(.*)$|^\*\*({callout_names}):\*\*\s*(.*)$|^(?:\*\*)?({callout_names})(?:\*\*)?$",
                 first_line,
                 flags=re.IGNORECASE,
             )
             if known_label:
-                label = (known_label.group(1) or known_label.group(3)).strip().upper()
-                body = " ".join([known_label.group(2).strip() if known_label.group(2) else "", *quote_lines[1:]]).strip()
+                label = (known_label.group(1) or known_label.group(3) or known_label.group(5)).strip().upper()
+                inline_body = known_label.group(2) or known_label.group(4) or ""
+                body = " ".join([inline_body.strip(), *quote_lines[1:]]).strip()
                 body = re.sub(r"\*\*", "", body).strip()
             else:
                 blocks.append({"type": "paragraph", "text": " ".join(re.sub(r"^\*\*|\*\*$", "", item) for item in quote_lines)})
