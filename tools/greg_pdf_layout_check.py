@@ -247,7 +247,7 @@ def run_checks(pdf_path: Path, qa_path: Path | None = None) -> dict:
     roadmap_page = find_page(pages, r"(?:Lesson Roadmap|Roteiro da Lição|Ruta de la Lección)", heading_only=True)
     intro_page = find_page(pages, r"(?:Introduction|Introdução|Introducción)", min_page=2, heading_only=True)
     objectives_page = find_page(pages, r"(?:Learning Objectives|Objetivos de Aprendizagem|Objetivos de Aprendizaje)", min_page=2, heading_only=True)
-    section_01_page = find_page(pages, r"(?:Section|Seção|Sección)\s+01\s*[:-]", min_page=2)
+    section_01_page = find_page(pages, r"(?:Section|Seção|Sección)\s+01\s*[:-]", min_page=3)
     summary_page = find_page(pages, r"(?:Summary and Key Takeaways|Resumo e Principais Conclusões|Resumen y Conclusiones Clave)", min_page=3, heading_only=True)
     glossary_page = find_page(pages, r"(?:Glossary|Glossário|Glosario)", min_page=3, heading_only=True)
     references_page = find_page(pages, r"(?:References|Referências|Referencias)", min_page=3, heading_only=True)
@@ -281,8 +281,8 @@ def run_checks(pdf_path: Path, qa_path: Path | None = None) -> dict:
     elif intro_page and objectives_page:
         findings.append(Finding("warn", "intro_objectives_same_page", f"Introduction page {intro_page}, objectives page {objectives_page}; approved template expects both together."))
 
-    if objectives_page and section_01_page and section_01_page >= objectives_page:
-        findings.append(Finding("pass", "body_starts_after_objectives", "Lesson body starts on or after the front matter page."))
+    if objectives_page and section_01_page and section_01_page > objectives_page:
+        findings.append(Finding("pass", "body_starts_after_objectives", "Lesson body starts after the front matter page."))
     elif objectives_page and section_01_page:
         findings.append(Finding("fail", "body_starts_after_objectives", "Lesson body starts before or on the Learning Objectives page."))
 

@@ -31,6 +31,13 @@ except ModuleNotFoundError as error:
 
 
 class RenderStudyGuideFromSpecTests(unittest.TestCase):
+    def test_bare_localized_callout_label_still_renders_as_a_box(self) -> None:
+        if pdf_renderer is None:
+            self.skipTest("ReportLab is not installed in this Python environment.")
+        blocks = pdf_renderer.parse_markdown("> EXEMPLO PRÁTICO\n> Corpo.", locale="pt_br")
+        self.assertEqual("callout", blocks[0]["type"])
+        self.assertEqual("EXEMPLO PRÁTICO", blocks[0]["label"])
+
     def test_markdown_table_becomes_a_table_block_not_a_paragraph(self) -> None:
         if pdf_renderer is None:
             self.skipTest("ReportLab is not installed in this Python environment.")
@@ -160,6 +167,7 @@ class RenderStudyGuideFromSpecTests(unittest.TestCase):
             def roundRect(self, *_ , **__): pass
             def line(self, *_): pass
             def setFont(self, *_): pass
+            def drawString(self, *_): pass
             def drawCentredString(self, *_): pass
         title = "Fogão elétrico fornecido pelo proprietário"
         diagram = pdf_renderer.RelationshipMapDiagram("Responsabilidades", [{"title": title}] + [{"title": "Papel"}] * 5)
