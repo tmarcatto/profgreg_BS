@@ -758,7 +758,10 @@ def ui_shell(default_course: str) -> str:
       white-space: nowrap;
     }}
     .nav a:hover {{ background: rgba(255,255,255,.1); color: #fff; }}
+    .nav a.active {{ background: var(--orange); color: #fff; }}
     main {{ padding: 24px 28px 44px; display: grid; gap: 18px; max-width: 1360px; margin: 0 auto; }}
+    .console-page {{ display: none; gap: 18px; }}
+    .console-page.active {{ display: grid; }}
     input, textarea, button, select {{
       font: inherit;
       border: 1px solid var(--line);
@@ -837,6 +840,8 @@ def ui_shell(default_course: str) -> str:
     .worker-lane {{ border: 1px solid var(--line); border-radius: 8px; padding: 12px; background: #fff; box-shadow: var(--shadow); }}
     .worker-lane strong {{ display: block; color: var(--navy); margin-bottom: 4px; }}
     .worker-lane .lane-note {{ color: var(--muted); font-size: 12px; margin-bottom: 7px; }}
+    .worker-tasks {{ margin: 10px 0 0; padding: 9px 0 0 18px; border-top: 1px solid var(--line); color: var(--muted); font-size: 12px; line-height: 1.4; }}
+    .worker-tasks li + li {{ margin-top: 5px; }}
     .progress-card {{
       border: 1px solid #fed7aa;
       border-radius: 8px;
@@ -1046,16 +1051,15 @@ def ui_shell(default_course: str) -> str:
       </div>
     </div>
     <nav class="nav" aria-label="Console sections">
-      <a href="#brief">Brief</a>
-      <a href="#materials">Materials</a>
-      <a href="#course-map">Course Map</a>
-      <a href="#pipeline">Lessons</a>
-      <a href="#approvals">Approvals</a>
-      <a href="#video-generator">Video Generator</a>
-      <a href="#costs">AI Costs</a>
+      <a href="#dashboard" data-page-link="dashboard">Dashboard</a>
+      <a href="#sections-1-2" data-page-link="sections-1-2">Sections 1–2</a>
+      <a href="#sections-3-4" data-page-link="sections-3-4">Sections 3–4</a>
+      <a href="#section-5" data-page-link="section-5">Section 5</a>
+      <a href="#section-6" data-page-link="section-6">Section 6</a>
     </nav>
   </header>
   <main>
+    <div class="console-page active" data-page="dashboard">
     <div class="workspace-bar">
       <div class="workspace-field">
         <label for="course">Active course workspace</label>
@@ -1077,9 +1081,9 @@ def ui_shell(default_course: str) -> str:
       <span id="currentActivity">Idle.</span>
     </div>
     <div class="worker-lanes" aria-label="Production worker lanes">
-      <div class="worker-lane"><strong>Content worker</strong><div class="lane-note">Course maps, course books, and book translations</div><span id="contentLaneStatus" class="muted">Checking…</span></div>
-      <div class="worker-lane"><strong>Delivery worker</strong><div class="lane-note">Presentations, deck translations, and operational tasks</div><span id="deliveryLaneStatus" class="muted">Checking…</span></div>
-      <div class="worker-lane"><strong>Video worker</strong><div class="lane-note">AI Studios video requests, independent of material production</div><span id="videoLaneStatus" class="muted">Checking…</span></div>
+      <div class="worker-lane"><strong>Content worker</strong><div class="lane-note">Course maps, course books, and book translations</div><span id="contentLaneStatus" class="muted">Checking…</span><ul id="contentLaneTasks" class="worker-tasks"><li>Checking task list…</li></ul></div>
+      <div class="worker-lane"><strong>Delivery worker</strong><div class="lane-note">Presentations, deck translations, and operational tasks</div><span id="deliveryLaneStatus" class="muted">Checking…</span><ul id="deliveryLaneTasks" class="worker-tasks"><li>Checking task list…</li></ul></div>
+      <div class="worker-lane"><strong>Video worker</strong><div class="lane-note">AI Studios video requests, independent of material production</div><span id="videoLaneStatus" class="muted">Checking…</span><ul id="videoLaneTasks" class="worker-tasks"><li>Checking task list…</li></ul></div>
     </div>
     <div class="progress-card">
       <div class="progress-top">
@@ -1090,6 +1094,19 @@ def ui_shell(default_course: str) -> str:
       <div class="progress-steps" id="progressSteps"></div>
     </div>
 
+    <section id="costs" class="card">
+      <div class="section-head"><div class="title-row"><div class="step-num">7</div><div><h2>AI Costs</h2><div class="hint">Every provider call made for this course workspace is listed separately. Totals use the configured API rate card.</div></div></div></div>
+      <div class="body">
+        <div class="status-summary" id="costSummary"><div class="metric"><div class="label">Total estimated investment</div><div class="value">Loading…</div></div></div>
+        <div class="cost-provider-list">Complete calculation for this course</div>
+        <div class="table-wrap"><table><thead><tr><th>Provider</th><th>Model</th><th>API calls</th><th>Cost (USD)</th></tr></thead><tbody id="costMath"><tr><td colspan="4" class="muted">No cost calculation available yet.</td></tr></tbody></table></div>
+        <div class="cost-provider-list" id="costRecentLabel">Latest API requests</div>
+        <div class="table-wrap"><table><thead><tr><th>Date / time</th><th>Artifact / stage</th><th>Provider</th><th>Model</th><th>Usage</th><th>Cost (USD)</th><th>Status</th></tr></thead><tbody id="costRows"><tr><td colspan="7" class="muted">No AI calls recorded for this workspace.</td></tr></tbody></table></div>
+      </div>
+    </section>
+    </div>
+
+    <div class="console-page" data-page="sections-1-2">
     <section id="brief" class="card">
       <div class="section-head">
         <div class="title-row">
@@ -1163,7 +1180,9 @@ def ui_shell(default_course: str) -> str:
         </div>
       </div>
     </section>
+    </div>
 
+    <div class="console-page" data-page="sections-3-4">
     <section id="course-map" class="card">
       <div class="section-head">
         <div class="title-row">
@@ -1220,7 +1239,9 @@ def ui_shell(default_course: str) -> str:
         </div>
       </div>
     </section>
+    </div>
 
+    <div class="console-page" data-page="section-5">
     <section id="approvals" class="card">
       <div class="section-head">
         <div class="title-row">
@@ -1237,9 +1258,17 @@ def ui_shell(default_course: str) -> str:
           <div class="operator-result" id="operatorResult" role="status" aria-live="polite"></div>
           <div class="operator-tool-actions"><button class="primary" id="applyOperatorAction">Apply action</button></div>
         </div>
+        <div class="table-wrap">
+          <table>
+            <thead><tr><th>Editing material</th><th>Scope</th><th>Use</th><th>Reference policy</th><th>Size</th><th>Actions</th></tr></thead>
+            <tbody id="revisionUploads"><tr><td colspan="6" class="muted">No editing materials attached yet.</td></tr></tbody>
+          </table>
+        </div>
       </div>
     </section>
+    </div>
 
+    <div class="console-page" data-page="section-6">
     <section id="video-generator" class="card">
       <div class="section-head">
         <div class="title-row">
@@ -1258,17 +1287,7 @@ def ui_shell(default_course: str) -> str:
         </div>
       </div>
     </section>
-
-    <section id="costs" class="card">
-      <div class="section-head"><div class="title-row"><div class="step-num">7</div><div><h2>AI Costs</h2><div class="hint">Every provider call made for this course workspace is listed separately. Totals use the configured API rate card.</div></div></div></div>
-      <div class="body">
-        <div class="status-summary" id="costSummary"><div class="metric"><div class="label">Total estimated investment</div><div class="value">Loading…</div></div></div>
-        <div class="cost-provider-list">Complete calculation for this course</div>
-        <div class="table-wrap"><table><thead><tr><th>Provider</th><th>Model</th><th>API calls</th><th>Cost (USD)</th></tr></thead><tbody id="costMath"><tr><td colspan="4" class="muted">No cost calculation available yet.</td></tr></tbody></table></div>
-        <div class="cost-provider-list" id="costRecentLabel">Latest API requests</div>
-        <div class="table-wrap"><table><thead><tr><th>Date / time</th><th>Artifact / stage</th><th>Provider</th><th>Model</th><th>Usage</th><th>Cost (USD)</th><th>Status</th></tr></thead><tbody id="costRows"><tr><td colspan="7" class="muted">No AI calls recorded for this workspace.</td></tr></tbody></table></div>
-      </div>
-    </section>
+    </div>
 
   </main>
   <script>
@@ -1283,6 +1302,14 @@ def ui_shell(default_course: str) -> str:
     let operatorActionInFlight = false;
     let uploadQueue = [];
     let revisionRequestCount = 0;
+    const consolePages = new Set(['dashboard', 'sections-1-2', 'sections-3-4', 'section-5', 'section-6']);
+    function showConsolePage(requestedPage, updateHash = false) {{
+      const page = consolePages.has(requestedPage) ? requestedPage : 'dashboard';
+      document.querySelectorAll('[data-page]').forEach(item => item.classList.toggle('active', item.dataset.page === page));
+      document.querySelectorAll('[data-page-link]').forEach(item => item.classList.toggle('active', item.dataset.pageLink === page));
+      if (updateHash && location.hash !== `#${{page}}`) history.pushState(null, '', `#${{page}}`);
+      window.scrollTo({{top: 0, behavior: 'smooth'}});
+    }}
     const progressSteps = [
       ['course_map', 'Course Map', 'Map and source research'],
       ['book', 'Course books', 'English PDFs by lesson'],
@@ -1579,6 +1606,17 @@ def ui_shell(default_course: str) -> str:
         <td><div class="upload-actions"><button class="mini" onclick="saveUpload('${{id}}')">Save</button><button class="mini danger" onclick="deleteUpload('${{id}}')">Delete</button></div></td>
       </tr>`;
     }}
+    function renderUploadTables(items) {{
+      const sourceMaterials = items.filter(item => !item.purpose || item.purpose === 'source_material');
+      const editingMaterials = items.filter(item => item.purpose && item.purpose !== 'source_material');
+      document.getElementById('uploads').innerHTML = sourceMaterials.length
+        ? sourceMaterials.map(uploadRow).join('')
+        : '<tr><td colspan="6" class="muted">No source materials attached yet.</td></tr>';
+      document.getElementById('revisionUploads').innerHTML = editingMaterials.length
+        ? editingMaterials.map(uploadRow).join('')
+        : '<tr><td colspan="6" class="muted">No editing materials attached yet.</td></tr>';
+      for (const item of items) toggleUploadLesson(item.upload_id);
+    }}
     function toggleUploadLesson(id) {{
       const lesson = document.getElementById('lesson-' + id);
       const scope = document.getElementById('scope-' + id);
@@ -1625,6 +1663,7 @@ def ui_shell(default_course: str) -> str:
       renderUploadQueue();
       setLevel('Basic');
       document.getElementById('uploads').innerHTML = '<tr><td colspan="6" class="muted">No source materials attached yet.</td></tr>';
+      document.getElementById('revisionUploads').innerHTML = '<tr><td colspan="6" class="muted">No editing materials attached yet.</td></tr>';
       toggleLessonInput();
       renderPipeline();
       renderLessonSelection();
@@ -1656,12 +1695,14 @@ def ui_shell(default_course: str) -> str:
     }}
     function openNewCourse() {{
       resetWorkspace();
+      showConsolePage('sections-1-2', true);
       document.getElementById('brief').scrollIntoView({{behavior: 'smooth', block: 'start'}});
       document.getElementById('courseTitle').focus();
     }}
     function restartWorkspace() {{
       resetWorkspace();
       msg.textContent = 'Workspace cleared. The saved course remains on the server.';
+      showConsolePage('sections-1-2', true);
       document.getElementById('brief').scrollIntoView({{behavior: 'smooth', block: 'start'}});
     }}
     async function deleteCourse() {{
@@ -1696,8 +1737,7 @@ def ui_shell(default_course: str) -> str:
         currentJobs = jobs.jobs || [];
         renderJobs();
         const uploads = await api('/api/uploads?course=' + encodeURIComponent(course.value));
-        document.getElementById('uploads').innerHTML = uploads.uploads.length ? uploads.uploads.map(uploadRow).join('') : '<tr><td colspan="6" class="muted">No source materials attached yet.</td></tr>';
-        for (const item of uploads.uploads) toggleUploadLesson(item.upload_id);
+        renderUploadTables(uploads.uploads || []);
         renderPipeline();
         renderLessonSelection();
         renderVideoGenerator();
@@ -1752,6 +1792,7 @@ def ui_shell(default_course: str) -> str:
     function renderWorkerLanes() {{
       for (const lane of ['content', 'delivery', 'video']) {{
         const holder = document.getElementById(lane + 'LaneStatus');
+        const taskHolder = document.getElementById(lane + 'LaneTasks');
         const jobs = currentJobs.filter(job => String(job.lane || '') === lane && ['queued', 'running'].includes(job.state));
         const running = jobs.find(job => job.state === 'running');
         const queued = jobs.filter(job => job.state === 'queued').length;
@@ -1762,6 +1803,9 @@ def ui_shell(default_course: str) -> str:
         }} else {{
           holder.innerHTML = `<span class="state completed">Available</span> · Ready for the next selected action`;
         }}
+        taskHolder.innerHTML = jobs.length
+          ? jobs.map(job => `<li><span class="state ${{esc(job.state)}}">${{esc(job.state)}}</span> · ${{esc(activeJobMessage(job))}}</li>`).join('')
+          : '<li>No pending tasks.</li>';
       }}
     }}
     function activeJobMessage(job) {{
@@ -2134,6 +2178,8 @@ def ui_shell(default_course: str) -> str:
     document.getElementById('selectAllLessons').onchange = event => {{
       document.querySelectorAll('[data-lesson-select]').forEach(input => input.checked = event.target.checked);
     }};
+    window.addEventListener('hashchange', () => showConsolePage(location.hash.slice(1)));
+    showConsolePage(location.hash.slice(1) || 'dashboard');
     toggleLessonInput();
     restoreSavedCourse();
     setInterval(refreshWorkspaceIfIdle, 10000);
