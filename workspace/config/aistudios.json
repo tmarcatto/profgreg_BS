@@ -1,0 +1,17 @@
+{
+  "workspace": {
+    "id": "68e3ba741deb49a6fe4b2140",
+    "name": "Sundry Opps'"
+  },
+  "avatar": {
+    "modelId": "M000412619",
+    "clothingId": "BG00009203",
+    "name": "Gregory",
+    "variant": "Orange"
+  },
+  "template": {
+    "id": "69af77d4e37ba70229061941",
+    "name": "PPT AI POS_6_c_right top",
+    "avatarPosition": "upper-right"
+  }
+}

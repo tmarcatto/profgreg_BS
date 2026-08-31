@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import importlib.util
+import json
 import sys
 import tempfile
 import unittest
@@ -192,6 +193,85 @@ class CourseStatusTests(unittest.TestCase):
 
         self.assertIn("Lesson status:", text)
         self.assertIn("| 01 | approved | approved | present |", text)
+
+    def test_video_lane_requires_an_approved_presentation(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            run = Path(tmp)
+            result = status.video_generation_status(run, "02", {"deck": "active", "deck_path": ""})
+        self.assertEqual("waiting_approved_presentation", result["en"]["status"])
+
+    def test_video_lane_detects_a_new_approved_revision_by_hash(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            run = Path(tmp)
+            deck = run / "deck" / "lesson_02_deck_r02.pptx"
+            deck.parent.mkdir()
+            deck.write_bytes(b"new approved deck")
+            state_dir = run / "video_generator"
+            state_dir.mkdir()
+            (state_dir / "lesson_02_en.json").write_text(
+                '{"status":"video_ready","source_sha256":"old-hash","project_url":"https://app.aistudios.com/project/old","download_url":"https://cdn.aistudios.com/video/old.mp4"}',
+                encoding="utf-8",
+            )
+            result = status.video_generation_status(
+                run,
+                "02",
+                {"deck": "approved", "deck_path": str(deck)},
+            )
+        self.assertEqual("ready_new_revision", result["en"]["status"])
+        self.assertEqual("https://app.aistudios.com/project/old", result["en"]["previous_project_url"])
+        self.assertEqual("https://cdn.aistudios.com/video/old.mp4", result["en"]["previous_download_url"])
+
+    def test_video_lane_blocks_a_presentation_over_twenty_mb(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            run = Path(tmp)
+            deck = run / "deck" / "lesson_02_deck.pptx"
+            deck.parent.mkdir()
+            with deck.open("wb") as handle:
+                handle.seek(status.VIDEO_SOURCE_MAX_BYTES)
+                handle.write(b"x")
+            result = status.video_generation_status(
+                run,
+                "02",
+                {"deck": "approved", "deck_path": str(deck)},
+            )
+        self.assertEqual("presentation_too_large", result["en"]["status"])
+
+    def test_video_lane_reads_completed_worker_state(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            run = Path(tmp)
+            deck = run / "deck" / "lesson_02_deck_r03.pptx"
+            deck.parent.mkdir()
+            deck.write_bytes(b"approved deck")
+            deck_stat = deck.stat()
+            state_dir = run / "video_generator"
+            state_dir.mkdir()
+            source_hash = status.file_sha256(deck)
+            (state_dir / "lesson_02_en.json").write_text(
+                json.dumps(
+                    {
+                        "status": "video_ready",
+                        "sourcePath": str(deck),
+                        "sourceSha256": source_hash,
+                        "sourceSizeBytes": deck_stat.st_size,
+                        "sourceModifiedNs": deck_stat.st_mtime_ns,
+                        "attemptCount": 1,
+                        "downloadUrl": "https://media.aistudios.com/export/video.completed.mp4",
+                        "updatedAt": "2026-08-31T21:10:26Z",
+                    }
+                ),
+                encoding="utf-8",
+            )
+            result = status.video_generation_status(
+                run,
+                "02",
+                {"deck": "approved", "deck_path": str(deck)},
+            )
+        self.assertEqual("video_ready", result["en"]["status"])
+        self.assertEqual(1, result["en"]["attempts"])
+        self.assertEqual(
+            "https://media.aistudios.com/export/video.completed.mp4",
+            result["en"]["download_url"],
+        )
 
 
 if __name__ == "__main__":

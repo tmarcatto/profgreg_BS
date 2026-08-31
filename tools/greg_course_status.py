@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
 import re
 from dataclasses import dataclass, asdict
@@ -10,6 +11,12 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 RUNS = ROOT / "runs"
+VIDEO_SOURCE_MAX_BYTES = 20 * 1024 * 1024
+VIDEO_LOCALES = {
+    "en": ("deck", "deck_path"),
+    "pt": ("pt_br_deck", "pt_br_deck_path"),
+    "es": ("es_deck", "es_deck_path"),
+}
 
 
 @dataclass
@@ -64,6 +71,87 @@ def load_json(path: Path) -> dict:
         return json.loads(path.read_text(encoding="utf-8"))
     except json.JSONDecodeError:
         return {}
+
+
+def file_sha256(path: Path) -> str:
+    digest = hashlib.sha256()
+    with path.open("rb") as handle:
+        for chunk in iter(lambda: handle.read(1024 * 1024), b""):
+            digest.update(chunk)
+    return digest.hexdigest()
+
+
+def video_state_value(saved: dict, snake_case: str, camel_case: str, default=None):
+    """Read both the original UI schema and the AI Studios worker schema."""
+    if snake_case in saved:
+        return saved[snake_case]
+    if camel_case in saved:
+        return saved[camel_case]
+    return default
+
+
+def video_generation_status(run: Path, lesson: str, row: dict) -> dict[str, dict]:
+    """Describe one independent video lane per approved presentation locale."""
+    result: dict[str, dict] = {}
+    for locale, (approval_field, path_field) in VIDEO_LOCALES.items():
+        source_relative = str(row.get(path_field) or "")
+        source_path = ROOT / source_relative if source_relative else None
+        state_path = run / "video_generator" / f"lesson_{lesson}_{locale}.json"
+        saved = load_json(state_path)
+        lane = {
+            "locale": locale,
+            "status": "waiting_approved_presentation",
+            "presentation_path": source_relative,
+            "source_sha256": "",
+            "project_url": "",
+            "download_url": "",
+            "attempts": 0,
+        }
+        if row.get(approval_field) != "approved" or not source_path or not source_path.is_file():
+            result[locale] = lane
+            continue
+        source_stat = source_path.stat()
+        lane["source_size_bytes"] = source_stat.st_size
+        lane["source_mtime_ns"] = source_stat.st_mtime_ns
+        if source_stat.st_size > VIDEO_SOURCE_MAX_BYTES:
+            lane["status"] = "presentation_too_large"
+            result[locale] = lane
+            continue
+        if saved:
+            saved_source_path = video_state_value(saved, "presentation_path", "sourcePath", "")
+            saved_source_size = video_state_value(saved, "source_size_bytes", "sourceSizeBytes")
+            saved_source_mtime = video_state_value(saved, "source_mtime_ns", "sourceModifiedNs")
+            saved_source_sha256 = str(video_state_value(saved, "source_sha256", "sourceSha256", "") or "")
+            unchanged_metadata = (
+                saved_source_path == source_relative
+                and saved_source_size == source_stat.st_size
+                and saved_source_mtime == source_stat.st_mtime_ns
+                and bool(saved_source_sha256)
+            )
+            lane["source_sha256"] = saved_source_sha256 if unchanged_metadata else file_sha256(source_path)
+        else:
+            saved_source_sha256 = ""
+        if lane["source_sha256"] and saved_source_sha256 == lane["source_sha256"]:
+            field_names = {
+                "status": ("status", "status"),
+                "project_url": ("project_url", "projectUrl"),
+                "download_url": ("download_url", "downloadUrl"),
+                "attempts": ("attempts", "attemptCount"),
+                "updated_at": ("updated_at", "updatedAt"),
+                "last_error": ("last_error", "errorSummary"),
+            }
+            for target, (snake_case, camel_case) in field_names.items():
+                value = video_state_value(saved, snake_case, camel_case)
+                if value is not None:
+                    lane[target] = value
+        elif saved:
+            lane["status"] = "ready_new_revision"
+            lane["previous_project_url"] = str(video_state_value(saved, "project_url", "projectUrl", "") or "")
+            lane["previous_download_url"] = str(video_state_value(saved, "download_url", "downloadUrl", "") or "")
+        else:
+            lane["status"] = "ready"
+        result[locale] = lane
+    return result
 
 
 def lesson_titles(run: Path) -> dict[str, str]:
@@ -420,6 +508,7 @@ def summarize_lessons(run: Path, manifest: dict) -> list[dict]:
                 row[field] = "revision_requested"
             elif state.get("state") == "ready_for_review":
                 row[field] = "ready_for_review"
+        row["videos"] = video_generation_status(run, lesson, row)
     return [lessons[key] for key in sorted(lessons)]
 
 

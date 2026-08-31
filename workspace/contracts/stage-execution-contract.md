@@ -17,7 +17,8 @@ Default production order:
 7. `HUMAN_APPROVAL`
 8. `DECK`
 9. `LOCALIZATION`
-10. `PROCESS_REVIEW`
+10. `VIDEO_GENERATOR`
+11. `PROCESS_REVIEW`
 
 During v0, `LOCALIZATION` may be smoke-test only. Full localized DOCX/PDF/PPTX production comes after the English flow is reliable.
 
@@ -33,7 +34,8 @@ During v0, `LOCALIZATION` may be smoke-test only. Full localized DOCX/PDF/PPTX p
 | `DOCX_PDF` | reviewed lesson draft, design system, visual assets | `docx_pdf/lesson_[NN]_study_guide.docx`, `docx_pdf/lesson_[NN]_study_guide.pdf`, `docx_pdf/lesson_[NN]_render_qa.md` | render QA not blocked | `HUMAN_APPROVAL` |
 | `HUMAN_APPROVAL` | final DOCX/PDF | `approval/lesson_[NN]_study_guide_approval.md` | explicit human approval and deck permission | `DECK` |
 | `DECK` | approved English study guide, approval record, design system | `deck/lesson_[NN]_deck.pptx`, `deck/lesson_[NN]_deck_qa.md` | deck QA not blocked | `LOCALIZATION` or `PROCESS_REVIEW` |
-| `LOCALIZATION` | approved English artifacts | localized study guide/deck text artifacts and QA files | localization QA not blocked | `PROCESS_REVIEW` |
+| `LOCALIZATION` | approved English artifacts | localized study guide/deck text artifacts and QA files | localization QA not blocked | `VIDEO_GENERATOR` or `PROCESS_REVIEW` |
+| `VIDEO_GENERATOR` | canonical approved EN, PT-BR, or ES presentation | per-locale video state, AI Studios project ID, and direct download URL | approved PPTX, 20 MB limit, source SHA-256 idempotency, and successful export | `PROCESS_REVIEW` |
 | `PROCESS_REVIEW` | run artifacts and QA notes | `process_review/full_flow_test_report.md` | actionable learning captured | end |
 
 ## Consolidated Lesson QA
@@ -118,6 +120,7 @@ docx_pdf/lesson_[NN]_production_blocked.md
 approval/lesson_[NN]_approval_blocked.md
 deck/lesson_[NN]_deck_blocked.md
 localization/lesson_[NN]_localization_blocked.md
+video_generator/lesson_[NN]_[locale]_blocked.md
 process_review/full_flow_test_blocked.md
 ```
 

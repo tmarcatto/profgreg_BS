@@ -89,3 +89,9 @@ The first worker implementation is intentionally narrow:
 - `lesson_lifecycle` runs only source refresh, consolidated QA, and canonical manifest updates;
 - unsupported request types fail with a short operator-safe error summary;
 - course-production jobs remain gated until their execution contracts are explicit.
+
+## Video Generator Expansion
+
+`video_generation` is the planned request type for the Video Generator contract. It must include course, lesson, locale, and source SHA-256. The official Enterprise API path passed the Lesson 2 English pilot on 2026-08-31. The job type may be added to the accepted worker types after its dedicated queue execution and recovery tests pass.
+
+Video jobs run one at a time in the delivery lane. Each locale fails independently and retries at most twice. The worker uploads the approved presentation, preserves AI Studios transcript generation, exports the video, and records the direct download URL. No browser session is part of the worker flow.

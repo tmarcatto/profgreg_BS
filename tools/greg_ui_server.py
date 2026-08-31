@@ -990,6 +990,12 @@ def ui_shell(default_course: str) -> str:
     .status-pill.not-approved {{ background: #fff6e8; color: var(--warn); }}
     .status-pill.revision-needs-attention {{ background: #fff1f0; color: var(--bad); }}
     .status-pill.revision-in-progress {{ background: #fff6e8; color: var(--warn); }}
+    .status-pill.video-available {{ background: #e7f6ec; color: var(--ok); }}
+    .status-pill.waiting-for-approved-presentation {{ background: #f2f4f7; color: #667085; }}
+    .status-pill.ready-for-video-generation, .status-pill.new-approved-revision-ready,
+    .status-pill.queued, .status-pill.uploading, .status-pill.configuring,
+    .status-pill.generating-transcripts, .status-pill.exporting, .status-pill.rendering {{ background: #fff6e8; color: var(--warn); }}
+    .status-pill.presentation-exceeds-20-mb, .status-pill.needs-attention, .status-pill.failed {{ background: #fff1f0; color: var(--bad); }}
     .status-summary {{ display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px; }}
     .metric {{ border: 1px solid var(--line); border-radius: 8px; padding: 12px; background: #fff; }}
     .metric .label {{ color: var(--muted); font-size: 12px; text-transform: uppercase; letter-spacing: .04em; font-weight: 760; }}
@@ -1045,6 +1051,7 @@ def ui_shell(default_course: str) -> str:
       <a href="#course-map">Course Map</a>
       <a href="#pipeline">Lessons</a>
       <a href="#approvals">Approvals</a>
+      <a href="#video-generator">Video Generator</a>
       <a href="#costs">AI Costs</a>
     </nav>
   </header>
@@ -1232,8 +1239,27 @@ def ui_shell(default_course: str) -> str:
       </div>
     </section>
 
+    <section id="video-generator" class="card">
+      <div class="section-head">
+        <div class="title-row">
+          <div class="step-num">6</div>
+          <div><h2>Video Generator</h2><div class="hint">Each approved presentation enters its own English, Portuguese, or Spanish video lane. A revised approved PPTX always creates a new video record. Completed exports provide a direct video download URL.</div></div>
+        </div>
+      </div>
+      <div class="body">
+        <div class="status-summary" id="videoGeneratorSummary"><div class="metric"><div class="label">Videos available</div><div class="value">0</div></div><div class="metric"><div class="label">In production</div><div class="value">0</div></div><div class="metric"><div class="label">Waiting for presentation</div><div class="value">0</div></div></div>
+        <div class="notice">AI Studios integration validated. Each approved presentation is handled independently, one video at a time. Completed videos appear below with a direct download link.</div>
+        <div class="lesson-table-wrap">
+          <table class="lesson-table">
+            <thead><tr><th>Lesson</th><th>English video</th><th>Portuguese video</th><th>Spanish video</th></tr></thead>
+            <tbody id="videoGeneratorRows"><tr><td colspan="4" class="muted">Generate and approve a presentation to prepare its video.</td></tr></tbody>
+          </table>
+        </div>
+      </div>
+    </section>
+
     <section id="costs" class="card">
-      <div class="section-head"><div class="title-row"><div class="step-num">6</div><div><h2>AI Costs</h2><div class="hint">Every provider call made for this course workspace is listed separately. Totals use the configured API rate card.</div></div></div></div>
+      <div class="section-head"><div class="title-row"><div class="step-num">7</div><div><h2>AI Costs</h2><div class="hint">Every provider call made for this course workspace is listed separately. Totals use the configured API rate card.</div></div></div></div>
       <div class="body">
         <div class="status-summary" id="costSummary"><div class="metric"><div class="label">Total estimated investment</div><div class="value">Loading…</div></div></div>
         <div class="cost-provider-list">Complete calculation for this course</div>
@@ -1601,6 +1627,7 @@ def ui_shell(default_course: str) -> str:
       toggleLessonInput();
       renderPipeline();
       renderLessonSelection();
+      renderVideoGenerator();
       renderJobs();
       if (showMessage) msg.textContent = 'New course workspace ready.';
     }}
@@ -1672,6 +1699,7 @@ def ui_shell(default_course: str) -> str:
         for (const item of uploads.uploads) toggleUploadLesson(item.upload_id);
         renderPipeline();
         renderLessonSelection();
+        renderVideoGenerator();
         // Cost loading is intentionally independent: an unavailable report
         // must never hold up production, approvals, or revision controls.
         renderCosts(null);
@@ -1877,6 +1905,58 @@ def ui_shell(default_course: str) -> str:
           </tr>`).join('')
         : '<tr><td colspan="9" class="muted">Generate the Course Map first to choose lessons.</td></tr>';
       document.getElementById('selectAllLessons').checked = false;
+    }}
+    function safeAiStudiosUrl(value) {{
+      try {{
+        const url = new URL(String(value || ''));
+        return url.protocol === 'https:' && (url.hostname === 'aistudios.com' || url.hostname.endsWith('.aistudios.com')) ? url.href : '';
+      }} catch (_error) {{ return ''; }}
+    }}
+    function safeHttpsUrl(value) {{
+      try {{
+        const url = new URL(String(value || ''));
+        return url.protocol === 'https:' && !url.username && !url.password ? url.href : '';
+      }} catch (_error) {{ return ''; }}
+    }}
+    function videoCell(item, locale, label) {{
+      const video = item?.videos?.[locale] || {{status:'waiting_approved_presentation'}};
+      const labels = {{
+        waiting_approved_presentation: 'waiting for approved presentation',
+        presentation_too_large: 'presentation exceeds 20 MB',
+        ready: 'ready for video generation',
+        ready_new_revision: 'new approved revision ready',
+        queued: 'queued', uploading: 'uploading', configuring: 'configuring',
+        generating_transcripts: 'generating transcripts', awaiting_export_confirmation: 'awaiting export confirmation',
+        exporting: 'exporting', rendering: 'rendering',
+        video_ready: 'video available', needs_attention: 'needs attention', failed: 'failed'
+      }};
+      const status = labels[video.status] || String(video.status || 'not started').replace(/_/g, ' ');
+      const links = [];
+      if (isDownloadablePath(video.presentation_path)) {{
+        const filename = `Lesson ${{String(item.lesson).padStart(2, '0')}} - ${{cleanFilenamePart(item.title || 'Course lesson')}} - ${{label}} Presentation.pptx`;
+        links.push(`<a class="doc-link" href="/artifact?path=${{encodeURIComponent(video.presentation_path)}}&filename=${{encodeURIComponent(filename)}}" target="_blank" rel="noopener">presentation</a>`);
+      }}
+      const projectUrl = safeAiStudiosUrl(video.project_url);
+      const downloadUrl = safeHttpsUrl(video.download_url);
+      if (projectUrl) links.push(`<a class="doc-link" href="${{esc(projectUrl)}}" target="_blank" rel="noopener">AI Studios project</a>`);
+      if (downloadUrl) links.push(`<a class="doc-link" href="${{esc(downloadUrl)}}" target="_blank" rel="noopener">download video</a>`);
+      return `<span class="doc-cell">${{statusPill(status)}}${{links.length ? ' ' + links.join(' · ') : ''}}</span>`;
+    }}
+    function renderVideoGenerator() {{
+      const holder = document.getElementById('videoGeneratorRows');
+      const lessons = currentStatus?.lessons || [];
+      const videos = lessons.flatMap(item => Object.values(item.videos || {{}}));
+      const inProductionStates = new Set(['queued', 'uploading', 'configuring', 'generating_transcripts', 'awaiting_export_confirmation', 'exporting', 'rendering']);
+      const available = videos.filter(video => video.status === 'video_ready').length;
+      const inProduction = videos.filter(video => inProductionStates.has(video.status)).length;
+      const waiting = videos.filter(video => video.status === 'waiting_approved_presentation').length;
+      document.getElementById('videoGeneratorSummary').innerHTML = `<div class="metric"><div class="label">Videos available</div><div class="value">${{available}}</div></div><div class="metric"><div class="label">In production</div><div class="value">${{inProduction}}</div></div><div class="metric"><div class="label">Waiting for presentation</div><div class="value">${{waiting}}</div></div>`;
+      holder.innerHTML = lessons.length ? lessons.map(item => `<tr>
+        <td class="lesson-title-cell">Lesson ${{esc(item.lesson)}}<br><span class="muted">${{esc(item.title || '')}}</span></td>
+        <td>${{videoCell(item, 'en', 'English')}}</td>
+        <td>${{videoCell(item, 'pt', 'Portuguese')}}</td>
+        <td>${{videoCell(item, 'es', 'Spanish')}}</td>
+      </tr>`).join('') : '<tr><td colspan="4" class="muted">Generate and approve a presentation to prepare its video.</td></tr>';
     }}
     function visualCell(item) {{
       const visualLabel = item.visual_status === 'waiting_images'
