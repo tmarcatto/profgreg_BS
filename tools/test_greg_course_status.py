@@ -200,6 +200,21 @@ class CourseStatusTests(unittest.TestCase):
             result = status.video_generation_status(run, "02", {"deck": "active", "deck_path": ""})
         self.assertEqual("waiting_approved_presentation", result["en"]["status"])
 
+    def test_ready_video_lane_includes_source_hash_for_automatic_queue(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            run = Path(tmp)
+            deck = run / "deck" / "lesson_02_deck.pptx"
+            deck.parent.mkdir()
+            deck.write_bytes(b"approved deck")
+            result = status.video_generation_status(
+                run,
+                "02",
+                {"deck": "approved", "deck_path": str(deck)},
+            )
+            expected_hash = status.file_sha256(deck)
+        self.assertEqual("ready", result["en"]["status"])
+        self.assertEqual(expected_hash, result["en"]["source_sha256"])
+
     def test_video_lane_detects_a_new_approved_revision_by_hash(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             run = Path(tmp)

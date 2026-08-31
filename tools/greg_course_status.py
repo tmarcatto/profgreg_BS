@@ -131,6 +131,7 @@ def video_generation_status(run: Path, lesson: str, row: dict) -> dict[str, dict
             lane["source_sha256"] = saved_source_sha256 if unchanged_metadata else file_sha256(source_path)
         else:
             saved_source_sha256 = ""
+            lane["source_sha256"] = file_sha256(source_path)
         if lane["source_sha256"] and saved_source_sha256 == lane["source_sha256"]:
             field_names = {
                 "status": ("status", "status"),
