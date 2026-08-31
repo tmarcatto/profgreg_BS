@@ -2232,12 +2232,31 @@ def localization_name(locale: str) -> tuple[str, str]:
     raise ValueError(f"Unsupported locale: {locale}")
 
 
+def localized_visuals_fit_contract(visuals: Any) -> bool:
+    """Return whether cached localized visuals remain safe for the renderer."""
+    if not isinstance(visuals, list):
+        return False
+    for visual in visuals:
+        if not isinstance(visual, dict):
+            return False
+        if str(visual.get("type") or "") == "process_flow":
+            nodes = visual.get("nodes") or []
+            if not isinstance(nodes, list) or any(
+                not isinstance(node, dict)
+                or len(str(node.get("title") or "")) > 30
+                or len(str(node.get("detail") or "")) > 36
+                for node in nodes
+            ):
+                return False
+    return True
+
+
 def localized_book_visuals(seed, run: Path, lesson_tag: str, locale: str, language: str, translated: str) -> list[dict[str, Any]]:
     _, folder = localization_name(locale)
     cache_path = run / "localization" / folder / f"{lesson_tag}_visuals_{locale}.json"
     if cache_path.exists():
         cached = json.loads(cache_path.read_text(encoding="utf-8"))
-        if cached.get("fit_contract") == "localized-visual-fit-v4" and isinstance(cached.get("visuals"), list):
+        if cached.get("fit_contract") == "localized-visual-fit-v4" and localized_visuals_fit_contract(cached.get("visuals")):
             return cached["visuals"]
     source_spec_path = latest_matching_path(run / "docx_pdf", f"{lesson_tag}_study_guide_spec_r*.json")
     if not source_spec_path:
@@ -2263,9 +2282,10 @@ English visual specification:
                 if isinstance(parsed.get("visual"), dict):
                     visual = parsed["visual"]
                     if str(visual.get("type") or "") == "process_flow" and any(
-                        len(str(node.get("title") or "")) > 22 for node in visual.get("nodes") or [] if isinstance(node, dict)
+                        len(str(node.get("title") or "")) > 22 or len(str(node.get("detail") or "")) > 36
+                        for node in visual.get("nodes") or [] if isinstance(node, dict)
                     ):
-                        raise ModelRequestError("Localized process-flow titles must be 22 characters or fewer so they fit their visible nodes.")
+                        raise ModelRequestError("Localized process-flow titles/details must stay within the visible 22/36 character limits.")
                     break
                 raise ModelRequestError("The diagram model did not return the required `visual` object.")
             except (ModelRequestError, json.JSONDecodeError) as error:

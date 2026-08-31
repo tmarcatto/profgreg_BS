@@ -334,6 +334,17 @@ class GregLiveProductionTests(unittest.TestCase):
         self.assertEqual(2, production.localized_callout_count(pt, "pt_br"))
         self.assertEqual(2, production.localized_callout_count(es, "es"))
 
+    def test_cached_localized_visuals_must_still_fit_renderer_contract(self) -> None:
+        self.assertTrue(production.localized_visuals_fit_contract([{
+            "type": "process_flow", "nodes": [{"title": "Valid title", "detail": "Valid detail"}],
+        }]))
+        self.assertFalse(production.localized_visuals_fit_contract([{
+            "type": "process_flow", "nodes": [{"title": "X" * 31, "detail": "Valid detail"}],
+        }]))
+        self.assertFalse(production.localized_visuals_fit_contract([{
+            "type": "process_flow", "nodes": [{"title": "Valid title", "detail": "X" * 37}],
+        }]))
+
     def test_localized_book_structure_requires_english_heading_hierarchy(self) -> None:
         complete = "\n".join([
             "# Seção 1 — Primeiro", "# Seção 2: Segundo", "# Seção 03 - Terceiro", "# Seção 4 – Quarto",
