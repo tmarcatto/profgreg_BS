@@ -694,12 +694,14 @@ def run_worker_loop(
         time.sleep(poll_interval)
 
 
-def recover_interrupted_jobs(job_root: Path) -> list[str]:
-    """Fail jobs left running by a previous worker process before startup."""
+def recover_interrupted_jobs(job_root: Path, *, worker_lane: str = "all") -> list[str]:
+    """Recover only interrupted jobs owned by the worker lane being started."""
     root = safe_job_root(job_root)
+    if worker_lane not in WORKER_LANES:
+        raise ValueError(f"Unsupported worker lane: {worker_lane}")
     recovered: list[str] = []
     for job in list_jobs(root):
-        if job.get("state") != "running":
+        if job.get("state") != "running" or (worker_lane != "all" and job_lane(job) != worker_lane):
             continue
         job_id = str(job.get("job_id") or "")
         transition_job(root, job_id, "failed", note="Worker restart interrupted this job; recovery was evaluated safely.")
@@ -1211,7 +1213,7 @@ def main() -> int:
     args = parser.parse_args()
 
     if args.worker:
-        recover_interrupted_jobs(Path(args.job_root))
+        recover_interrupted_jobs(Path(args.job_root), worker_lane=args.worker_lane)
         data = run_worker_loop(job_root=Path(args.job_root), backup_root=Path(args.backup_root), once=args.once, max_jobs=args.max_jobs, poll_interval=args.poll_interval, dry_run=args.dry_run, worker_lane=args.worker_lane, auto_video=args.auto_video)
         report = json.dumps(data, indent=2, ensure_ascii=False) + "\n"
     elif args.create_backup:

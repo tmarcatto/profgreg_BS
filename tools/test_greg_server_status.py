@@ -369,6 +369,23 @@ class GregServerStatusTests(unittest.TestCase):
         queued = next(item for item in jobs if item["state"] == "queued")
         self.assertEqual(1, queued["payload"]["recoveryCount"])
 
+    def test_content_worker_does_not_recover_running_delivery_job(self) -> None:
+        (ROOT / "tmp" / "jobs").mkdir(parents=True, exist_ok=True)
+        with tempfile.TemporaryDirectory(dir=ROOT / "tmp" / "jobs") as tmp:
+            root = Path(tmp)
+            job = checker.create_job(
+                job_root=root,
+                request_type="video_generation",
+                course_slug="demo",
+                lesson=2,
+                payload={"locale": "en", "sourcePath": "deck.pptx", "sourceSha256": "abc"},
+            )
+            checker.transition_job(root, job["job_id"], "running", note="delivery claimed")
+            recovered = checker.recover_interrupted_jobs(root, worker_lane="content")
+            current = checker.list_jobs(root)[0]
+        self.assertEqual([], recovered)
+        self.assertEqual("running", current["state"])
+
 
 if __name__ == "__main__":
     unittest.main()
