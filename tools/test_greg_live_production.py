@@ -334,12 +334,32 @@ class GregLiveProductionTests(unittest.TestCase):
         self.assertEqual(2, production.localized_callout_count(pt, "pt_br"))
         self.assertEqual(2, production.localized_callout_count(es, "es"))
 
-    def test_localized_book_structure_accepts_equivalent_complete_headings(self) -> None:
+    def test_localized_book_structure_requires_english_heading_hierarchy(self) -> None:
         complete = "\n".join([
-            "## Seção 1 — Primeiro", "# Seção 2: Segundo", "# Seção 03 - Terceiro", "## Seção 4 – Quarto",
+            "# Seção 1 — Primeiro", "# Seção 2: Segundo", "# Seção 03 - Terceiro", "# Seção 4 – Quarto",
             "# Resumo e Principais Conclusões", "- Um", "# Referências",
         ])
         self.assertEqual([], production.localized_book_structure_issues(complete, "pt_br"))
+
+    def test_localized_contract_normalizes_section_levels_and_callout_markup(self) -> None:
+        normalized = production.normalize_localized_course_contract(
+            "## Seção 01: Primeiro\n\n> EXEMPLO PRÁTICO\n> Corpo.", "pt_br"
+        )
+        self.assertIn("# Seção 01: Primeiro", normalized)
+        self.assertIn("> **EXEMPLO PRÁTICO**", normalized)
+
+    def test_localized_book_parity_rejects_lost_box_and_table_row(self) -> None:
+        source = (
+            "# Introduction\n# Section 01 - One\n> **HANDS-ON EXAMPLE**\n> Body.\n"
+            "| Item | Amount |\n|---|---:|\n| One | $1,000 |\n| Two | $2,000 |\n"
+        )
+        localized = (
+            "# Introdução\n# Seção 01: Um\nEXEMPLO PRÁTICO Corpo.\n"
+            "| Item | Valor |\n|---|---:|\n| Um | $1.000 |\n"
+        )
+        issues = production.localized_book_parity_issues(source, localized, "pt_br")
+        self.assertTrue(any("callout boxes" in issue for issue in issues))
+        self.assertTrue(any("table 1" in issue for issue in issues))
 
     def test_localized_book_structure_reports_truncated_translation(self) -> None:
         partial = "# Seção 01: Primeiro\n\nTexto.\n\n# Referências\n"
