@@ -157,6 +157,54 @@ def localized_visual_parity_issues(pdf_path: Path, localized_spec: dict) -> list
     return issues
 
 
+def localized_visual_placement_issues(pages: list[str], localized_spec: dict) -> list[str]:
+    """Reject localized figures rendered outside the section of their English source."""
+    if str(localized_spec.get("locale") or "") not in {"pt_br", "es"}:
+        return []
+    issues: list[str] = []
+    for visual in localized_spec.get("visuals") or []:
+        section_match = re.search(
+            r"(?:Section|Seção|Sección)\s+(\d{1,2})",
+            str(visual.get("after_heading") or ""),
+            flags=re.I,
+        )
+        figure_match = re.search(
+            r"(?:Figure|Figura)\s+(\d+\.\d+)", str(visual.get("caption") or ""), flags=re.I
+        )
+        if not section_match or not figure_match:
+            issues.append(f"Localized visual `{visual.get('visual_id')}` has no section anchor or figure caption.")
+            continue
+        section_number = int(section_match.group(1))
+        section_pattern = rf"(?:Section|Seção|Sección)\s+0?{section_number}\s*[:-]"
+        figure_pattern = rf"(?:Figure|Figura)\s+{re.escape(figure_match.group(1))}\b"
+        section_page = find_page(pages, section_pattern, heading_only=True)
+        figure_page = find_page(pages, figure_pattern)
+        next_section_page = find_page(
+            pages, rf"(?:Section|Seção|Sección)\s+0?{section_number + 1}\s*[:-]", heading_only=True
+        )
+        if section_page is None or figure_page is None:
+            issues.append(f"Figure {figure_match.group(1)} cannot be located with its assigned localized section.")
+            continue
+        if figure_page < section_page:
+            issues.append(f"Figure {figure_match.group(1)} appears before Section {section_number:02d}.")
+            continue
+        if next_section_page is not None and figure_page > next_section_page:
+            issues.append(f"Figure {figure_match.group(1)} appears after Section {section_number + 1:02d} begins.")
+            continue
+        if figure_page == section_page:
+            text = pages[figure_page - 1]
+            if re.search(figure_pattern, text, flags=re.I).start() < re.search(section_pattern, text, flags=re.I).start():
+                issues.append(f"Figure {figure_match.group(1)} appears before its Section {section_number:02d} heading on the same page.")
+                continue
+        if next_section_page is not None and figure_page == next_section_page:
+            text = pages[figure_page - 1]
+            if re.search(figure_pattern, text, flags=re.I).start() > re.search(
+                rf"(?:Section|Seção|Sección)\s+0?{section_number + 1}\s*[:-]", text, flags=re.I
+            ).start():
+                issues.append(f"Figure {figure_match.group(1)} appears after Section {section_number + 1:02d} on the same page.")
+    return issues
+
+
 def content_page_range(sequence: dict[str, int | None], page_count: int) -> range:
     start = sequence.get("section_01") or 4
     end = (sequence.get("summary") or page_count + 1) - 1
@@ -381,6 +429,11 @@ def run_checks(pdf_path: Path, qa_path: Path | None = None) -> dict:
                     findings.append(Finding("fail", "localized_visual_parity", " ".join(parity_issues[:6])))
                 elif str(spec.get("locale") or "") in {"pt_br", "es"}:
                     findings.append(Finding("pass", "localized_visual_parity", "Localized visual count, IDs, types, and captions match the English source."))
+                placement_issues = localized_visual_placement_issues(pages, spec)
+                if placement_issues:
+                    findings.append(Finding("fail", "localized_visual_placement", " ".join(placement_issues[:6])))
+                elif str(spec.get("locale") or "") in {"pt_br", "es"}:
+                    findings.append(Finding("pass", "localized_visual_placement", "Every localized figure is rendered inside its assigned English-source section."))
                 expected_figures = [
                     match.group(1)
                     for visual in spec.get("visuals", [])

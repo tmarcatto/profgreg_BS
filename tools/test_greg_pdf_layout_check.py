@@ -85,6 +85,26 @@ class PdfLayoutCheckUnitTests(unittest.TestCase):
             )
             self.assertTrue(issues)
 
+    def test_localized_visual_placement_rejects_a_figure_after_its_next_section(self) -> None:
+        pages = [
+            "Seção 01: Primeiro\nTexto.",
+            "Seção 02: Segundo\nTexto.\nFigura 2.1: Diagrama localizado.",
+        ]
+        issues = pdf_qa.localized_visual_placement_issues(
+            pages,
+            {
+                "locale": "pt_br",
+                "visuals": [
+                    {
+                        "visual_id": "L02V01",
+                        "after_heading": "Seção 01: Primeiro",
+                        "caption": "Figura 2.1: Diagrama localizado.",
+                    }
+                ],
+            },
+        )
+        self.assertTrue(issues)
+
     def test_content_page_range(self) -> None:
         sequence = {"section_01": 4, "summary": 10}
         self.assertEqual(list(pdf_qa.content_page_range(sequence, 12)), [4, 5, 6, 7, 8, 9])

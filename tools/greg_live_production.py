@@ -2243,7 +2243,7 @@ def localized_book_visuals(seed, run: Path, lesson_tag: str, locale: str, langua
     source_visuals = json.loads(source_spec_path.read_text(encoding="utf-8")).get("visuals") or []
     if not source_visuals:
         return []
-    headings = re.findall(r"(?im)^#\s+(.+)$", translated)
+    headings = re.findall(r"(?im)^#{1,2}\s+(.+)$", translated)
     def translate_visual(source_visual: dict[str, Any]) -> dict[str, Any]:
         prompt = f"""Translate every student-visible text value in this single course-book visual specification into {language}.
 Return exactly one JSON object in the form {{"visual": {{...}}}}. The first response character must be `{{` and the last must be `}}`; do not use Markdown or commentary. The approved English visual is the source contract: preserve its visual_id, type, figure number, node count, row count, ordering, and section number. Localize only learner-visible text, captions, and source explanations. The system assigns `after_heading` from the exact translated Markdown heading; never invent, shorten, or move it. Keep each process-flow title short enough to occupy at most three narrow box lines (prefer 22 characters or fewer and no unbreakable word longer than 12 characters); keep details at most 36 characters. If a literal translation is too long, use a concise equivalent that preserves the central construction meaning. Keep comparison-matrix left cells at most 40 characters and right cells at most 130 characters. Do not omit, merge, or add nodes or rows. Preserve U.S. construction meaning.
