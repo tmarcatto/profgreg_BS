@@ -91,6 +91,23 @@ class DeckQualityCheckTests(unittest.TestCase):
         )
         self.assertIsNotNone(warning)
 
+    def test_missing_fit_metadata_fails_a_rendered_deck(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            deck = Path(tmp) / "lesson_03_deck_r01.pptx"
+            qa = Path(tmp) / "lesson_03_deck_qa_r01.md"
+            deck.write_bytes(b"placeholder")
+            qa.write_text("MECE\nlast-item\nhighlight\nvisually rechecked\nlesson_03_deck_r01.pptx\n", encoding="utf-8")
+            inspect = deck_qa.inspect_path_for(deck)
+            rows = [{"kind": "slide", "slide": number} for number in range(1, 11)]
+            rows.extend(
+                {"kind": "textbox", "slide": number, "name": "card-body", "text": "A sufficiently long text box without recorded fit metadata.", "bbox": [100, 100, 250, 50]}
+                for number in range(1, 11)
+            )
+            inspect.write_text("\n".join(__import__("json").dumps(row) for row in rows) + "\n", encoding="utf-8")
+            result = deck_qa.run_checks(deck, qa)
+            self.assertFalse(result["passed"])
+            self.assertTrue(any(item["check"] == "text_box_density" and item["status"] == "fail" for item in result["findings"]))
+
 
 if __name__ == "__main__":
     unittest.main()

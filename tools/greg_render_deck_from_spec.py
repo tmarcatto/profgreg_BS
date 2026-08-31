@@ -289,7 +289,18 @@ def render(spec_path: Path, skip_setup: bool = False) -> Path:
     if result.returncode:
         detail = result.stderr.strip() or result.stdout.strip() or "Deck renderer returned no diagnostic output."
         raise RuntimeError(f"Deck rendering failed: {detail}")
-    return run_folder_from_spec(spec) / spec["output"]["pptx"]
+    output = run_folder_from_spec(spec) / spec["output"]["pptx"]
+    qa_path = run_folder_from_spec(spec) / spec["output"]["qa"]
+    quality = importlib.import_module("greg_deck_quality_check")
+    qa_result = quality.run_checks(output, qa_path)
+    with qa_path.open("a", encoding="utf-8") as handle:
+        handle.write("\n\n## Automated rendered-layout QA\n\n")
+        handle.write(quality.render_markdown(qa_result))
+        handle.write("\n")
+    if not qa_result["passed"]:
+        failures = [item["note"] for item in qa_result["findings"] if item["status"] == "fail"]
+        raise RuntimeError("Presentation rendered-layout QA failed: " + " | ".join(failures[:3]))
+    return output
 
 
 def main() -> int:
