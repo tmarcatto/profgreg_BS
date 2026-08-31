@@ -399,7 +399,9 @@ def video_job_key(job: dict[str, Any]) -> tuple[str, int, str, str]:
 def enqueue_approved_video_jobs(job_root: Path) -> list[dict[str, Any]]:
     """Discover approved presentation revisions and queue each locale exactly once."""
     root = safe_job_root(job_root)
-    existing = {video_job_key(job) for job in list_jobs(root) if job.get("request_type") == "video_generation"}
+    all_video_jobs = [job for job in list_jobs(root) if job.get("request_type") == "video_generation"]
+    existing = {video_job_key(job) for job in all_video_jobs}
+    active = {video_job_key(job) for job in all_video_jobs if job.get("state") in {"queued", "running"}}
     created: list[dict[str, Any]] = []
     status_module = __import__("greg_course_status")
     for run in sorted(path for path in (ROOT / "runs").iterdir() if path.is_dir()):
@@ -411,20 +413,34 @@ def enqueue_approved_video_jobs(job_root: Path) -> list[dict[str, Any]]:
             lesson = int(lesson_row.get("lesson") or 0)
             title = str(lesson_row.get("title") or f"Lesson {lesson:02d}")
             for locale, lane in (lesson_row.get("videos") or {}).items():
-                if lane.get("status") not in {"ready", "ready_new_revision"}:
+                state = str(lane.get("status") or "")
+                if state not in {"ready", "ready_new_revision", "uploading", "configuring", "generating_transcripts", "awaiting_export_confirmation", "exporting", "rendering"}:
                     continue
                 source_hash = str(lane.get("source_sha256") or "")
                 source_path = str(lane.get("presentation_path") or "")
                 key = (course_slug, lesson, str(locale), source_hash)
-                if not source_hash or not source_path or key in existing:
+                if not source_hash or not source_path:
                     continue
+                # An active API export must always retain a local monitor after
+                # a service restart; resuming polls the saved project instead
+                # of creating another video.  A cancelled ready job remains
+                # cancelled so an operator's decision not to generate it is
+                # never overridden automatically.
+                if state not in {"ready", "ready_new_revision"}:
+                    if key in active:
+                        continue
+                    summary_text = f"resume {locale} AI Studios export monitoring"
+                elif key in existing:
+                    continue
+                else:
+                    summary_text = f"approved {locale} presentation ready for video"
                 job = create_job(
                     job_root=root,
                     request_type="video_generation",
                     course_slug=course_slug,
                     lesson=lesson,
                     requested_by="automatic-video-generator",
-                    input_summary=f"approved {locale} presentation ready for video",
+                    input_summary=summary_text,
                     payload={
                         "locale": str(locale),
                         "sourcePath": source_path,
@@ -434,6 +450,7 @@ def enqueue_approved_video_jobs(job_root: Path) -> list[dict[str, Any]]:
                     },
                 )
                 existing.add(key)
+                active.add(key)
                 created.append(job)
     return created
 

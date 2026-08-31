@@ -1933,15 +1933,23 @@ def ui_shell(default_course: str) -> str:
       }};
       const status = labels[video.status] || String(video.status || 'not started').replace(/_/g, ' ');
       const links = [];
-      if (isDownloadablePath(video.presentation_path)) {{
-        const filename = `Lesson ${{String(item.lesson).padStart(2, '0')}} - ${{cleanFilenamePart(item.title || 'Course lesson')}} - ${{label}} Presentation.pptx`;
-        links.push(`<a class="doc-link" href="/artifact?path=${{encodeURIComponent(video.presentation_path)}}&filename=${{encodeURIComponent(filename)}}" target="_blank" rel="noopener">presentation</a>`);
+      const canStart = ['ready', 'ready_new_revision', 'uploading', 'configuring', 'generating_transcripts', 'awaiting_export_confirmation', 'exporting', 'rendering', 'needs_attention', 'failed'].includes(video.status);
+      if (canStart) {{
+        const action = ['uploading', 'configuring', 'generating_transcripts', 'awaiting_export_confirmation', 'exporting', 'rendering'].includes(video.status) ? 'Resume monitoring' : 'Start video';
+        links.push(`<button class="subtle video-start" onclick="startVideo(${{Number(item.lesson)}}, '${{esc(locale)}}')">${{action}}</button>`);
       }}
       const projectUrl = safeAiStudiosUrl(video.project_url);
       const downloadUrl = safeHttpsUrl(video.download_url);
       if (projectUrl) links.push(`<a class="doc-link" href="${{esc(projectUrl)}}" target="_blank" rel="noopener">AI Studios project</a>`);
       if (downloadUrl) links.push(`<a class="doc-link" href="${{esc(downloadUrl)}}" target="_blank" rel="noopener">download video</a>`);
       return `<span class="doc-cell">${{statusPill(status)}}${{links.length ? ' ' + links.join(' · ') : ''}}</span>`;
+    }}
+    async function startVideo(lesson, locale) {{
+      try {{
+        const result = await post('/api/video-generate', {{course: course.value, lesson, locale}});
+        showOperatorResult(result.message || 'Video job queued.', 'success');
+        await loadWorkspace();
+      }} catch (error) {{ msg.textContent = error.message; }}
     }}
     function renderVideoGenerator() {{
       const holder = document.getElementById('videoGeneratorRows');
@@ -2374,6 +2382,33 @@ class GregUiHandler(BaseHTTPRequestHandler):
                     summary=f"operator requested {stage} for lessons {lessons}",
                     payload={"stage": stage, "lessons": lessons},
                 )
+                self.send_json(HTTPStatus.OK, {"message": result.message, "job": result.job})
+                return
+            if parsed.path == "/api/video-generate":
+                course = str(body.get("course") or getattr(self.server, "default_course", DEFAULT_COURSE))
+                lesson = int(body.get("lesson") or 0)
+                locale = str(body.get("locale") or "")
+                status = course_status(course)
+                lesson_row = next((row for row in status.get("lessons") or [] if int(row.get("lesson") or 0) == lesson), None)
+                video = ((lesson_row or {}).get("videos") or {}).get(locale) if locale in {"en", "pt", "es"} else None
+                if not video or str(video.get("status") or "") in {"waiting_approved_presentation", "presentation_too_large", "video_ready"}:
+                    self.send_json(HTTPStatus.BAD_REQUEST, {"error": "This presentation is not ready for video generation."})
+                    return
+                payload = {
+                    "locale": locale,
+                    "sourcePath": str(video.get("presentation_path") or ""),
+                    "sourceSha256": str(video.get("source_sha256") or ""),
+                    "title": str((lesson_row or {}).get("title") or f"Lesson {lesson:02d}"),
+                    "recoveryCount": 0,
+                }
+                if not payload["sourcePath"] or not payload["sourceSha256"]:
+                    self.send_json(HTTPStatus.BAD_REQUEST, {"error": "The approved presentation source is unavailable."})
+                    return
+                active = next((job for job in list_jobs(job_root) if job.get("request_type") == "video_generation" and job.get("state") in {"queued", "running"} and str(job.get("course_slug") or "") == slugify(course) and int(job.get("lesson") or 0) == lesson and str((job.get("payload") or {}).get("locale") or "") == locale and str((job.get("payload") or {}).get("sourceSha256") or "") == payload["sourceSha256"]), None)
+                if active:
+                    self.send_json(HTTPStatus.OK, {"message": f"Video job already active: {active['job_id']}", "job": active})
+                    return
+                result = enqueue_job(job_root=job_root, request_type="video_generation", course_slug=course, lesson=lesson, requested_by="operator-ui", summary=f"operator started {locale} video generation", payload=payload)
                 self.send_json(HTTPStatus.OK, {"message": result.message, "job": result.job})
                 return
             if parsed.path == "/api/stage-next":
