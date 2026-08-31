@@ -37,7 +37,7 @@ SERVER_JOB_ROOT = Path("/srv/profgreg/jobs")
 
 JOB_STATES = {"queued", "running", "needs_approval", "completed", "failed", "cancelled"}
 JOB_REQUEST_TYPES = {"course_status", "course_start", "stage_next", "lesson_lifecycle", "production_stage", "video_generation", "backup", "full_flow_v1_test"}
-WORKER_LANES = {"all", "content", "delivery"}
+WORKER_LANES = {"all", "content", "delivery", "video"}
 JOB_TRANSITIONS = {
     "queued": {"running", "failed", "cancelled"},
     "running": {"needs_approval", "completed", "failed", "cancelled"},
@@ -379,7 +379,9 @@ def job_lane(job: dict[str, Any]) -> str:
         if stage in {"deck", "translations_deck", "pt_br_deck", "es_deck"}:
             return "delivery"
         return "content"
-    if job.get("request_type") in {"backup", "lesson_lifecycle", "stage_next", "video_generation"}:
+    if job.get("request_type") == "video_generation":
+        return "video"
+    if job.get("request_type") in {"backup", "lesson_lifecycle", "stage_next"}:
         return "delivery"
     return "content"
 
@@ -683,7 +685,7 @@ def run_worker_loop(
     results: list[dict[str, Any]] = []
     processed = 0
     while True:
-        if auto_video and worker_lane in {"all", "delivery"} and not dry_run:
+        if auto_video and worker_lane in {"all", "video"} and not dry_run:
             enqueue_approved_video_jobs(job_root)
         result = process_one_worker_job(job_root, backup_root=backup_root, dry_run=dry_run, worker_lane=worker_lane)
         results.append(result)

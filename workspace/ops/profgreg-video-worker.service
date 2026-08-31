@@ -1,8 +1,8 @@
 [Unit]
-Description=Prof Greg delivery job worker
+Description=Prof Greg AI Studios video worker
 After=network-online.target
 Wants=network-online.target
-Documentation=file:/opt/profgreg/app/workspace/contracts/server-job-contract.md
+Documentation=file:/opt/profgreg/app/workspace/contracts/video-generator-contract.md
 
 [Service]
 Type=simple
@@ -10,7 +10,7 @@ User=profgreg
 Group=profgreg
 WorkingDirectory=/opt/profgreg/app
 EnvironmentFile=/etc/profgreg/profgreg.env
-ExecStart=/usr/bin/python3 /opt/profgreg/app/tools/greg_server_status.py --worker --worker-lane delivery --job-root /srv/profgreg/jobs --backup-root /srv/profgreg/backups --poll-interval 5
+ExecStart=/usr/bin/python3 /opt/profgreg/app/tools/greg_server_status.py --worker --worker-lane video --auto-video --job-root /srv/profgreg/jobs --backup-root /srv/profgreg/backups --poll-interval 5
 Restart=on-failure
 RestartSec=10
 NoNewPrivileges=true

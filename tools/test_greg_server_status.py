@@ -320,9 +320,9 @@ class GregServerStatusTests(unittest.TestCase):
                     "title": "Scheduling",
                 },
             )
-            self.assertEqual("delivery", checker.job_lane(job))
+            self.assertEqual("video", checker.job_lane(job))
             with patch.object(checker, "ROOT", app_root):
-                result = checker.process_one_worker_job(Path(tmp), dry_run=True, worker_lane="delivery")
+                result = checker.process_one_worker_job(Path(tmp), dry_run=True, worker_lane="video")
         self.assertEqual("completed", result["state"])
 
     def test_automatic_video_discovery_deduplicates_source_revision(self) -> None:
