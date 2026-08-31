@@ -177,10 +177,13 @@ def localized_visual_placement_issues(pages: list[str], localized_spec: dict) ->
         section_number = int(section_match.group(1))
         section_pattern = rf"(?:Section|Seção|Sección)\s+0?{section_number}\s*[:-]"
         figure_pattern = rf"(?:Figure|Figura)\s+{re.escape(figure_match.group(1))}\b"
-        section_page = find_page(pages, section_pattern, heading_only=True)
+        # A long localized heading can wrap in the extracted PDF text.  Its
+        # numbered prefix remains unique and is sufficient to locate the
+        # actual section without accepting a figure from another section.
+        section_page = find_page(pages, section_pattern)
         figure_page = find_page(pages, figure_pattern)
         next_section_page = find_page(
-            pages, rf"(?:Section|Seção|Sección)\s+0?{section_number + 1}\s*[:-]", heading_only=True
+            pages, rf"(?:Section|Seção|Sección)\s+0?{section_number + 1}\s*[:-]"
         )
         if section_page is None or figure_page is None:
             issues.append(f"Figure {figure_match.group(1)} cannot be located with its assigned localized section.")
@@ -244,7 +247,7 @@ def run_checks(pdf_path: Path, qa_path: Path | None = None) -> dict:
     roadmap_page = find_page(pages, r"(?:Lesson Roadmap|Roteiro da Lição|Ruta de la Lección)", heading_only=True)
     intro_page = find_page(pages, r"(?:Introduction|Introdução|Introducción)", min_page=2, heading_only=True)
     objectives_page = find_page(pages, r"(?:Learning Objectives|Objetivos de Aprendizagem|Objetivos de Aprendizaje)", min_page=2, heading_only=True)
-    section_01_page = find_page(pages, r"(?:Section|Seção|Sección)\s+01\s*[:-].*", min_page=3, heading_only=True)
+    section_01_page = find_page(pages, r"(?:Section|Seção|Sección)\s+01\s*[:-]", min_page=3)
     summary_page = find_page(pages, r"(?:Summary and Key Takeaways|Resumo e Principais Conclusões|Resumen y Conclusiones Clave)", min_page=3, heading_only=True)
     glossary_page = find_page(pages, r"(?:Glossary|Glossário|Glosario)", min_page=3, heading_only=True)
     references_page = find_page(pages, r"(?:References|Referências|Referencias)", min_page=3, heading_only=True)
