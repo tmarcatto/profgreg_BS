@@ -79,7 +79,9 @@ def has_unrendered_markdown(text: str) -> bool:
 
 def broken_currency_wraps(pages: list[str]) -> list[tuple[int, str]]:
     """Find currency values whose digits were split onto a second visual line."""
-    pattern = re.compile(r"([$€£]\s*\d[\d.,]*[.,]\d{1,2})[ \t]*\n[ \t]*(\d{1,3})\b")
+    # A following percentage line (for example `$17.713,50` then `10% da
+    # base`) is a separate diagram label, not a continuation of the amount.
+    pattern = re.compile(r"([$€£]\s*\d[\d.,]*[.,]\d{1,2})[ \t]*\n[ \t]*(\d{1,3})\b(?!\s*%)")
     return [
         (page_number, f"{match.group(1)} / {match.group(2)}")
         for page_number, text in enumerate(pages, start=1)

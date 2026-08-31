@@ -116,6 +116,7 @@ class PdfLayoutCheckUnitTests(unittest.TestCase):
 
     def test_broken_currency_wrap_is_rejected(self) -> None:
         self.assertEqual([(1, "$12,0 / 00")], pdf_qa.broken_currency_wraps(["Valor\n$12,0\n00\nInclusões"]))
+        self.assertEqual([], pdf_qa.broken_currency_wraps(["Markup $17.713,50\n10% da base"]))
 
     def test_single_table_row_before_page_break_is_orphaned(self) -> None:
         markdown = (
