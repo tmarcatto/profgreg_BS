@@ -515,11 +515,13 @@ class RelationshipMapDiagram(Flowable):
         for x, y, _ in positions:
             c.line(center_x, center_y, x, y)
         c.setFillColor(NAVY)
-        c.roundRect(center_x - 62, center_y - 24, 124, 48, 18, stroke=0, fill=1)
+        # The central concept is often a translated asset or scope label.
+        # Give it three lines rather than silently dropping the final words.
+        c.roundRect(center_x - 70, center_y - 31, 140, 62, 18, stroke=0, fill=1)
         c.setFillColor(colors.white)
-        c.setFont(FONT_BOLD, 9)
-        for line_index, line in enumerate(wrap_lines(str(center.get("title", "")), FONT_BOLD, 9, 105)[:2]):
-            c.drawCentredString(center_x, center_y + 7 - line_index * 11, line)
+        c.setFont(FONT_BOLD, 8.2)
+        for line_index, line in enumerate(wrap_lines(str(center.get("title", "")), FONT_BOLD, 8.2, 122)[:3]):
+            c.drawCentredString(center_x, center_y + 10 - line_index * 10, line)
         for x, y, node in positions:
             c.setFillColor(LIGHT)
             c.setStrokeColor(ORANGE)
@@ -1042,6 +1044,13 @@ def validate_visuals(visuals: list[dict[str, Any]]) -> None:
                     def drawPath(self, *_, **__): pass
                 probe.canv = _FitCanvas()
                 probe.draw()
+            else:
+                center = nodes[0]
+                if len(wrap_lines(str(center.get("title") or ""), FONT_BOLD, 8.2, 122)) > 3:
+                    raise ValueError("relationship-map central title exceeds the visible three-line limit.")
+                for node in nodes[1:]:
+                    if len(wrap_lines(str(node.get("title") or ""), FONT_BOLD, 7.8, 90)) > 2:
+                        raise ValueError("relationship-map satellite title exceeds the visible two-line limit.")
         if visual_type == "source_to_wbs_matrix":
             rows = visual.get("rows")
             if not isinstance(rows, list) or not 2 <= len(rows) <= 5:

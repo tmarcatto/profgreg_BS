@@ -150,6 +150,24 @@ class RenderStudyGuideFromSpecTests(unittest.TestCase):
             "nodes": [{"title": "Direct cost", "detail": "Measured work"}, {"title": "Price", "detail": "Final proposal"}],
         }])
 
+    def test_relationship_map_central_title_keeps_three_visible_lines(self) -> None:
+        if pdf_renderer is None:
+            self.skipTest("ReportLab is not installed in this Python environment.")
+        class Canvas:
+            def setFillColor(self, *_): pass
+            def setStrokeColor(self, *_): pass
+            def setLineWidth(self, *_): pass
+            def roundRect(self, *_ , **__): pass
+            def line(self, *_): pass
+            def setFont(self, *_): pass
+            def drawCentredString(self, *_): pass
+        title = "Fogão elétrico fornecido pelo proprietário"
+        diagram = pdf_renderer.RelationshipMapDiagram("Responsabilidades", [{"title": title}] + [{"title": "Papel"}] * 5)
+        diagram.width = 468
+        diagram.canv = Canvas()
+        diagram.draw()
+        pdf_renderer.validate_visuals([{"type": "relationship_map", "title": "Responsabilidades", "nodes": [{"title": title}] + [{"title": "Papel"}] * 5}])
+
     def test_card_row_uses_first_count_declared_in_title(self) -> None:
         if pdf_renderer is None:
             self.skipTest("ReportLab is not installed in this Python environment.")
