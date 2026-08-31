@@ -199,6 +199,22 @@ class RenderStudyGuideFromSpecTests(unittest.TestCase):
         diagram.draw()
         pdf_renderer.validate_visuals([{"type": "relationship_map", "title": "Responsabilidades", "nodes": [{"title": title}] + [{"title": "Papel"}] * 5}])
 
+    def test_comparison_matrix_rejects_a_fourth_visible_line_even_within_character_limit(self) -> None:
+        if pdf_renderer is None:
+            self.skipTest("ReportLab is not installed in this Python environment.")
+        text = "W" * 120
+        self.assertLessEqual(len(text), 130)
+        with self.assertRaisesRegex(ValueError, "does not fit in three visible lines"):
+            pdf_renderer.validate_visuals([{
+                "type": "source_to_wbs_matrix",
+                "left_header": "Conceito",
+                "right_header": "Significado em campo",
+                "rows": [
+                    {"left": "Primeira opção", "right": text},
+                    {"left": "Segunda opção", "right": "Texto curto"},
+                ],
+            }])
+
     def test_card_row_uses_first_count_declared_in_title(self) -> None:
         if pdf_renderer is None:
             self.skipTest("ReportLab is not installed in this Python environment.")

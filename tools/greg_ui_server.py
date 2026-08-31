@@ -1052,10 +1052,10 @@ def ui_shell(default_course: str) -> str:
     </div>
     <nav class="nav" aria-label="Console sections">
       <a href="#dashboard" data-page-link="dashboard">Dashboard</a>
-      <a href="#sections-1-2" data-page-link="sections-1-2">Sections 1–2</a>
-      <a href="#sections-3-4" data-page-link="sections-3-4">Sections 3–4</a>
-      <a href="#section-5" data-page-link="section-5">Section 5</a>
-      <a href="#section-6" data-page-link="section-6">Section 6</a>
+      <a href="#sections-1-2" data-page-link="sections-1-2">Course Intake</a>
+      <a href="#sections-3-4" data-page-link="sections-3-4">Lesson Management</a>
+      <a href="#section-5" data-page-link="section-5">Lesson Fixes</a>
+      <a href="#section-6" data-page-link="section-6">Video Generator</a>
     </nav>
   </header>
   <main>
@@ -1850,10 +1850,14 @@ def ui_shell(default_course: str) -> str:
       const raw = String(job?.last_error || job?.input_summary || job?.request_type || '');
       if (/source\\/reference.*QA failed/i.test(raw)) return 'Automatic source review needs another pass before the file can be released.';
       if (/layout automatic QA failed/i.test(raw)) return 'Automatic layout review needs another pass before the file can be released.';
+      if (/Process-flow (?:title\\/detail exceeds|title does not fit|detail does not fit)/i.test(raw)) return 'A translated process diagram needs shorter text. No incomplete PDF was released.';
+      if (/Comparison-matrix cell (?:exceeds|does not fit)/i.test(raw)) return 'A translated comparison table needs shorter text. No incomplete PDF was released.';
+      if (/Localized course book layout QA failed/i.test(raw)) return 'The translated course book needs another automatic layout correction before release.';
       if (/Independent study-guide reviewers still require changes/i.test(raw)) return 'The Course Book reviewers found unresolved content issues. No new file was released, and the previous approved version remains unchanged.';
       if (/Traceback|File "\\/opt\\/profgreg/i.test(raw)) {{
-        const matches = [...raw.matchAll(/(?:RuntimeError|ValueError|ModelRequestError):\\s*([^\\n]+)/g)];
-        return matches.length ? matches[matches.length - 1][1] : 'Production needs attention. Technical details were recorded internally.';
+        const parts = raw.split(/(?:RuntimeError|ValueError|ModelRequestError):\\s*/);
+        const detail = parts.length > 1 ? parts[parts.length - 1].trim() : '';
+        return detail && !/Traceback|File "\\/opt\\/profgreg/i.test(detail) ? detail.slice(0, 500) : 'Production needs attention. Technical details were recorded internally.';
       }}
       return raw.replace(/^.*?(RuntimeError|ValueError|ModelRequestError):\\s*/s, '').slice(-500);
     }}

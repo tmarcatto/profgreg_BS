@@ -22,6 +22,7 @@ import time
 from concurrent.futures import ThreadPoolExecutor
 from datetime import date, datetime, timezone
 from pathlib import Path
+from threading import Lock
 from typing import Any
 
 from greg_localized_book_structure import markdown_structure, structure_parity_issues
@@ -33,6 +34,8 @@ from greg_v0_production import BRAND_ICON, NEGATIVE_WORDMARK, RUNS, lid, parse_i
 
 ROOT = Path(__file__).resolve().parents[1]
 STUDY_GUIDE_RENDERER = ROOT / "workspace" / "renderers" / "pdf" / "greg-buildstak-study-guide-renderer.py"
+_PDF_VISUAL_CONTRACT = None
+_PDF_VISUAL_CONTRACT_LOCK = Lock()
 
 
 class TimingRecorder:
@@ -2232,33 +2235,47 @@ def localization_name(locale: str) -> tuple[str, str]:
     raise ValueError(f"Unsupported locale: {locale}")
 
 
+def localized_visual_contract_error(visuals: Any) -> str:
+    """Return the exact renderer rejection for localized visuals, if any."""
+    if not isinstance(visuals, list):
+        return "Localized visuals must be a list."
+    global _PDF_VISUAL_CONTRACT
+    if _PDF_VISUAL_CONTRACT is None:
+        with _PDF_VISUAL_CONTRACT_LOCK:
+            if _PDF_VISUAL_CONTRACT is None:
+                try:
+                    _PDF_VISUAL_CONTRACT = load_module(
+                        "greg_pdf_localized_visual_contract",
+                        "workspace/renderers/pdf/greg-buildstak-study-guide-renderer.py",
+                    )
+                except ModuleNotFoundError:
+                    # Lightweight development Python may not include ReportLab.
+                    # Keep cache safety conservative there; production and the
+                    # renderer runtime use the exact typographic measurement.
+                    for visual in visuals:
+                        if not isinstance(visual, dict):
+                            return "Localized visual must be an object."
+                        if str(visual.get("type") or "") == "process_flow" and any(
+                            len(str(node.get("title") or "")) > 30 or len(str(node.get("detail") or "")) > 36
+                            for node in visual.get("nodes") or [] if isinstance(node, dict)
+                        ):
+                            return "Process-flow title/detail exceeds the visible 30/36 character limit."
+                        if str(visual.get("type") or "") == "source_to_wbs_matrix" and any(
+                            len(str(row.get("left") or "")) > 40 or len(str(row.get("right") or "")) > 130
+                            for row in visual.get("rows") or [] if isinstance(row, dict)
+                        ):
+                            return "Comparison-matrix cell exceeds the visible 40/130 character limit."
+                    return ""
+    try:
+        _PDF_VISUAL_CONTRACT.validate_visual_text_fit(visuals)
+    except (TypeError, ValueError) as error:
+        return str(error)
+    return ""
+
+
 def localized_visuals_fit_contract(visuals: Any) -> bool:
     """Return whether cached localized visuals remain safe for the renderer."""
-    if not isinstance(visuals, list):
-        return False
-    for visual in visuals:
-        if not isinstance(visual, dict):
-            return False
-        visual_type = str(visual.get("type") or "")
-        if visual_type == "process_flow":
-            nodes = visual.get("nodes") or []
-            if not isinstance(nodes, list) or any(
-                not isinstance(node, dict)
-                or len(str(node.get("title") or "")) > 30
-                or len(str(node.get("detail") or "")) > 36
-                for node in nodes
-            ):
-                return False
-        if visual_type == "source_to_wbs_matrix":
-            rows = visual.get("rows") or []
-            if not isinstance(rows, list) or any(
-                not isinstance(row, dict)
-                or len(str(row.get("left") or "")) > 40
-                or len(str(row.get("right") or "")) > 130
-                for row in rows
-            ):
-                return False
-    return True
+    return not localized_visual_contract_error(visuals)
 
 
 def localized_book_visuals(seed, run: Path, lesson_tag: str, locale: str, language: str, translated: str) -> list[dict[str, Any]]:
@@ -2266,7 +2283,7 @@ def localized_book_visuals(seed, run: Path, lesson_tag: str, locale: str, langua
     cache_path = run / "localization" / folder / f"{lesson_tag}_visuals_{locale}.json"
     if cache_path.exists():
         cached = json.loads(cache_path.read_text(encoding="utf-8"))
-        if cached.get("fit_contract") == "localized-visual-fit-v5" and localized_visuals_fit_contract(cached.get("visuals")):
+        if cached.get("fit_contract") == "localized-visual-fit-v6" and localized_visuals_fit_contract(cached.get("visuals")):
             return cached["visuals"]
     source_spec_path = latest_matching_path(run / "docx_pdf", f"{lesson_tag}_study_guide_spec_r*.json")
     if not source_spec_path:
@@ -2286,21 +2303,17 @@ English visual specification:
 {json.dumps(source_visual, ensure_ascii=False)}"""
         parsed: dict[str, Any] | None = None
         last_error: Exception | None = None
-        for _ in range(2):
+        for attempt in range(2):
             try:
-                parsed = request_json_with_retry(seed.slug, "diagram_planning", prompt, max_tokens=4000)
+                retry_note = ""
+                if attempt and last_error:
+                    retry_note = f"\n\nThe exact PDF renderer rejected your previous translation: {last_error} Shorten only the affected learner-visible labels or cells and return the complete visual again."
+                parsed = request_json_with_retry(seed.slug, "diagram_planning", prompt + retry_note, max_tokens=4000)
                 if isinstance(parsed.get("visual"), dict):
                     visual = parsed["visual"]
-                    if str(visual.get("type") or "") == "process_flow" and any(
-                        len(str(node.get("title") or "")) > 22 or len(str(node.get("detail") or "")) > 36
-                        for node in visual.get("nodes") or [] if isinstance(node, dict)
-                    ):
-                        raise ModelRequestError("Localized process-flow titles/details must stay within the visible 22/36 character limits.")
-                    if str(visual.get("type") or "") == "source_to_wbs_matrix" and any(
-                        len(str(row.get("left") or "")) > 40 or len(str(row.get("right") or "")) > 130
-                        for row in visual.get("rows") or [] if isinstance(row, dict)
-                    ):
-                        raise ModelRequestError("Localized comparison-matrix cells must stay within the visible 40/130 character limits.")
+                    contract_error = localized_visual_contract_error([visual])
+                    if contract_error:
+                        raise ModelRequestError(contract_error)
                     break
                 raise ModelRequestError("The diagram model did not return the required `visual` object.")
             except (ModelRequestError, json.JSONDecodeError) as error:
@@ -2325,7 +2338,10 @@ English visual specification:
     for source_visual, localized_visual in zip(source_visuals, visuals):
         if source_visual.get("type") != localized_visual.get("type"):
             raise RuntimeError("Localized visual plan changed a renderer type.")
-    write_json(cache_path, {"locale": locale, "fit_contract": "localized-visual-fit-v5", "visuals": visuals})
+    final_contract_error = localized_visual_contract_error(visuals)
+    if final_contract_error:
+        raise RuntimeError(f"Localized visual plan failed the exact PDF renderer contract: {final_contract_error}")
+    write_json(cache_path, {"locale": locale, "fit_contract": "localized-visual-fit-v6", "visuals": visuals})
     return visuals
 
 

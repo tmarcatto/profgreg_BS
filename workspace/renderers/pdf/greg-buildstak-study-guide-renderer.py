@@ -1020,8 +1020,61 @@ _COUNT_WORDS = {
 }
 
 
+def validate_visual_text_fit(visuals: list[dict[str, Any]]) -> None:
+    """Validate localized text against the renderer's physical text boxes."""
+    for visual in visuals:
+        visual_type = visual.get("type")
+        if visual_type == "process_flow":
+            nodes = visual.get("nodes") or []
+            for node in nodes:
+                if len(str(node.get("title") or "")) > 30 or len(str(node.get("detail") or "")) > 36:
+                    raise ValueError("Process-flow title/detail exceeds the visible 30/36 character limit.")
+            probe = ProcessFlowDiagram(str(visual.get("title") or ""), nodes)
+            probe.width = 6.5 * inch
+            class _FitCanvas:
+                def setFillColor(self, *_): pass
+                def setStrokeColor(self, *_): pass
+                def setLineWidth(self, *_): pass
+                def setFont(self, *_): pass
+                def drawString(self, *_): pass
+                def roundRect(self, *_, **__): pass
+                def line(self, *_): pass
+                def beginPath(self):
+                    class _Path:
+                        def moveTo(self, *_): pass
+                        def lineTo(self, *_): pass
+                        def close(self): pass
+                    return _Path()
+                def drawPath(self, *_, **__): pass
+            probe.canv = _FitCanvas()
+            probe.draw()
+        if visual_type == "source_to_wbs_matrix":
+            rows = visual.get("rows") or []
+            for row in rows:
+                if len(str(row.get("left") or "")) > 40 or len(str(row.get("right") or "")) > 130:
+                    raise ValueError("Comparison-matrix cell exceeds the visible 40/130 character limit.")
+            table_width = 6.5 * inch - 48
+            left_width = table_width * 0.42
+            right_width = table_width - left_width
+            cells = [
+                (str(visual.get("left_header") or ""), FONT_BOLD, 8.0, left_width),
+                (str(visual.get("right_header") or ""), FONT_BOLD, 8.0, right_width),
+            ]
+            cells.extend(
+                cell
+                for row in rows
+                for cell in (
+                    (str(row.get("left") or ""), FONT_REGULAR, 7.8, left_width),
+                    (str(row.get("right") or ""), FONT_REGULAR, 7.8, right_width),
+                )
+            )
+            if any(len(wrap_lines(text, font, size, width - 18)) > 3 for text, font, size, width in cells):
+                raise ValueError("Comparison-matrix cell does not fit in three visible lines.")
+
+
 def validate_visuals(visuals: list[dict[str, Any]]) -> None:
     """Reject diagrams whose stated content cannot be rendered completely."""
+    validate_visual_text_fit(visuals)
     for visual in visuals:
         visual_type = visual.get("type")
         if visual_type in {"process_flow", "relationship_map"}:
@@ -1068,6 +1121,26 @@ def validate_visuals(visuals: list[dict[str, Any]]) -> None:
             for row in rows:
                 if len(str(row.get("left") or "")) > 40 or len(str(row.get("right") or "")) > 130:
                     raise ValueError("Comparison-matrix cell exceeds the visible 40/130 character limit.")
+            # Character counts are not enough for localized text: word widths
+            # can still force a nominally valid cell onto a hidden fourth line.
+            # Measure with the same fonts, sizes, and widths used by draw().
+            table_width = 6.5 * inch - 48
+            left_width = table_width * 0.42
+            right_width = table_width - left_width
+            cells = [
+                (str(visual.get("left_header") or ""), FONT_BOLD, 8.0, left_width),
+                (str(visual.get("right_header") or ""), FONT_BOLD, 8.0, right_width),
+            ]
+            cells.extend(
+                cell
+                for row in rows
+                for cell in (
+                    (str(row.get("left") or ""), FONT_REGULAR, 7.8, left_width),
+                    (str(row.get("right") or ""), FONT_REGULAR, 7.8, right_width),
+                )
+            )
+            if any(len(wrap_lines(text, font, size, width - 18)) > 3 for text, font, size, width in cells):
+                raise ValueError("Comparison-matrix cell does not fit in three visible lines.")
         if visual_type == "cost_stack":
             nodes = visual.get("nodes")
             if not isinstance(nodes, list) or not 2 <= len(nodes) <= 8:
