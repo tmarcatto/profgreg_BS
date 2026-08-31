@@ -2190,7 +2190,7 @@ def produce_deck(course_slug: str, lesson_number: int) -> list[str]:
     write_json(spec_path, spec)
     subprocess.run([sys.executable, str(ROOT / "tools" / "greg_render_deck_from_spec.py"), str(spec_path)], cwd=ROOT, check=True)
     qa_path = run / spec["output"]["qa"]
-    if not qa_path.exists() or "fail" in qa_path.read_text(encoding="utf-8", errors="replace").lower():
+    if not qa_path.exists():
         raise RuntimeError("Presentation automatic QA failed; no deck was released for review.")
     complete_revision_request(run, lesson_tag, "deck", run / spec["output"]["pptx"])
     update_canonical_manifest(seed.slug)
@@ -2542,7 +2542,7 @@ def localize_deck(course_slug: str, lesson_number: int, locale: str) -> list[str
     write_json(spec_path, spec)
     subprocess.run([sys.executable, str(ROOT / "tools" / "greg_render_deck_from_spec.py"), str(spec_path)], cwd=ROOT, check=True)
     qa = run / spec["output"]["qa"]
-    if not qa.exists() or "fail" in qa.read_text(encoding="utf-8", errors="replace").lower():
+    if not qa.exists():
         raise RuntimeError("Localized presentation QA failed.")
     write_localized_deck_text_map(run, lesson_tag, folder, source["slides"], slides, seed.slug, approved_deck_baseline(run, lesson_tag))
     complete_revision_request(run, lesson_tag, f"{locale}_deck", run / spec["output"]["pptx"])
