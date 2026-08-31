@@ -366,14 +366,17 @@ class GregLiveProductionTests(unittest.TestCase):
         source = (
             "# Introduction\n# Section 01 - One\n> **HANDS-ON EXAMPLE**\n> Body.\n"
             "| Item | Amount |\n|---|---:|\n| One | $1,000 |\n| Two | $2,000 |\n"
+            "# Summary and Key Takeaways\n- One\n- Two\n- Three\n- Four\n"
         )
         localized = (
             "# Introdução\n# Seção 01: Um\nEXEMPLO PRÁTICO Corpo.\n"
             "| Item | Valor |\n|---|---:|\n| Um | $1.000 |\n"
+            "# Resumo e Principais Conclusões\nUm parágrafo inválido.\n"
         )
         issues = production.localized_book_parity_issues(source, localized, "pt_br")
         self.assertTrue(any("callout boxes" in issue for issue in issues))
         self.assertTrue(any("table 1" in issue for issue in issues))
+        self.assertTrue(any("summary bullet items" in issue for issue in issues))
 
     def test_localized_book_structure_reports_truncated_translation(self) -> None:
         partial = "# Seção 01: Primeiro\n\nTexto.\n\n# Referências\n"

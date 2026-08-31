@@ -12,6 +12,12 @@ CALLOUTS = {
     "es": ("TÉRMINO CLAVE", "APLICACIÓN", "EJEMPLO PRÁCTICO", "ESCENARIO", "RETOMAR", "PUENTE"),
 }
 
+SUMMARY_HEADINGS = {
+    "en": "Summary and Key Takeaways",
+    "pt_br": "Resumo e Principais Conclusões",
+    "es": "Resumen y Conclusiones Clave",
+}
+
 
 def _table_shapes(markdown: str) -> list[dict[str, int]]:
     lines = markdown.splitlines()
@@ -42,9 +48,15 @@ def markdown_structure(markdown: str, locale: str) -> dict[str, Any]:
         rf"(?im)^>\s*(?:\*\*)?(?:{callout_pattern})(?:\*\*)?[ \t]*(?::[ \t]*.*)?$",
         markdown,
     )
+    summary = re.search(
+        rf"(?ims)^#\s+{re.escape(SUMMARY_HEADINGS[locale])}\s*$\n(.*?)(?=^#\s+|\Z)",
+        markdown,
+    )
+    summary_items = len(re.findall(r"(?m)^\s*[-*+]\s+\S", summary.group(1))) if summary else 0
     return {
         "headings": len(headings),
         "callouts": len(callouts),
+        "summary_items": summary_items,
         "tables": _table_shapes(markdown),
     }
 
@@ -52,7 +64,7 @@ def markdown_structure(markdown: str, locale: str) -> dict[str, Any]:
 def structure_parity_issues(source: dict[str, Any], localized: dict[str, Any]) -> list[str]:
     """Describe any lost/added headings, callout boxes, tables, columns, or rows."""
     issues: list[str] = []
-    for key, label in (("headings", "headings"), ("callouts", "callout boxes")):
+    for key, label in (("headings", "headings"), ("callouts", "callout boxes"), ("summary_items", "summary bullet items")):
         expected = int(source.get(key, 0))
         actual = int(localized.get(key, 0))
         if actual != expected:
