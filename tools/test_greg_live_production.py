@@ -344,6 +344,9 @@ class GregLiveProductionTests(unittest.TestCase):
         self.assertFalse(production.localized_visuals_fit_contract([{
             "type": "process_flow", "nodes": [{"title": "Valid title", "detail": "X" * 37}],
         }]))
+        self.assertFalse(production.localized_visuals_fit_contract([{
+            "type": "source_to_wbs_matrix", "rows": [{"left": "X" * 41, "right": "Valid detail"}],
+        }]))
 
     def test_localized_book_structure_requires_english_heading_hierarchy(self) -> None:
         complete = "\n".join([

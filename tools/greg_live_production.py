@@ -2239,13 +2239,23 @@ def localized_visuals_fit_contract(visuals: Any) -> bool:
     for visual in visuals:
         if not isinstance(visual, dict):
             return False
-        if str(visual.get("type") or "") == "process_flow":
+        visual_type = str(visual.get("type") or "")
+        if visual_type == "process_flow":
             nodes = visual.get("nodes") or []
             if not isinstance(nodes, list) or any(
                 not isinstance(node, dict)
                 or len(str(node.get("title") or "")) > 30
                 or len(str(node.get("detail") or "")) > 36
                 for node in nodes
+            ):
+                return False
+        if visual_type == "source_to_wbs_matrix":
+            rows = visual.get("rows") or []
+            if not isinstance(rows, list) or any(
+                not isinstance(row, dict)
+                or len(str(row.get("left") or "")) > 40
+                or len(str(row.get("right") or "")) > 130
+                for row in rows
             ):
                 return False
     return True
@@ -2256,7 +2266,7 @@ def localized_book_visuals(seed, run: Path, lesson_tag: str, locale: str, langua
     cache_path = run / "localization" / folder / f"{lesson_tag}_visuals_{locale}.json"
     if cache_path.exists():
         cached = json.loads(cache_path.read_text(encoding="utf-8"))
-        if cached.get("fit_contract") == "localized-visual-fit-v4" and localized_visuals_fit_contract(cached.get("visuals")):
+        if cached.get("fit_contract") == "localized-visual-fit-v5" and localized_visuals_fit_contract(cached.get("visuals")):
             return cached["visuals"]
     source_spec_path = latest_matching_path(run / "docx_pdf", f"{lesson_tag}_study_guide_spec_r*.json")
     if not source_spec_path:
@@ -2286,6 +2296,11 @@ English visual specification:
                         for node in visual.get("nodes") or [] if isinstance(node, dict)
                     ):
                         raise ModelRequestError("Localized process-flow titles/details must stay within the visible 22/36 character limits.")
+                    if str(visual.get("type") or "") == "source_to_wbs_matrix" and any(
+                        len(str(row.get("left") or "")) > 40 or len(str(row.get("right") or "")) > 130
+                        for row in visual.get("rows") or [] if isinstance(row, dict)
+                    ):
+                        raise ModelRequestError("Localized comparison-matrix cells must stay within the visible 40/130 character limits.")
                     break
                 raise ModelRequestError("The diagram model did not return the required `visual` object.")
             except (ModelRequestError, json.JSONDecodeError) as error:
@@ -2310,7 +2325,7 @@ English visual specification:
     for source_visual, localized_visual in zip(source_visuals, visuals):
         if source_visual.get("type") != localized_visual.get("type"):
             raise RuntimeError("Localized visual plan changed a renderer type.")
-    write_json(cache_path, {"locale": locale, "fit_contract": "localized-visual-fit-v4", "visuals": visuals})
+    write_json(cache_path, {"locale": locale, "fit_contract": "localized-visual-fit-v5", "visuals": visuals})
     return visuals
 
 
