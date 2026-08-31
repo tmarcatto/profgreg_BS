@@ -70,6 +70,21 @@ class PdfLayoutCheckUnitTests(unittest.TestCase):
         self.assertIn("Owner", visible)
         self.assertNotIn("Not visibly rendered", visible)
 
+    def test_localized_visual_parity_rejects_missing_visuals(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            run = Path(tmp) / "runs" / "course"
+            english = run / "docx_pdf"
+            localized = run / "localization" / "es-419"
+            english.mkdir(parents=True)
+            localized.mkdir(parents=True)
+            (english / "lesson_04_study_guide_spec_r01.json").write_text(
+                '{"visuals":[{"visual_id":"L04V01","type":"process_flow","caption":"Figure 4.1."}]}', encoding="utf-8"
+            )
+            issues = pdf_qa.localized_visual_parity_issues(
+                localized / "lesson_04_study_guide_es_r01.pdf", {"locale": "es", "visuals": []}
+            )
+            self.assertTrue(issues)
+
     def test_content_page_range(self) -> None:
         sequence = {"section_01": 4, "summary": 10}
         self.assertEqual(list(pdf_qa.content_page_range(sequence, 12)), [4, 5, 6, 7, 8, 9])

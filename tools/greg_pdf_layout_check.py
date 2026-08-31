@@ -124,6 +124,35 @@ def expected_visible_visual_text(spec: dict) -> list[str]:
     return [text for text in expected if text.strip()]
 
 
+def localized_visual_parity_issues(pdf_path: Path, localized_spec: dict) -> list[str]:
+    """Ensure a localized book preserves every learner-visible English visual."""
+    locale = str(localized_spec.get("locale") or "")
+    if locale not in {"pt_br", "es"}:
+        return []
+    match = re.search(r"lesson_(\d{2})_", pdf_path.name)
+    if not match or len(pdf_path.parents) < 3:
+        return []
+    english_specs = sorted((pdf_path.parents[2] / "docx_pdf").glob(f"lesson_{match.group(1)}_study_guide_spec_r*.json"))
+    if not english_specs:
+        return ["English source visual specification is missing."]
+    try:
+        english_visuals = json.loads(english_specs[-1].read_text(encoding="utf-8")).get("visuals") or []
+    except json.JSONDecodeError:
+        return ["English source visual specification is invalid."]
+    localized_visuals = localized_spec.get("visuals") or []
+    if len(english_visuals) != len(localized_visuals):
+        return [f"Expected {len(english_visuals)} visuals from the English source; found {len(localized_visuals)} localized visuals."]
+    issues = []
+    for source, localized in zip(english_visuals, localized_visuals):
+        if source.get("visual_id") != localized.get("visual_id"):
+            issues.append(f"Visual ID changed from `{source.get('visual_id')}` to `{localized.get('visual_id')}`.")
+        if source.get("type") != localized.get("type"):
+            issues.append(f"Visual `{source.get('visual_id')}` changed renderer type.")
+        if source.get("caption") and not localized.get("caption"):
+            issues.append(f"Visual `{source.get('visual_id')}` lost its localized caption/source explanation.")
+    return issues
+
+
 def content_page_range(sequence: dict[str, int | None], page_count: int) -> range:
     start = sequence.get("section_01") or 4
     end = (sequence.get("summary") or page_count + 1) - 1
@@ -343,6 +372,11 @@ def run_checks(pdf_path: Path, qa_path: Path | None = None) -> dict:
         if spec_path.exists():
             try:
                 spec = json.loads(spec_path.read_text(encoding="utf-8"))
+                parity_issues = localized_visual_parity_issues(pdf_path, spec)
+                if parity_issues:
+                    findings.append(Finding("fail", "localized_visual_parity", " ".join(parity_issues[:6])))
+                elif str(spec.get("locale") or "") in {"pt_br", "es"}:
+                    findings.append(Finding("pass", "localized_visual_parity", "Localized visual count, IDs, types, and captions match the English source."))
                 expected_figures = [
                     match.group(1)
                     for visual in spec.get("visuals", [])
