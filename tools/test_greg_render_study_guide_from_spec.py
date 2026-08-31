@@ -160,6 +160,7 @@ class RenderStudyGuideFromSpecTests(unittest.TestCase):
             def roundRect(self, *_ , **__): pass
             def line(self, *_): pass
             def setFont(self, *_): pass
+            def drawString(self, *_): pass
             def drawCentredString(self, *_): pass
         title = "Fogão elétrico fornecido pelo proprietário"
         diagram = pdf_renderer.RelationshipMapDiagram("Responsabilidades", [{"title": title}] + [{"title": "Papel"}] * 5)
