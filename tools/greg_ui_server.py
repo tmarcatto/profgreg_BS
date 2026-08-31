@@ -833,7 +833,7 @@ def ui_shell(default_course: str) -> str:
       box-shadow: var(--shadow);
     }}
     .activity-now strong {{ display: block; color: var(--navy); margin-bottom: 3px; }}
-    .worker-lanes {{ display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; margin: 12px 0; }}
+    .worker-lanes {{ display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 12px; margin: 12px 0; }}
     .worker-lane {{ border: 1px solid var(--line); border-radius: 8px; padding: 12px; background: #fff; box-shadow: var(--shadow); }}
     .worker-lane strong {{ display: block; color: var(--navy); margin-bottom: 4px; }}
     .worker-lane .lane-note {{ color: var(--muted); font-size: 12px; margin-bottom: 7px; }}
@@ -1079,6 +1079,7 @@ def ui_shell(default_course: str) -> str:
     <div class="worker-lanes" aria-label="Production worker lanes">
       <div class="worker-lane"><strong>Content worker</strong><div class="lane-note">Course maps, course books, and book translations</div><span id="contentLaneStatus" class="muted">Checking…</span></div>
       <div class="worker-lane"><strong>Delivery worker</strong><div class="lane-note">Presentations, deck translations, and operational tasks</div><span id="deliveryLaneStatus" class="muted">Checking…</span></div>
+      <div class="worker-lane"><strong>Video worker</strong><div class="lane-note">AI Studios video requests, independent of material production</div><span id="videoLaneStatus" class="muted">Checking…</span></div>
     </div>
     <div class="progress-card">
       <div class="progress-top">
@@ -1749,7 +1750,7 @@ def ui_shell(default_course: str) -> str:
       holder.innerHTML = `<span class="state ${{esc(latest.state)}}">${{esc(state)}}</span> · ${{esc(detail)}}${{timing ? ` · ${{esc(timing)}}` : ''}}`;
     }}
     function renderWorkerLanes() {{
-      for (const lane of ['content', 'delivery']) {{
+      for (const lane of ['content', 'delivery', 'video']) {{
         const holder = document.getElementById(lane + 'LaneStatus');
         const jobs = currentJobs.filter(job => String(job.lane || '') === lane && ['queued', 'running'].includes(job.state));
         const running = jobs.find(job => job.state === 'running');

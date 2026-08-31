@@ -47,6 +47,8 @@ class GregUiServerTests(unittest.TestCase):
         self.assertIn("ready for video generation", html)
         self.assertIn('id="videoGeneratorSummary"', html)
         self.assertIn("AI Studios integration validated", html)
+        self.assertIn("Video worker", html)
+        self.assertIn("videoLaneStatus", html)
         self.assertIn("presentation exceeds 20 MB", html)
         self.assertIn("new approved revision ready", html)
         self.assertIn("Total estimated investment", html)
