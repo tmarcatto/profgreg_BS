@@ -114,6 +114,25 @@ class PdfLayoutCheckUnitTests(unittest.TestCase):
         self.assertTrue(pdf_qa.has_unrendered_markdown("| Item | Amount |\n|---|---:|"))
         self.assertFalse(pdf_qa.has_unrendered_markdown("Field Note headline. Body"))
 
+    def test_broken_currency_wrap_is_rejected(self) -> None:
+        self.assertEqual([(1, "$12,0 / 00")], pdf_qa.broken_currency_wraps(["Valor\n$12,0\n00\nInclusões"]))
+
+    def test_single_table_row_before_page_break_is_orphaned(self) -> None:
+        markdown = (
+            "| Item | Valor |\n|---|---:|\n"
+            "| Supervisão e coordenação do local | $12,000 |\n"
+            "| Proteção temporária e utilidades | $3,800 |\n"
+            "| Mobilização e entregas | $2,700 |\n"
+        )
+        pages = [
+            "Item Valor\nSupervisão e coordenação do local $12,000",
+            "Item Valor\nProteção temporária e utilidades $3,800\nMobilização e entregas $2,700",
+        ]
+        self.assertEqual(
+            ["table 1 leaves one body row on page 1"],
+            pdf_qa.table_orphan_row_issues(pages, markdown),
+        )
+
 
 if __name__ == "__main__":
     unittest.main()

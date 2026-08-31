@@ -12,6 +12,7 @@ from pathlib import Path
 from typing import Any
 
 from greg_security import resolve_under_root
+from greg_localized_book_structure import markdown_structure, structure_parity_issues
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -46,7 +47,7 @@ def validate_source_markdown(spec: dict[str, Any]) -> None:
     source_path = resolve_under_root(source)
     locale = str(spec.get("locale") or "en")
     if locale in {"pt_br", "es"}:
-        validate_localized_source(source_path, locale)
+        validate_localized_source(source_path, locale, spec.get("source_structure"))
         return
     content_spec = importlib.util.spec_from_file_location("greg_study_guide_content_check_render", CONTENT_CHECK_SOURCE)
     if not content_spec or not content_spec.loader:
@@ -60,7 +61,7 @@ def validate_source_markdown(spec: dict[str, Any]) -> None:
         raise RuntimeError("Study-guide source failed content validation; PDF was not rendered: " + " | ".join(failures))
 
 
-def validate_localized_source(source_path: Path, locale: str) -> None:
+def validate_localized_source(source_path: Path, locale: str, source_structure: dict[str, Any] | None = None) -> None:
     text = unicodedata.normalize("NFC", source_path.read_text(encoding="utf-8", errors="replace"))
     rules = {
         "pt_br": {
@@ -101,6 +102,10 @@ def validate_localized_source(source_path: Path, locale: str) -> None:
     invalid = [label for label in labels if label.strip().upper() not in rules["callouts"]]
     if invalid:
         raise RuntimeError(f"Localized source contains unsupported callout labels: {invalid}.")
+    if source_structure:
+        parity = structure_parity_issues(source_structure, markdown_structure(text, locale))
+        if parity:
+            raise RuntimeError("Localized source changed the English document structure: " + "; ".join(parity))
 
 
 def run_folder_from_spec(spec: dict[str, Any]) -> Path:

@@ -81,6 +81,7 @@ styles.add(ParagraphStyle(name="BridgeBody", parent=styles["CalloutBody"], fontS
 styles.add(ParagraphStyle(name="BridgeLead", parent=styles["BodyGreg"], fontSize=9.2, leading=12, textColor=MUTED, spaceAfter=10))
 styles.add(ParagraphStyle(name="Caption", parent=styles["BodyGreg"], fontSize=8.6, leading=11, textColor=MUTED, alignment=TA_CENTER, spaceBefore=4, spaceAfter=10))
 styles.add(ParagraphStyle(name="TableHeader", parent=styles["BodyGreg"], fontName=FONT_BOLD, textColor=colors.white, spaceAfter=0))
+styles.add(ParagraphStyle(name="TableAtomic", parent=styles["BodyGreg"], splitLongWords=0))
 
 
 def resolve_path(value: str | Path) -> Path:
@@ -751,6 +752,14 @@ def markdown_table(headers: list[str], rows: list[list[str]]):
         widths = [available * ratio for ratio in (0.18, 0.30, 0.13, 0.39)]
     else:
         header_minimums = [stringWidth(re.sub(r"[*_`]+", "", header), FONT_BOLD, 7.5) + 12 for header in headers]
+        numeric = re.compile(r"^\s*(?:[$€£]\s*)?[+-]?\d[\d.,]*(?:\s*(?:%|SF|LF|EA))?\s*$", flags=re.I)
+        for column in range(columns):
+            atomic_values = [re.sub(r"[*_`]+", "", row[column]).strip() for row in rows if numeric.fullmatch(re.sub(r"[*_`]+", "", row[column]).strip())]
+            if atomic_values:
+                header_minimums[column] = max(
+                    header_minimums[column],
+                    max(stringWidth(value, FONT_REGULAR, styles["BodyGreg"].fontSize) + 12 for value in atomic_values),
+                )
         if sum(header_minimums) > available:
             raise ValueError("Table headers cannot all fit on one legible line; use shorter labels or a different table layout.")
         weights = [max(10, *(len(row[index]) for row in rows)) for index in range(columns)]
@@ -769,9 +778,10 @@ def markdown_table(headers: list[str], rows: list[list[str]]):
         raise ValueError(
             f"Table header cannot fit on one legible line: {text}. Use a shorter label or a different table layout."
         )
+    numeric = re.compile(r"^\s*(?:[$€£]\s*)?[+-]?\d[\d.,]*(?:\s*(?:%|SF|LF|EA))?\s*$", flags=re.I)
     data = [
         [header_cell(cell, widths[index]) for index, cell in enumerate(headers)],
-        *[[Paragraph(inline(cell), styles["BodyGreg"]) for cell in row] for row in rows],
+        *[[Paragraph(inline(cell), styles["TableAtomic"] if numeric.fullmatch(re.sub(r"[*_`]+", "", cell).strip()) else styles["BodyGreg"]) for cell in row] for row in rows],
     ]
     table = Table(data, colWidths=widths, repeatRows=1, hAlign="LEFT", splitByRow=1)
     table.setStyle(TableStyle([
@@ -854,7 +864,7 @@ def parse_markdown(markdown: str, locale: str = "en") -> list[dict[str, Any]]:
             first_line = quote_lines[0] if quote_lines else ""
             callout_names = "|".join(re.escape(value) for value in locale_labels(locale)["callouts"])
             known_label = re.match(
-                rf"^(?:\*\*)?({callout_names})(?:\*\*)?\s*:\s*(.*)$|^\*\*({callout_names})\*\*$",
+                rf"^(?:\*\*)?({callout_names})(?:\*\*)?\s*:\s*(.*)$|^(?:\*\*)?({callout_names})(?:\*\*)?$",
                 first_line,
                 flags=re.IGNORECASE,
             )
@@ -1164,7 +1174,7 @@ def build_story(blocks: list[dict[str, Any]], visuals: list[dict[str, Any]], loc
             if pending_section_header:
                 story.extend(pending_section_header)
                 pending_section_header = []
-            story.append(markdown_table(block["headers"], block["rows"]))
+            story.append(KeepTogether([markdown_table(block["headers"], block["rows"])]))
             story.append(Spacer(1, 8))
         elif block_type == "callout":
             story.append(Callout(block["label"], block["body"]).flowable())

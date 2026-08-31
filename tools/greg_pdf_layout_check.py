@@ -8,6 +8,10 @@ from dataclasses import asdict, dataclass
 from pathlib import Path
 
 from greg_security import assert_safe_write_path
+from greg_localized_book_structure import markdown_structure, structure_parity_issues
+
+
+ROOT = Path(__file__).resolve().parents[1]
 
 
 @dataclass
@@ -71,6 +75,54 @@ def has_unrendered_markdown(text: str) -> bool:
         # than building an actual table.
         or bool(re.search(r"\|\s*:?-{3,}:?\s*\|", text))
     )
+
+
+def broken_currency_wraps(pages: list[str]) -> list[tuple[int, str]]:
+    """Find currency values whose digits were split onto a second visual line."""
+    pattern = re.compile(r"([$€£]\s*\d[\d.,]*[.,]\d{1,2})[ \t]*\n[ \t]*(\d{1,3})\b")
+    return [
+        (page_number, f"{match.group(1)} / {match.group(2)}")
+        for page_number, text in enumerate(pages, start=1)
+        for match in pattern.finditer(text)
+    ]
+
+
+def _markdown_table_first_cells(markdown: str) -> list[list[str]]:
+    lines = markdown.splitlines()
+    tables: list[list[str]] = []
+    delimiter = re.compile(r"^\s*\|?\s*:?-{3,}:?\s*(?:\|\s*:?-{3,}:?\s*)+\|?\s*$")
+    index = 0
+    while index + 1 < len(lines):
+        if lines[index].strip().startswith("|") and delimiter.match(lines[index + 1]):
+            index += 2
+            first_cells: list[str] = []
+            while index < len(lines) and lines[index].strip().startswith("|"):
+                first_cells.append(re.sub(r"[*_`]+", "", lines[index].strip().strip("|").split("|")[0]).strip())
+                index += 1
+            tables.append(first_cells)
+            continue
+        index += 1
+    return tables
+
+
+def table_orphan_row_issues(pages: list[str], source_markdown: str) -> list[str]:
+    """Reject a page segment that strands only one body row of a split table."""
+    normalized_pages = [norm(page).casefold() for page in pages]
+    issues: list[str] = []
+    for table_number, first_cells in enumerate(_markdown_table_first_cells(source_markdown), start=1):
+        rows_by_page: dict[int, int] = {}
+        for cell in first_cells:
+            needle = norm(cell).casefold()
+            if len(needle) < 8:
+                continue
+            matches = [index for index, page in enumerate(normalized_pages, start=1) if needle in page]
+            if len(matches) == 1:
+                rows_by_page[matches[0]] = rows_by_page.get(matches[0], 0) + 1
+        if len(rows_by_page) > 1:
+            for page_number, count in sorted(rows_by_page.items()):
+                if count == 1:
+                    issues.append(f"table {table_number} leaves one body row on page {page_number}")
+    return issues
 
 
 def meaningful_lines(text: str) -> list[str]:
@@ -230,6 +282,12 @@ def run_checks(pdf_path: Path, qa_path: Path | None = None) -> dict:
     all_text = "\n".join(pages)
     all_norm = norm(all_text)
 
+    currency_wraps = broken_currency_wraps(pages)
+    if currency_wraps:
+        findings.append(Finding("fail", "unbroken_numeric_values", f"Currency values split inside a number: {currency_wraps[:8]}."))
+    else:
+        findings.append(Finding("pass", "unbroken_numeric_values", "No currency value is split inside its digits."))
+
     if page_count >= 7:
         findings.append(Finding("pass", "page_count", f"PDF has {page_count} pages."))
     else:
@@ -247,7 +305,7 @@ def run_checks(pdf_path: Path, qa_path: Path | None = None) -> dict:
     roadmap_page = find_page(pages, r"(?:Lesson Roadmap|Roteiro da Lição|Ruta de la Lección)", heading_only=True)
     intro_page = find_page(pages, r"(?:Introduction|Introdução|Introducción)", min_page=2, heading_only=True)
     objectives_page = find_page(pages, r"(?:Learning Objectives|Objetivos de Aprendizagem|Objetivos de Aprendizaje)", min_page=2, heading_only=True)
-    section_01_page = find_page(pages, r"(?:Section|Seção|Sección)\s+01\s*[:-]", min_page=2)
+    section_01_page = find_page(pages, r"(?:Section|Seção|Sección)\s+01\s*[:-]", min_page=3)
     summary_page = find_page(pages, r"(?:Summary and Key Takeaways|Resumo e Principais Conclusões|Resumen y Conclusiones Clave)", min_page=3, heading_only=True)
     glossary_page = find_page(pages, r"(?:Glossary|Glossário|Glosario)", min_page=3, heading_only=True)
     references_page = find_page(pages, r"(?:References|Referências|Referencias)", min_page=3, heading_only=True)
@@ -281,8 +339,8 @@ def run_checks(pdf_path: Path, qa_path: Path | None = None) -> dict:
     elif intro_page and objectives_page:
         findings.append(Finding("warn", "intro_objectives_same_page", f"Introduction page {intro_page}, objectives page {objectives_page}; approved template expects both together."))
 
-    if objectives_page and section_01_page and section_01_page >= objectives_page:
-        findings.append(Finding("pass", "body_starts_after_objectives", "Lesson body starts on or after the front matter page."))
+    if objectives_page and section_01_page and section_01_page > objectives_page:
+        findings.append(Finding("pass", "body_starts_after_objectives", "Lesson body starts after the front matter page."))
     elif objectives_page and section_01_page:
         findings.append(Finding("fail", "body_starts_after_objectives", "Lesson body starts before or on the Learning Objectives page."))
 
@@ -430,6 +488,24 @@ def run_checks(pdf_path: Path, qa_path: Path | None = None) -> dict:
         if spec_path and spec_path.exists():
             try:
                 spec = json.loads(spec_path.read_text(encoding="utf-8"))
+                source_structure = spec.get("source_structure")
+                localized_source = spec.get("source_markdown")
+                if source_structure and isinstance(localized_source, str):
+                    source_path = ROOT / localized_source
+                    localized_text = read_text(source_path)
+                    structure_issues = structure_parity_issues(
+                        source_structure,
+                        markdown_structure(localized_text, str(spec.get("locale") or "en")),
+                    )
+                    if structure_issues:
+                        findings.append(Finding("fail", "localized_document_structure", "; ".join(structure_issues)))
+                    else:
+                        findings.append(Finding("pass", "localized_document_structure", "Localized headings, callout boxes, tables, columns, and rows match the English source."))
+                    orphan_rows = table_orphan_row_issues(pages, localized_text)
+                    if orphan_rows:
+                        findings.append(Finding("fail", "table_orphan_rows", "; ".join(orphan_rows)))
+                    else:
+                        findings.append(Finding("pass", "table_orphan_rows", "No split table segment contains only one body row."))
                 parity_issues = localized_visual_parity_issues(pdf_path, spec)
                 if parity_issues:
                     findings.append(Finding("fail", "localized_visual_parity", " ".join(parity_issues[:6])))

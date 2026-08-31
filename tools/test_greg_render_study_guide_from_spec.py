@@ -31,6 +31,13 @@ except ModuleNotFoundError as error:
 
 
 class RenderStudyGuideFromSpecTests(unittest.TestCase):
+    def test_bare_localized_callout_label_still_renders_as_a_box(self) -> None:
+        if pdf_renderer is None:
+            self.skipTest("ReportLab is not installed in this Python environment.")
+        blocks = pdf_renderer.parse_markdown("> EXEMPLO PRÁTICO\n> Corpo.", locale="pt_br")
+        self.assertEqual("callout", blocks[0]["type"])
+        self.assertEqual("EXEMPLO PRÁTICO", blocks[0]["label"])
+
     def test_markdown_table_becomes_a_table_block_not_a_paragraph(self) -> None:
         if pdf_renderer is None:
             self.skipTest("ReportLab is not installed in this Python environment.")
@@ -66,6 +73,29 @@ class RenderStudyGuideFromSpecTests(unittest.TestCase):
             pdf_renderer.stringWidth("Estimate-control item", pdf_renderer.FONT_BOLD, first.style.fontSize),
             table._colWidths[0] - 12,
         )
+
+    def test_currency_table_cell_is_atomic_and_column_is_wide_enough(self) -> None:
+        if pdf_renderer is None:
+            self.skipTest("ReportLab is not installed in this Python environment.")
+        table = pdf_renderer.markdown_table(
+            ["Item de custo indireto do projeto", "Valor", "Inclusões declaradas"],
+            [["Supervisão e coordenação do local", "$12,000", "Imposto não aplicável."]],
+        )
+        value = table._cellvalues[1][1]
+        self.assertEqual(0, value.style.splitLongWords)
+        self.assertGreaterEqual(
+            table._colWidths[1] - 12,
+            pdf_renderer.stringWidth("$12,000", pdf_renderer.FONT_REGULAR, value.style.fontSize),
+        )
+
+    def test_story_keeps_a_short_table_together(self) -> None:
+        if pdf_renderer is None:
+            self.skipTest("ReportLab is not installed in this Python environment.")
+        story = pdf_renderer.build_story(
+            [{"type": "table", "headers": ["Item", "Value"], "rows": [["First item", "$1"], ["Second item", "$2"]]}],
+            [],
+        )
+        self.assertTrue(any(isinstance(item, pdf_renderer.KeepTogether) for item in story))
 
     def test_cost_stack_total_clears_the_title_area(self) -> None:
         if pdf_renderer is None:
