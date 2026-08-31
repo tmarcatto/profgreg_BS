@@ -301,6 +301,74 @@ class GregServerStatusTests(unittest.TestCase):
     def test_translation_deck_timeout_scales_with_selected_lessons(self) -> None:
         self.assertEqual(checker.production_stage_timeout_seconds("translations_deck", 2), 95 * 60)
 
+    def test_video_job_uses_delivery_lane_and_completes_dry_run(self) -> None:
+        (ROOT / "tmp" / "jobs").mkdir(parents=True, exist_ok=True)
+        with tempfile.TemporaryDirectory(dir=ROOT / "tmp" / "jobs") as tmp, tempfile.TemporaryDirectory() as app_tmp:
+            app_root = Path(app_tmp)
+            deck = app_root / "runs" / "demo" / "deck" / "lesson_02.pptx"
+            deck.parent.mkdir(parents=True)
+            deck.write_bytes(b"approved")
+            job = checker.create_job(
+                job_root=Path(tmp),
+                request_type="video_generation",
+                course_slug="demo",
+                lesson=2,
+                payload={
+                    "locale": "en",
+                    "sourcePath": "runs/demo/deck/lesson_02.pptx",
+                    "sourceSha256": checker.sha256_file(deck),
+                    "title": "Scheduling",
+                },
+            )
+            self.assertEqual("delivery", checker.job_lane(job))
+            with patch.object(checker, "ROOT", app_root):
+                result = checker.process_one_worker_job(Path(tmp), dry_run=True, worker_lane="delivery")
+        self.assertEqual("completed", result["state"])
+
+    def test_automatic_video_discovery_deduplicates_source_revision(self) -> None:
+        (ROOT / "tmp" / "jobs").mkdir(parents=True, exist_ok=True)
+        with tempfile.TemporaryDirectory(dir=ROOT / "tmp" / "jobs") as tmp, tempfile.TemporaryDirectory() as app_tmp:
+            app_root = Path(app_tmp)
+            (app_root / "runs" / "demo" / "input").mkdir(parents=True)
+            (app_root / "runs" / "demo" / "input" / "intake.md").write_text("# Demo", encoding="utf-8")
+            summary = {
+                "lessons": [{
+                    "lesson": "02",
+                    "title": "Scheduling",
+                    "videos": {
+                        "en": {
+                            "status": "ready",
+                            "presentation_path": "runs/demo/deck/lesson_02.pptx",
+                            "source_sha256": "abc123",
+                        }
+                    },
+                }]
+            }
+            with patch.object(checker, "ROOT", app_root), patch("greg_course_status.summarize", return_value=summary):
+                first = checker.enqueue_approved_video_jobs(Path(tmp))
+                second = checker.enqueue_approved_video_jobs(Path(tmp))
+        self.assertEqual(1, len(first))
+        self.assertEqual([], second)
+
+    def test_interrupted_video_job_is_requeued_once(self) -> None:
+        (ROOT / "tmp" / "jobs").mkdir(parents=True, exist_ok=True)
+        with tempfile.TemporaryDirectory(dir=ROOT / "tmp" / "jobs") as tmp:
+            root = Path(tmp)
+            job = checker.create_job(
+                job_root=root,
+                request_type="video_generation",
+                course_slug="demo",
+                lesson=2,
+                payload={"locale": "en", "sourcePath": "deck.pptx", "sourceSha256": "abc", "recoveryCount": 0},
+            )
+            checker.transition_job(root, job["job_id"], "running", note="claimed")
+            checker.recover_interrupted_jobs(root)
+            jobs = checker.list_jobs(root)
+        self.assertEqual(2, len(jobs))
+        self.assertEqual(["failed", "queued"], sorted(item["state"] for item in jobs))
+        queued = next(item for item in jobs if item["state"] == "queued")
+        self.assertEqual(1, queued["payload"]["recoveryCount"])
+
 
 if __name__ == "__main__":
     unittest.main()

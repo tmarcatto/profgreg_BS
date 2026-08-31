@@ -36,7 +36,7 @@ LOCAL_JOB_ROOT = ROOT / "tmp" / "jobs"
 SERVER_JOB_ROOT = Path("/srv/profgreg/jobs")
 
 JOB_STATES = {"queued", "running", "needs_approval", "completed", "failed", "cancelled"}
-JOB_REQUEST_TYPES = {"course_status", "course_start", "stage_next", "lesson_lifecycle", "production_stage", "backup", "full_flow_v1_test"}
+JOB_REQUEST_TYPES = {"course_status", "course_start", "stage_next", "lesson_lifecycle", "production_stage", "video_generation", "backup", "full_flow_v1_test"}
 WORKER_LANES = {"all", "content", "delivery"}
 JOB_TRANSITIONS = {
     "queued": {"running", "failed", "cancelled"},
@@ -379,9 +379,61 @@ def job_lane(job: dict[str, Any]) -> str:
         if stage in {"deck", "translations_deck", "pt_br_deck", "es_deck"}:
             return "delivery"
         return "content"
-    if job.get("request_type") in {"backup", "lesson_lifecycle", "stage_next"}:
+    if job.get("request_type") in {"backup", "lesson_lifecycle", "stage_next", "video_generation"}:
         return "delivery"
     return "content"
+
+
+def video_job_key(job: dict[str, Any]) -> tuple[str, int, str, str]:
+    payload = job.get("payload") or {}
+    return (
+        str(job.get("course_slug") or ""),
+        int(job.get("lesson") or 0),
+        str(payload.get("locale") or ""),
+        str(payload.get("sourceSha256") or ""),
+    )
+
+
+def enqueue_approved_video_jobs(job_root: Path) -> list[dict[str, Any]]:
+    """Discover approved presentation revisions and queue each locale exactly once."""
+    root = safe_job_root(job_root)
+    existing = {video_job_key(job) for job in list_jobs(root) if job.get("request_type") == "video_generation"}
+    created: list[dict[str, Any]] = []
+    status_module = __import__("greg_course_status")
+    for run in sorted(path for path in (ROOT / "runs").iterdir() if path.is_dir()):
+        if not (run / "input" / "intake.md").is_file():
+            continue
+        course_slug = run.name
+        summary = status_module.summarize(course_slug)
+        for lesson_row in summary.get("lessons") or []:
+            lesson = int(lesson_row.get("lesson") or 0)
+            title = str(lesson_row.get("title") or f"Lesson {lesson:02d}")
+            for locale, lane in (lesson_row.get("videos") or {}).items():
+                if lane.get("status") not in {"ready", "ready_new_revision"}:
+                    continue
+                source_hash = str(lane.get("source_sha256") or "")
+                source_path = str(lane.get("presentation_path") or "")
+                key = (course_slug, lesson, str(locale), source_hash)
+                if not source_hash or not source_path or key in existing:
+                    continue
+                job = create_job(
+                    job_root=root,
+                    request_type="video_generation",
+                    course_slug=course_slug,
+                    lesson=lesson,
+                    requested_by="automatic-video-generator",
+                    input_summary=f"approved {locale} presentation ready for video",
+                    payload={
+                        "locale": str(locale),
+                        "sourcePath": source_path,
+                        "sourceSha256": source_hash,
+                        "title": title,
+                        "recoveryCount": 0,
+                    },
+                )
+                existing.add(key)
+                created.append(job)
+    return created
 
 
 def next_queued_job(job_root: Path, *, worker_lane: str = "all") -> dict[str, Any] | None:
@@ -513,6 +565,39 @@ def execute_worker_job(job_root: Path, job: dict[str, Any], *, backup_root: Path
             {"kind": "timing_trace", "path": str(trace_path), "created": trace_path.exists()},
         ]
         return update_job(job_root, job, artifacts=artifacts, timing_activities=timing_summary(trace_path), last_error=None)
+    if request_type == "video_generation":
+        course_slug = str(job.get("course_slug") or "")
+        lesson = int(job.get("lesson") or 0)
+        payload = job.get("payload") or {}
+        locale = str(payload.get("locale") or "")
+        source_path = str(payload.get("sourcePath") or "")
+        source_hash = str(payload.get("sourceSha256") or "")
+        title = str(payload.get("title") or f"Lesson {lesson:02d}")
+        if not course_slug or lesson < 1 or locale not in {"en", "pt", "es"} or not source_path or not source_hash:
+            raise ValueError("video_generation job requires course, lesson, locale, presentation path, and source SHA-256.")
+        source = (ROOT / source_path).resolve()
+        if ROOT.resolve() not in source.parents or not source.is_file() or sha256_file(source) != source_hash:
+            raise ValueError("Approved video presentation changed or is no longer available.")
+        if dry_run:
+            return update_job(
+                job_root,
+                job,
+                artifacts=[{"kind": "video", "path": f"runs/{course_slug}/video_generator/lesson_{lesson:02d}_{locale}.json", "created": False}],
+                last_error=None,
+            )
+        command = [
+            "python3", "tools/greg_aistudios_video.py",
+            "--course-slug", course_slug,
+            "--lesson", str(lesson),
+            "--locale", locale,
+            "--presentation", str(source),
+            "--title", title,
+        ]
+        code, output = run_command(command, ROOT, timeout_seconds=65 * 60)
+        if code != 0:
+            raise RuntimeError(output or f"video_generation failed with exit code {code}")
+        state_path = f"runs/{course_slug}/video_generator/lesson_{lesson:02d}_{locale}.json"
+        return update_job(job_root, job, artifacts=[{"kind": "video", "path": state_path, "created": True}], last_error=None)
     raise ValueError(f"Worker does not support request_type yet: {request_type}")
 
 
@@ -593,10 +678,13 @@ def run_worker_loop(
     poll_interval: float = 10.0,
     dry_run: bool = False,
     worker_lane: str = "all",
+    auto_video: bool = False,
 ) -> list[dict[str, Any]]:
     results: list[dict[str, Any]] = []
     processed = 0
     while True:
+        if auto_video and worker_lane in {"all", "delivery"} and not dry_run:
+            enqueue_approved_video_jobs(job_root)
         result = process_one_worker_job(job_root, backup_root=backup_root, dry_run=dry_run, worker_lane=worker_lane)
         results.append(result)
         if result["processed"]:
@@ -614,7 +702,21 @@ def recover_interrupted_jobs(job_root: Path) -> list[str]:
         if job.get("state") != "running":
             continue
         job_id = str(job.get("job_id") or "")
-        transition_job(root, job_id, "failed", note="Worker restart interrupted this job; start it again from the operator console.")
+        transition_job(root, job_id, "failed", note="Worker restart interrupted this job; recovery was evaluated safely.")
+        if job.get("request_type") == "video_generation":
+            payload = dict(job.get("payload") or {})
+            recovery_count = int(payload.get("recoveryCount") or 0)
+            if recovery_count < 1:
+                payload["recoveryCount"] = recovery_count + 1
+                create_job(
+                    job_root=root,
+                    request_type="video_generation",
+                    course_slug=str(job.get("course_slug") or ""),
+                    lesson=int(job.get("lesson") or 0),
+                    requested_by="automatic-video-recovery",
+                    input_summary="resume interrupted AI Studios video generation",
+                    payload=payload,
+                )
         recovered.append(job_id)
     return recovered
 
@@ -1103,13 +1205,14 @@ def main() -> int:
     parser.add_argument("--once", action="store_true", help="With --worker, process at most one queued job.")
     parser.add_argument("--max-jobs", type=int, help="With --worker, stop after this many processed jobs.")
     parser.add_argument("--poll-interval", type=float, default=10.0, help="With --worker, seconds between polls.")
+    parser.add_argument("--auto-video", action="store_true", help="Continuously queue newly approved presentation videos in the delivery lane.")
     parser.add_argument("--output", help="Optional Markdown output path.")
     parser.add_argument("--json", action="store_true")
     args = parser.parse_args()
 
     if args.worker:
         recover_interrupted_jobs(Path(args.job_root))
-        data = run_worker_loop(job_root=Path(args.job_root), backup_root=Path(args.backup_root), once=args.once, max_jobs=args.max_jobs, poll_interval=args.poll_interval, dry_run=args.dry_run, worker_lane=args.worker_lane)
+        data = run_worker_loop(job_root=Path(args.job_root), backup_root=Path(args.backup_root), once=args.once, max_jobs=args.max_jobs, poll_interval=args.poll_interval, dry_run=args.dry_run, worker_lane=args.worker_lane, auto_video=args.auto_video)
         report = json.dumps(data, indent=2, ensure_ascii=False) + "\n"
     elif args.create_backup:
         data = create_backup(Path(args.root), backup_root=Path(args.backup_root), label=args.backup_label, dry_run=args.dry_run)

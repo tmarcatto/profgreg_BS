@@ -10,7 +10,7 @@ User=profgreg
 Group=profgreg
 WorkingDirectory=/opt/profgreg/app
 EnvironmentFile=/etc/profgreg/profgreg.env
-ExecStart=/usr/bin/python3 /opt/profgreg/app/tools/greg_server_status.py --worker --worker-lane delivery --job-root /srv/profgreg/jobs --backup-root /srv/profgreg/backups --poll-interval 5
+ExecStart=/usr/bin/python3 /opt/profgreg/app/tools/greg_server_status.py --worker --worker-lane delivery --auto-video --job-root /srv/profgreg/jobs --backup-root /srv/profgreg/backups --poll-interval 5
 Restart=on-failure
 RestartSec=10
 NoNewPrivileges=true
@@ -18,7 +18,7 @@ PrivateTmp=true
 ProtectHome=true
 ProtectSystem=strict
 ReadOnlyPaths=/srv/profgreg/uploads /srv/profgreg/outputs /var/log/profgreg
-ReadWritePaths=/srv/profgreg/jobs /srv/profgreg/backups /opt/profgreg/app/tmp /opt/profgreg/app/runs
+ReadWritePaths=/srv/profgreg/jobs /srv/profgreg/backups /opt/profgreg/app/tmp /opt/profgreg/app/runs /opt/profgreg/app/runtime
 
 [Install]
 WantedBy=multi-user.target

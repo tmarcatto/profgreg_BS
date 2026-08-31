@@ -92,6 +92,8 @@ The first worker implementation is intentionally narrow:
 
 ## Video Generator Expansion
 
-`video_generation` is the planned request type for the Video Generator contract. It must include course, lesson, locale, and source SHA-256. The official Enterprise API path passed the Lesson 2 English pilot on 2026-08-31. The job type may be added to the accepted worker types after its dedicated queue execution and recovery tests pass.
+`video_generation` is an accepted delivery-worker request type. It includes course, lesson, locale, presentation path, source SHA-256, and the lesson title. The official Enterprise API path passed the Lesson 2 English pilot on 2026-08-31, and dedicated queue, deduplication, dry-run execution, and interrupted-job recovery tests gate deployment.
 
 Video jobs run one at a time in the delivery lane. Each locale fails independently and retries at most twice. The worker uploads the approved presentation, preserves AI Studios transcript generation, exports the video, and records the direct download URL. No browser session is part of the worker flow.
+
+The delivery worker runs with `--auto-video`. On every poll it discovers approved canonical presentation revisions whose SHA-256 has never been queued, creates exactly one `video_generation` job for each locale, and processes the queue serially. A worker restart may create one recovery job for an interrupted video; the persisted AI Studios project/export identifiers make that recovery resumable without creating a duplicate project for the same source revision.
