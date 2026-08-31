@@ -148,6 +148,10 @@ def localized_visual_parity_issues(pdf_path: Path, localized_spec: dict) -> list
             issues.append(f"Visual ID changed from `{source.get('visual_id')}` to `{localized.get('visual_id')}`.")
         if source.get("type") != localized.get("type"):
             issues.append(f"Visual `{source.get('visual_id')}` changed renderer type.")
+        source_section = re.search(r"(?:Section|Seção|Sección)\s+(\d{1,2})", str(source.get("after_heading") or ""), flags=re.I)
+        localized_section = re.search(r"(?:Section|Seção|Sección)\s+(\d{1,2})", str(localized.get("after_heading") or ""), flags=re.I)
+        if not source_section or not localized_section or source_section.group(1) != localized_section.group(1):
+            issues.append(f"Visual `{source.get('visual_id')}` is not anchored to the corresponding English section.")
         if source.get("caption") and not localized.get("caption"):
             issues.append(f"Visual `{source.get('visual_id')}` lost its localized caption/source explanation.")
     return issues

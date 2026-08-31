@@ -2138,6 +2138,21 @@ def create_deck_visual_assets(seed, lesson: dict[str, Any], slides: list[dict[st
         slide["image"] = {"path": str(asset.relative_to(run)), "alt": slide["image_alt"], "name": slide["image_name"]}
 
 
+VIDEO_SOURCE_MAX_BYTES = 20 * 1024 * 1024
+
+
+def require_video_compatible_deck(path: Path, *, maximum_bytes: int = VIDEO_SOURCE_MAX_BYTES) -> None:
+    """Block release of a PPTX that cannot enter the approved Docs-to-Video flow."""
+    if not path.exists() or not path.is_file():
+        raise RuntimeError("Presentation renderer did not create the expected PPTX file.")
+    if path.stat().st_size > maximum_bytes:
+        size_mb = path.stat().st_size / (1024 * 1024)
+        raise RuntimeError(
+            f"Presentation is {size_mb:.2f} MB; Video Generator accepts at most 20 MB. "
+            "Reduce presentation media and render a new revision before approval."
+        )
+
+
 def produce_deck(course_slug: str, lesson_number: int) -> list[str]:
     seed = parse_intake(course_slug)
     run = RUNS / seed.slug
@@ -2189,6 +2204,7 @@ def produce_deck(course_slug: str, lesson_number: int) -> list[str]:
         spec["approved_baseline_artifact"] = str(baseline.relative_to(run))
     write_json(spec_path, spec)
     subprocess.run([sys.executable, str(ROOT / "tools" / "greg_render_deck_from_spec.py"), str(spec_path)], cwd=ROOT, check=True)
+    require_video_compatible_deck(run / spec["output"]["pptx"])
     qa_path = run / spec["output"]["qa"]
     if not qa_path.exists():
         raise RuntimeError("Presentation automatic QA failed; no deck was released for review.")
@@ -2219,7 +2235,7 @@ def localized_book_visuals(seed, run: Path, lesson_tag: str, locale: str, langua
     cache_path = run / "localization" / folder / f"{lesson_tag}_visuals_{locale}.json"
     if cache_path.exists():
         cached = json.loads(cache_path.read_text(encoding="utf-8"))
-        if cached.get("fit_contract") == "localized-visual-fit-v2" and isinstance(cached.get("visuals"), list):
+        if cached.get("fit_contract") == "localized-visual-fit-v4" and isinstance(cached.get("visuals"), list):
             return cached["visuals"]
     source_spec_path = latest_matching_path(run / "docx_pdf", f"{lesson_tag}_study_guide_spec_r*.json")
     if not source_spec_path:
@@ -2230,7 +2246,7 @@ def localized_book_visuals(seed, run: Path, lesson_tag: str, locale: str, langua
     headings = re.findall(r"(?im)^#\s+(.+)$", translated)
     def translate_visual(source_visual: dict[str, Any]) -> dict[str, Any]:
         prompt = f"""Translate every student-visible text value in this single course-book visual specification into {language}.
-Return exactly one JSON object in the form {{"visual": {{...}}}}. The first response character must be `{{` and the last must be `}}`; do not use Markdown or commentary. Preserve every key, visual type, visual_id, figure number, node count, row count, and ordering. Translate `after_heading` to one of the exact target Markdown headings listed below so placement remains exact. Keep each process-flow title short enough to occupy at most three narrow box lines (prefer 22 characters or fewer and no unbreakable word longer than 12 characters); keep details at most 36 characters. If a literal translation is too long, use a concise equivalent that preserves the central construction meaning. Keep comparison-matrix left cells at most 40 characters and right cells at most 130 characters. Do not omit, merge, or add nodes or rows. Preserve U.S. construction meaning.
+Return exactly one JSON object in the form {{"visual": {{...}}}}. The first response character must be `{{` and the last must be `}}`; do not use Markdown or commentary. The approved English visual is the source contract: preserve its visual_id, type, figure number, node count, row count, ordering, and section number. Localize only learner-visible text, captions, and source explanations. The system assigns `after_heading` from the exact translated Markdown heading; never invent, shorten, or move it. Keep each process-flow title short enough to occupy at most three narrow box lines (prefer 22 characters or fewer and no unbreakable word longer than 12 characters); keep details at most 36 characters. If a literal translation is too long, use a concise equivalent that preserves the central construction meaning. Keep comparison-matrix left cells at most 40 characters and right cells at most 130 characters. Do not omit, merge, or add nodes or rows. Preserve U.S. construction meaning.
 
 Exact target headings:
 {json.dumps(headings, ensure_ascii=False)}
@@ -2255,7 +2271,15 @@ English visual specification:
                 parsed = None
         if not parsed:
             raise RuntimeError(f"Localized visual translation failed after two validated attempts: {last_error}")
-        return parsed["visual"]
+        visual = parsed["visual"]
+        source_section = re.search(r"(?:Section|Seção|Sección)\s+(\d{1,2})", str(source_visual.get("after_heading") or ""), flags=re.I)
+        if not source_section:
+            raise RuntimeError(f"English visual `{source_visual.get('visual_id')}` has no numbered section placement.")
+        target = [heading for heading in headings if re.search(rf"(?:Section|Seção|Sección)\s+0?{int(source_section.group(1))}\s*(?:-|:)", heading, flags=re.I)]
+        if len(target) != 1:
+            raise RuntimeError(f"Localized visual `{source_visual.get('visual_id')}` cannot be anchored to exactly one translated section.")
+        visual["after_heading"] = target[0]
+        return visual
 
     with ThreadPoolExecutor(max_workers=min(4, len(source_visuals))) as executor:
         visuals = list(executor.map(translate_visual, source_visuals))
@@ -2264,7 +2288,7 @@ English visual specification:
     for source_visual, localized_visual in zip(source_visuals, visuals):
         if source_visual.get("type") != localized_visual.get("type"):
             raise RuntimeError("Localized visual plan changed a renderer type.")
-    write_json(cache_path, {"locale": locale, "fit_contract": "localized-visual-fit-v2", "visuals": visuals})
+    write_json(cache_path, {"locale": locale, "fit_contract": "localized-visual-fit-v4", "visuals": visuals})
     return visuals
 
 
@@ -2541,6 +2565,7 @@ def localize_deck(course_slug: str, lesson_number: int, locale: str) -> list[str
     spec_path = run / "localization" / folder / f"{lesson_tag}_deck_{locale}_spec_r{revision:02d}.json"
     write_json(spec_path, spec)
     subprocess.run([sys.executable, str(ROOT / "tools" / "greg_render_deck_from_spec.py"), str(spec_path)], cwd=ROOT, check=True)
+    require_video_compatible_deck(run / spec["output"]["pptx"])
     qa = run / spec["output"]["qa"]
     if not qa.exists():
         raise RuntimeError("Localized presentation QA failed.")
