@@ -19,7 +19,47 @@ assert spec and spec.loader
 spec.loader.exec_module(production)
 
 
+def deck_decision(medium: str = "native-diagram") -> dict:
+    selected_strategy = {
+        "native-diagram": ("explain-with-diagram", "deterministic"),
+        "trusted-source-image": ("inspect-real-example", "trusted-source"),
+        "generated-conceptual-image": ("orient-with-conceptual-image", "generated-fallback"),
+    }[medium]
+    return {
+        "learning_job": "Learners can apply this distinct construction decision correctly.",
+        "teaching_strategy": "diagnose-and-decide",
+        "visual_medium": medium,
+        "visual_candidates": [
+            {"medium": candidate, "decision": "selected" if candidate == medium else "rejected", "reason": f"This medium has a specific instructional fit for {candidate}."}
+            for candidate in ["native-diagram", "trusted-source-image", "generated-conceptual-image"]
+        ],
+        "text_role": "Text directs attention to the decision rule.",
+        "pedagogical_strategy": selected_strategy[0],
+        "real_example_importance": "not-needed",
+        "generation_suitability": "safe",
+        "source_strategy": selected_strategy[1],
+        "evidence_considered": [{"locator": "Course Map", "relevance": "Matches the teaching job."}],
+        "alternatives_considered": ["A trusted source image was evaluated.", "A generated conceptual image was evaluated."],
+        "selection_reason": "This slide mechanism directly teaches the mapped decision clearly.",
+    }
+
+
 class GregLiveProductionTests(unittest.TestCase):
+    def test_video_compatible_deck_rejects_more_than_twenty_mb(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            deck = Path(directory) / "too-large.pptx"
+            with deck.open("wb") as handle:
+                handle.seek(production.VIDEO_SOURCE_MAX_BYTES)
+                handle.write(b"x")
+            with self.assertRaisesRegex(RuntimeError, "at most 20 MB"):
+                production.require_video_compatible_deck(deck)
+
+    def test_video_compatible_deck_accepts_twenty_mb_or_less(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            deck = Path(directory) / "accepted.pptx"
+            deck.write_bytes(b"pptx")
+            production.require_video_compatible_deck(deck)
+
     def test_combined_translation_stages_produce_pt_and_es_for_each_lesson(self) -> None:
         with patch.object(production, "localize_book", side_effect=lambda course, lesson, locale: [f"{lesson}:{locale}"]) as localize_book:
             self.assertEqual(["1:pt_br", "1:es", "2:pt_br", "2:es"], production.run_stage("demo", "translations_book", [1, 2]))
@@ -70,17 +110,10 @@ class GregLiveProductionTests(unittest.TestCase):
             self.assertTrue(spec.exists() and not (deck / "lesson_02_deck_r03.pptx").exists())
 
     def test_deck_plan_validates_visual_decisions_and_layout_diversity(self) -> None:
-        decision = {
-            "pedagogical_strategy": "explain-with-diagram",
-            "real_example_importance": "not-needed",
-            "generation_suitability": "safe",
-            "source_strategy": "deterministic",
-            "evidence_considered": [{"locator": "Course Map", "relevance": "Matches the teaching job."}],
-            "selection_reason": "This slide mechanism directly teaches the mapped decision clearly.",
-        }
+        decision = deck_decision()
         slides = [
             {"layout": "cover", "title": "Buildable Work", "subtitle": "Make the job ready.", "topics": ["Intake", "Scope", "Permits"]},
-            {"layout": "intro_image_bullets", "title": "Start with the site", "intro": "A field visit turns assumptions into decisions.", "bullets": ["Verify access", "Record constraints", "Confirm owners"], "image_source_strategy": "generated-conceptual", "image_prompt": "A residential project manager reviewing a home site plan with a field lead.", "image_alt": "Project manager and field lead review a residential site plan.", **decision},
+            {"layout": "intro_image_bullets", "title": "Start with the site", "intro": "A field visit turns assumptions into decisions.", "bullets": ["Verify access", "Record constraints", "Confirm owners"], "image_source_strategy": "generated-conceptual", "image_prompt": "A residential project manager reviewing a home site plan with a field lead.", "image_alt": "Project manager and field lead review a residential site plan.", **deck_decision("generated-conceptual-image")},
             {"layout": "card_sequence", "title": "Move facts into action", "items": [], "takeaway": "Sequence creates control."},
             {"layout": "comparison", "title": "Separate the request from the scope", "left": {"title": "Request", "body": "Starting point"}, "right": {"title": "Scope", "body": "Verified commitment"}, "bottom_line": "Clarify first."},
             {"layout": "planned_actual", "title": "Test the gap", "left": {"title": "Planned", "body": "What was assumed"}, "right": {"title": "Actual", "body": "What the site allows"}, "bottom_line": "Price the real job."},
@@ -92,28 +125,92 @@ class GregLiveProductionTests(unittest.TestCase):
         ]
         for slide in slides[2:-1]:
             slide.update(decision)
-        slides[1]["source_strategy"] = "generated-fallback"
         slides[7]["image_source_strategy"] = "generated-conceptual"
-        slides[7]["source_strategy"] = "generated-fallback"
+        slides[7].update(deck_decision("generated-conceptual-image"))
         normalized = production.normalize_deck_slides({"slides": slides}, {"title": "Buildability", "learning_goal": "Make the job buildable."})
         self.assertEqual(10, len(normalized))
         self.assertEqual("right", normalized[1]["image_side"])
         self.assertEqual("left", normalized[7]["image_side"])
 
     def test_deck_plan_allows_no_teaching_image_when_strategy_does_not_call_for_one(self) -> None:
-        decision = {
-            "pedagogical_strategy": "explain-with-diagram",
-            "real_example_importance": "not-needed",
-            "generation_suitability": "safe",
-            "source_strategy": "deterministic",
-            "evidence_considered": [{"locator": "Course Map", "relevance": "Matches the teaching job."}],
-            "selection_reason": "A structured slide directly explains this mapped concept clearly.",
-        }
+        decision = deck_decision()
         slides = [{"layout": "cover", "title": "A", "subtitle": "B", "topics": ["One", "Two", "Three"]}]
         slides.extend({"layout": layout, **decision} for layout in ["card_sequence", "comparison", "planned_actual", "row_list", "checklist_rows", "card_sequence", "comparison", "row_list"])
         slides.append({"layout": "takeaway"})
         normalized = production.normalize_deck_slides({"slides": slides}, {"title": "Test", "learning_goal": "Test"})
         self.assertEqual(10, len(normalized))
+
+    def test_deck_plan_uses_layout_diversity_as_a_floor_not_a_visual_quota(self) -> None:
+        slides = [{"layout": "cover", "title": "A", "subtitle": "B", "topics": ["One", "Two", "Three"]}]
+        slides.extend({"layout": layout, **deck_decision()} for layout in [
+            "card_sequence", "comparison", "planned_actual", "row_list",
+            "card_sequence", "comparison", "planned_actual", "row_list",
+        ])
+        slides.append({"layout": "takeaway"})
+        self.assertEqual(10, len(production.normalize_deck_slides({"slides": slides}, {"title": "Test"})))
+
+    def test_deck_plan_accepts_direct_schedule_and_network_demonstrations(self) -> None:
+        slides = [{"layout": "cover", "title": "A", "subtitle": "B", "topics": ["One", "Two", "Three"]}]
+        slides.extend([
+            {"layout": "process_flow", "items": [{"title": "Plan", "body": "Set the sequence"}, {"title": "Release", "body": "Start ready work"}], **deck_decision()},
+            {"layout": "schedule_bar_chart", "schedule_rows": [
+                {"activity": "Layout", "start": 0, "duration": 2, "status": "complete"},
+                {"activity": "Framing", "start": 2, "duration": 4, "status": "in-progress"},
+                {"activity": "Rough-ins", "start": 4, "duration": 3, "status": "planned"},
+            ], **deck_decision()},
+            {"layout": "activity_network", "network_paths": [{"label": "Controlling path", "critical": True, "activities": [
+                {"title": "Excavate", "duration": "2d"}, {"title": "Form", "duration": "3d"}, {"title": "Pour", "duration": "1d"},
+            ]}], **deck_decision()},
+            {"layout": "comparison", **deck_decision()},
+            {"layout": "process_flow", "items": [{"title": "Find", "body": "See the constraint"}, {"title": "Own", "body": "Assign action"}], **deck_decision()},
+            {"layout": "schedule_bar_chart", "schedule_rows": [
+                {"activity": "A", "start": 0, "duration": 1, "status": "complete"},
+                {"activity": "B", "start": 1, "duration": 2, "status": "planned"},
+                {"activity": "C", "start": 2, "duration": 2, "status": "delayed"},
+            ], **deck_decision()},
+            {"layout": "activity_network", "network_paths": [{"label": "Path", "critical": False, "activities": [{"title": "A", "duration": "1d"}, {"title": "B", "duration": "2d"}]}], **deck_decision()},
+            {"layout": "comparison", **deck_decision()},
+        ])
+        slides.append({"layout": "takeaway"})
+        normalized = production.normalize_deck_slides({"slides": slides}, {"title": "Test"})
+        self.assertEqual("schedule_bar_chart", normalized[2]["layout"])
+        self.assertEqual("activity_network", normalized[3]["layout"])
+
+    def test_deck_plan_rejects_layout_selected_before_visual_medium(self) -> None:
+        slides = [{"layout": "cover", "title": "A", "subtitle": "B", "topics": ["One", "Two", "Three"]}]
+        layouts = ["card_sequence", "comparison", "planned_actual", "row_list", "checklist_rows", "card_sequence", "comparison", "row_list"]
+        slides.extend({"layout": layout, **deck_decision()} for layout in layouts)
+        slides[3]["visual_medium"] = "generated-conceptual-image"
+        slides.append({"layout": "takeaway"})
+        with self.assertRaisesRegex(RuntimeError, "selected visual medium|visual candidate"):
+            production.normalize_deck_slides({"slides": slides}, {"title": "Test", "learning_goal": "Test"})
+
+    def test_deck_visual_plan_records_pedagogy_media_and_text_role(self) -> None:
+        slides = [{"layout": "cover"}]
+        slides.extend({"layout": "comparison", "title": f"Decision {index}", **deck_decision()} for index in range(2, 10))
+        slides.append({"layout": "takeaway"})
+        plan = production.deck_visual_plan_from_slides(slides, {"lesson_number": 4})
+        self.assertEqual("deck", plan["artifact_type"])
+        self.assertEqual("diagnose-and-decide", plan["visuals"][0]["teaching_strategy"])
+        self.assertEqual("native-diagram", plan["visuals"][0]["visual_medium"])
+        self.assertIn("decision rule", plan["visuals"][0]["text_role"])
+
+    def test_deck_prompt_chooses_pedagogy_before_comparing_three_media(self) -> None:
+        prompt = production.deck_prompt(
+            SimpleNamespace(title="Demo Course"),
+            {"lesson_number": 1, "title": "Demo Lesson", "visual_insertions": []},
+            "Approved course book text.",
+            {"visuals": []},
+            "",
+        )
+        self.assertLess(prompt.index("Choose one `teaching_strategy`"), prompt.index("Evaluate all three `visual_candidates`"))
+        for medium in ["native-diagram", "trusted-source-image", "generated-conceptual-image"]:
+            self.assertIn(medium, prompt)
+
+    def test_deck_revision_prompt_upgrades_internal_visual_metadata_without_rewriting(self) -> None:
+        prompt = production.deck_revision_prompt([{"layout": "cover"}], "Shorten slide 3.")
+        self.assertIn("Adding missing internal planning metadata is not a student-visible change", prompt)
+        self.assertIn("all three `visual_candidates`", prompt)
 
     def test_image_only_upload_text_is_never_extracted_for_content(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
@@ -585,6 +682,27 @@ class GregLiveProductionTests(unittest.TestCase):
         prompt = production.reviewer_prompt("citation_review", seed, lesson, "# References\n- Work.", {"sources": []})
         self.assertIn("after the final `# References` heading", prompt)
         self.assertIn("teaching prose is not a bibliography defect", prompt)
+
+    def test_targeted_revision_review_does_not_reopen_unrelated_baseline_issues(self) -> None:
+        seed = type("Seed", (), {"title": "Course"})()
+        lesson = {"lesson_number": 6, "title": "Control the Money"}
+        baseline = "# Section 01 - Controls\n\nOld box text.\n\n# Section 02 - Forecasting\n\nUnchanged material."
+        candidate = "# Section 01 - Controls\n\nSimplified box text.\n\n# Section 02 - Forecasting\n\nUnchanged material."
+
+        prompt = production.reviewer_prompt(
+            "pedagogy_review",
+            seed,
+            lesson,
+            candidate,
+            {"sources": []},
+            approved_baseline=baseline,
+            operator_revision_request="Simplify the box text.",
+        )
+
+        self.assertIn("targeted revision of an operator-approved baseline", prompt)
+        self.assertIn("Do not reopen or fail a condition already present", prompt)
+        self.assertIn("-Old box text.", prompt)
+        self.assertIn("+Simplified box text.", prompt)
 
     def test_visual_retry_reuses_frozen_passed_content_review(self) -> None:
         from tempfile import TemporaryDirectory
