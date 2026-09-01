@@ -1822,6 +1822,7 @@ def reviewer_prompt(
     *,
     approved_baseline: str = "",
     operator_revision_request: str = "",
+    operator_allowed_headings: set[str] | None = None,
 ) -> str:
     criteria = {
         "pedagogy_review": "Check only learning progression, depth for level, MECE sections, residential examples, explanations before bullets, no classroom/group activities or quizzes, and no audience boilerplate. A HANDS-ON EXAMPLE is a deliberate exception: it must give the individual learner supplied inputs, a concrete action to perform, and an answer or result check; reject a HANDS-ON box that merely contains explanatory course-book prose. Any ordered procedure must use a real numbered Markdown list with exactly one step per source line; reject `1. ... 2. ... 3. ...` embedded in one paragraph because it hides the sequence from the learner and renderer. The Summary and Key Takeaways section is a strict exception: it must contain only 4-6 bullets, with no framing sentence or prose. Require a readable Markdown table only for one uninterrupted list of seven or more comparable items that repeatedly state category, quantity or amount, and the same condition or comment. Do not demand tables for conceptual lists, short examples, WBS vocabulary, or distinct decision steps. After a table, require prose to add a decision, exception, or interpretation rather than restating its rows. Citation style and reference formatting belong to the citation reviewer; do not fail this review merely because ordinary claims lack inline citations. Figures are planned and inserted by a separate visual pipeline after this review. Do not request ASCII diagrams, Markdown tables used as figures, fenced visual source, or final figure rendering inside the chapter Markdown.",
@@ -1838,8 +1839,14 @@ def reviewer_prompt(
             lineterm="",
             n=3,
         ))
+        allowed_scope = "\n".join(
+            f"- {heading}" for heading in sorted(operator_allowed_headings or set())
+        ) or "- No Markdown section changes are authorized; this is a renderer-only correction."
         revision_scope = f"""
 This is a targeted revision of an operator-approved baseline. Review the candidate against the requested changes and the diff below. Fail only when a requested change is missing, the revision introduces a new problem within your specialist criteria, or it materially worsens a baseline condition. Do not reopen or fail a condition already present in the approved baseline when it is unrelated to the operator request. Do not demand broad lesson improvements outside this revision scope.
+
+Hard edit boundary: only the following section headings may change. Omit any finding that would require an edit to any other section, and PASS when no in-scope blocking issue remains:
+{allowed_scope}
 
 Operator revision request:
 {operator_revision_request[:7000]}
@@ -1965,6 +1972,7 @@ def run_content_reviewers(
     *,
     approved_baseline: str = "",
     operator_revision_request: str = "",
+    operator_allowed_headings: set[str] | None = None,
 ) -> tuple[bool, list[str]]:
     passed = True
     required_changes: list[str] = []
@@ -1986,6 +1994,7 @@ def run_content_reviewers(
                     ledger,
                     approved_baseline=approved_baseline,
                     operator_revision_request=operator_revision_request,
+                    operator_allowed_headings=operator_allowed_headings,
                 ),
                 max_tokens=8000,
             )
@@ -2003,6 +2012,34 @@ def run_content_reviewers(
         ]
         results = [future.result() for future in futures]
     for _role, title, suffix, data in results:
+        if approved_baseline and operator_revision_request:
+            allowed_numbers = {
+                int(match.group(1))
+                for heading in operator_allowed_headings or set()
+                if (match := re.match(r"# Section\s+(\d+)", heading, flags=re.I))
+            }
+
+            def inside_targeted_scope(item: Any) -> bool:
+                mentioned = {
+                    int(value)
+                    for value in re.findall(r"\bSection\s+(\d+)\b", str(item), flags=re.I)
+                }
+                return not mentioned or not mentioned.isdisjoint(allowed_numbers)
+
+            original_blockers = list(data.get("required_changes") or data.get("findings") or [])
+            data["findings"] = [item for item in data.get("findings") or [] if inside_targeted_scope(item)]
+            data["required_changes"] = [
+                item for item in data.get("required_changes") or [] if inside_targeted_scope(item)
+            ]
+            if data.get("passed") is not True and original_blockers and not (
+                data["required_changes"] or data["findings"]
+            ):
+                data.update({
+                    "passed": True,
+                    "verdict": "PASS",
+                    "findings": ["Approved baseline findings outside the selected revision scope were preserved."],
+                    "required_changes": [],
+                })
         data["passed"] = data.get("passed") is True
         write_text(run / "review" / f"{lesson_tag}_{suffix}.md", render_review(title, data))
         if not data["passed"]:
@@ -2668,6 +2705,7 @@ def produce_study_guide(course_slug: str, lesson_number: int) -> list[str]:
             lesson_tag,
             approved_baseline=approved_complete_draft if operator_revision_request else "",
             operator_revision_request=operator_revision_request,
+            operator_allowed_headings=operator_allowed_headings if operator_revision_request else None,
         )
         deterministic_qa = deterministic_checker.run_checks(working_path, seed.level)
         baseline_failed_checks: set[str] = set()

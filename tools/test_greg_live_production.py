@@ -697,10 +697,13 @@ class GregLiveProductionTests(unittest.TestCase):
             {"sources": []},
             approved_baseline=baseline,
             operator_revision_request="Simplify the box text.",
+            operator_allowed_headings={"# Section 01 - Controls"},
         )
 
         self.assertIn("targeted revision of an operator-approved baseline", prompt)
         self.assertIn("Do not reopen or fail a condition already present", prompt)
+        self.assertIn("only the following section headings may change", prompt)
+        self.assertIn("# Section 01 - Controls", prompt)
         self.assertIn("-Old box text.", prompt)
         self.assertIn("+Simplified box text.", prompt)
 

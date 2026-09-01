@@ -68,6 +68,23 @@ class TargetedRevisionScopeTests(unittest.TestCase):
                 set(),
             )
 
+    def test_reviewer_prompt_names_the_only_authorized_heading(self) -> None:
+        class Seed:
+            title = "Course"
+
+        prompt = production.reviewer_prompt(
+            "design_review",
+            Seed(),
+            {"lesson_number": 6, "title": "Budget"},
+            BASELINE.replace("Old box.", "Text-only box."),
+            {"sources": []},
+            approved_baseline=BASELINE,
+            operator_revision_request="Simplify the box text.",
+            operator_allowed_headings={"# Section 01 - Cost Boxes"},
+        )
+        self.assertIn("only the following section headings may change", prompt)
+        self.assertIn("# Section 01 - Cost Boxes", prompt)
+
 
 if __name__ == "__main__":
     unittest.main()
