@@ -1296,6 +1296,42 @@ def editable_study_guide_sections(draft: str) -> dict[str, str]:
     return sections
 
 
+def preserved_study_guide_sections(draft: str) -> dict[str, str]:
+    """Return every named student-facing section for strict revision checks."""
+    heading_pattern = re.compile(
+        r"(?im)^(?:#\s+Introduction|##\s+Learning Objectives|#\s+(?:Section\s+\d{2}\s+-\s+.+|Summary and Key Takeaways|Glossary|References))\s*$"
+    )
+    matches = list(heading_pattern.finditer(draft))
+    sections: dict[str, str] = {}
+    for index, match in enumerate(matches):
+        end = matches[index + 1].start() if index + 1 < len(matches) else len(draft)
+        sections[match.group(0).strip()] = draft[match.start() : end]
+    return sections
+
+
+def changed_study_guide_sections(baseline: str, candidate: str) -> set[str]:
+    baseline_sections = preserved_study_guide_sections(baseline)
+    candidate_sections = preserved_study_guide_sections(candidate)
+    if set(candidate_sections) != set(baseline_sections):
+        raise RuntimeError("The targeted revision changed the approved course-book section structure.")
+    return {
+        heading
+        for heading, source in baseline_sections.items()
+        if candidate_sections[heading] != source
+    }
+
+
+def require_targeted_study_guide_scope(baseline: str, candidate: str, allowed_headings: set[str]) -> None:
+    """Block any revision that expands beyond the operator-selected sections."""
+    changed = changed_study_guide_sections(baseline, candidate)
+    unexpected = sorted(changed - allowed_headings)
+    if unexpected:
+        raise RuntimeError(
+            "The revision worker attempted to change sections outside the operator-selected errors: "
+            + ", ".join(unexpected)
+        )
+
+
 def apply_study_guide_section_patches(draft: str, patches: dict[str, str]) -> str:
     """Replace only complete named sections and reject malformed patches."""
     available = editable_study_guide_sections(draft)
@@ -2551,7 +2587,8 @@ def produce_study_guide(course_slug: str, lesson_number: int) -> list[str]:
         path for path in reusable_drafts
         if preserves_complete_study_guide_structure(path.read_text(encoding="utf-8", errors="replace"), "")
     ]
-    approved_complete_draft = complete_drafts[-1].read_text(encoding="utf-8", errors="replace") if complete_drafts else ""
+    approved_complete_path = complete_drafts[-1] if complete_drafts else None
+    approved_complete_draft = approved_complete_path.read_text(encoding="utf-8", errors="replace") if approved_complete_path else ""
     if approved_complete_draft and not preserves_complete_study_guide_structure(draft, approved_complete_draft):
         draft = approved_complete_draft
         write_text(working_path, draft)
@@ -2563,13 +2600,21 @@ def produce_study_guide(course_slug: str, lesson_number: int) -> list[str]:
         if reusable_drafts and reusable_drafts[-1].stat().st_mtime > latest_pdf_mtime and reviewers_pass:
             draft = reusable_drafts[-1].read_text(encoding="utf-8", errors="replace")
             write_text(working_path, draft)
-    if draft:
+    if revision_feedback and approved_complete_draft:
+        # A human revision always starts from the exact approved Markdown.
+        # Source refresh and general normalizers must not silently change any
+        # content outside the explicitly selected errors.
+        draft = approved_complete_draft
+        write_text(working_path, draft)
+    elif draft:
         # Source refresh owns the bibliography even when compliant teaching
         # prose is reused. This invalidates a stale reference section without
         # needlessly rewriting the complete lesson.
         draft = normalize_reviewed_factual_language(force_student_references(draft, references))
         draft = normalize_callout_density(draft)
         write_text(working_path, draft)
+    revision_scope_baseline = ""
+    operator_allowed_headings: set[str] = set()
     if revision_feedback and draft:
         # Start with the saved approved draft and make only the operator's
         # requested correction. The renderer will create a separate candidate
@@ -2586,7 +2631,13 @@ def produce_study_guide(course_slug: str, lesson_number: int) -> list[str]:
             block(run, "lesson_draft", f"Configured technical-content model could not revise Lesson {lesson_number}.\n\nReason: {error}")
             raise RuntimeError(str(error)) from error
         draft = restore_truncated_revision(draft, approved_complete_draft)
-        draft = normalize_callout_density(normalize_reviewed_factual_language(force_student_references(draft, references)))
+        revision_scope_baseline = approved_complete_draft or draft
+        operator_allowed_headings = changed_study_guide_sections(revision_scope_baseline, draft)
+        if not operator_allowed_headings:
+            # Renderer-only requests are valid; they must not authorize a
+            # content rewrite during later automatic review passes.
+            operator_allowed_headings = set()
+        require_targeted_study_guide_scope(revision_scope_baseline, draft, operator_allowed_headings)
         write_text(working_path, draft)
     prior_revision_was_noop = False
     deterministic_checker = load_module("greg_study_guide_content_check_loop", "tools/greg_study_guide_content_check.py")
@@ -2619,12 +2670,23 @@ def produce_study_guide(course_slug: str, lesson_number: int) -> list[str]:
             operator_revision_request=operator_revision_request,
         )
         deterministic_qa = deterministic_checker.run_checks(working_path, seed.level)
-        if not deterministic_qa["passed"]:
+        baseline_failed_checks: set[str] = set()
+        if operator_revision_request and approved_complete_path:
+            baseline_qa = deterministic_checker.run_checks(approved_complete_path, seed.level)
+            baseline_failed_checks = {
+                str(item.get("check") or "")
+                for item in baseline_qa.get("findings") or []
+                if item.get("status") == "fail"
+            }
+        new_deterministic_failures = [
+            item for item in deterministic_qa.get("findings") or []
+            if item.get("status") == "fail" and str(item.get("check") or "") not in baseline_failed_checks
+        ]
+        if new_deterministic_failures:
             reviewer_passed = False
             changes.extend(
                 f"Deterministic content QA: {item['note']}"
-                for item in deterministic_qa["findings"]
-                if item["status"] == "fail"
+                for item in new_deterministic_failures
             )
         if reviewer_passed:
             break
@@ -2649,8 +2711,11 @@ def produce_study_guide(course_slug: str, lesson_number: int) -> list[str]:
                 block(run, "lesson_draft", f"Configured technical-content model could not revise Lesson {lesson_number}.\n\nReason: {error}")
                 raise RuntimeError(str(error)) from error
             revised_draft = restore_truncated_revision(revised_draft, prior_draft)
-            revised_draft = normalize_reviewed_factual_language(force_student_references(revised_draft, references))
-            revised_draft = normalize_callout_density(revised_draft)
+            if operator_revision_request:
+                require_targeted_study_guide_scope(revision_scope_baseline, revised_draft, operator_allowed_headings)
+            else:
+                revised_draft = normalize_reviewed_factual_language(force_student_references(revised_draft, references))
+                revised_draft = normalize_callout_density(revised_draft)
             if not preserves_complete_study_guide_structure(revised_draft, prior_draft):
                 prior_revision_was_noop = True
                 continue
@@ -2660,12 +2725,27 @@ def produce_study_guide(course_slug: str, lesson_number: int) -> list[str]:
     else:
         raise RuntimeError("Independent study-guide reviewers still require changes after three automatic revision passes.")
 
+    if operator_revision_request:
+        require_targeted_study_guide_scope(revision_scope_baseline, draft, operator_allowed_headings)
+
     revision = next_study_guide_revision(run, lesson_tag)
     draft_name = f"{lesson_tag}_draft_r{revision:02d}.md"
     draft_path = run / "lesson_draft" / draft_name
     write_text(draft_path, draft)
     checker = load_module("greg_study_guide_content_check", "tools/greg_study_guide_content_check.py")
     content_qa = checker.run_checks(draft_path, seed.level)
+    if operator_revision_request and approved_complete_path:
+        baseline_content_qa = checker.run_checks(approved_complete_path, seed.level)
+        baseline_failed_checks = {
+            str(item.get("check") or "")
+            for item in baseline_content_qa.get("findings") or []
+            if item.get("status") == "fail"
+        }
+        for item in content_qa.get("findings") or []:
+            if item.get("status") == "fail" and str(item.get("check") or "") in baseline_failed_checks:
+                item["status"] = "warn"
+                item["note"] = "Approved baseline condition preserved outside the selected revision scope. " + str(item.get("note") or "")
+        content_qa["passed"] = not any(item.get("status") == "fail" for item in content_qa.get("findings") or [])
     content_qa_path = run / "lesson_draft" / f"{lesson_tag}_content_qa_r{revision:02d}.md"
     write_text(content_qa_path, checker.render_markdown(content_qa))
     if not content_qa["passed"]:
