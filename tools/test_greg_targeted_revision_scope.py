@@ -5,6 +5,7 @@ import importlib.util
 import sys
 import unittest
 from pathlib import Path
+from tempfile import TemporaryDirectory
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -108,6 +109,43 @@ class TargetedRevisionScopeTests(unittest.TestCase):
         for key in ("visual_id", "visual_type", "placement", "purpose", "learning_claim", "diagram_type", "diagram_title", "diagram_nodes"):
             self.assertEqual(before["visuals"][0][key], completed["visuals"][0][key])
         self.assertTrue(production.visual_plan_has_decision_evidence(completed))
+
+    def test_visual_only_requests_do_not_authorize_markdown_changes(self) -> None:
+        feedback = """## Request 1
+
+The boxes need to have just text written.
+
+Supporting materials:
+- screenshot.png
+
+## Request 2
+
+Big space between the title and the beginning of the diagram.
+
+## Request 3
+
+List incomplete, missing number six.
+"""
+        self.assertTrue(production.study_guide_revision_is_visual_only(feedback))
+        self.assertFalse(production.study_guide_revision_is_visual_only("## Request 1\n\nCorrect the factual explanation."))
+
+    def test_approved_draft_ignores_newer_unapproved_candidates(self) -> None:
+        with TemporaryDirectory() as directory:
+            run = Path(directory)
+            drafts = run / "lesson_draft"
+            feedback = run / "operator_feedback"
+            drafts.mkdir()
+            feedback.mkdir()
+            paths = []
+            for revision in (1, 3, 4):
+                path = drafts / f"lesson_06_draft_r{revision:02d}.md"
+                path.write_text(BASELINE, encoding="utf-8")
+                paths.append(path)
+            (feedback / "lesson_06_study_guide_revision_state.json").write_text(
+                '{"baseline_artifact":"runs/course/docx_pdf/lesson_06_study_guide_r02.pdf"}',
+                encoding="utf-8",
+            )
+            self.assertEqual(paths[0], production.approved_revision_draft_path(run, "lesson_06", paths))
 
 
 if __name__ == "__main__":

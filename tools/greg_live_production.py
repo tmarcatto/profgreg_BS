@@ -174,6 +174,47 @@ def next_study_guide_revision(run: Path, lesson_tag: str) -> int:
     return (max(revisions) if revisions else 0) + 1
 
 
+def approved_revision_draft_path(run: Path, lesson_tag: str, complete_drafts: list[Path]) -> Path | None:
+    """Resolve the Markdown behind the approved PDF, never a newer candidate."""
+    state_path = run / "operator_feedback" / f"{lesson_tag}_study_guide_revision_state.json"
+    baseline_revision = 0
+    if state_path.exists():
+        try:
+            state = json.loads(state_path.read_text(encoding="utf-8"))
+        except json.JSONDecodeError:
+            state = {}
+        match = re.search(r"_r(\d+)\.pdf$", str(state.get("baseline_artifact") or ""))
+        baseline_revision = int(match.group(1)) if match else 0
+    if baseline_revision:
+        eligible = []
+        for path in complete_drafts:
+            match = re.search(r"_r(\d+)\.md$", path.name)
+            if match and int(match.group(1)) <= baseline_revision:
+                eligible.append(path)
+        return eligible[-1] if eligible else None
+    return complete_drafts[-1] if complete_drafts else None
+
+
+def study_guide_revision_is_visual_only(feedback: str) -> bool:
+    """Recognize grouped operator requests that only affect rendered visuals."""
+    request_text = "\n".join(
+        part.split("Supporting materials:", 1)[0]
+        for part in re.split(r"(?m)^## Request \d+\s*$", feedback)[1:]
+    )
+    if not request_text.strip():
+        return False
+    visual_terms = re.compile(
+        r"\b(diagram|figure|image|visual|boxes?|cards?|layout|spacing|space|stack|arrows?|nodes?)\b|"
+        r"\bmissing\s+(?:number|step)\s+(?:six|6)\b",
+        flags=re.I,
+    )
+    content_terms = re.compile(
+        r"\b(fact|factual|wording|sentence|paragraph|citation|reference|definition|learning objective|explanation)\b",
+        flags=re.I,
+    )
+    return bool(visual_terms.search(request_text)) and not content_terms.search(request_text)
+
+
 def revisioned_resumed_study_guide_draft(run: Path, lesson_tag: str, draft_path: Path) -> tuple[Path, int]:
     """Keep an approved course book immutable when a saved draft is rendered again.
 
@@ -2659,6 +2700,7 @@ def produce_study_guide(course_slug: str, lesson_number: int) -> list[str]:
 
     revision_feedback = feedback_for(run, lesson_tag, "study_guide")
     operator_revision_request = revision_feedback
+    visual_only_revision = bool(revision_feedback and study_guide_revision_is_visual_only(revision_feedback))
     working_path = run / "lesson_draft" / f"{lesson_tag}_working.md"
     draft = working_path.read_text(encoding="utf-8", errors="replace") if working_path.exists() else ""
     reusable_drafts = sorted((run / "lesson_draft").glob(f"{lesson_tag}_draft_r*.md"), key=lambda path: path.stat().st_mtime)
@@ -2672,7 +2714,7 @@ def produce_study_guide(course_slug: str, lesson_number: int) -> list[str]:
         path for path in reusable_drafts
         if preserves_complete_study_guide_structure(path.read_text(encoding="utf-8", errors="replace"), "")
     ]
-    approved_complete_path = complete_drafts[-1] if complete_drafts else None
+    approved_complete_path = approved_revision_draft_path(run, lesson_tag, complete_drafts)
     approved_complete_draft = approved_complete_path.read_text(encoding="utf-8", errors="replace") if approved_complete_path else ""
     if approved_complete_draft and not preserves_complete_study_guide_structure(draft, approved_complete_draft):
         draft = approved_complete_draft
@@ -2704,24 +2746,25 @@ def produce_study_guide(course_slug: str, lesson_number: int) -> list[str]:
         # Start with the saved approved draft and make only the operator's
         # requested correction. The renderer will create a separate candidate
         # file, leaving the approved PDF untouched.
-        try:
-            draft = targeted_study_guide_revision(
-                seed.slug,
-                draft,
-                revision_feedback,
-                references,
-                level=seed.level,
-            )
-        except ModelRequestError as error:
-            block(run, "lesson_draft", f"Configured technical-content model could not revise Lesson {lesson_number}.\n\nReason: {error}")
-            raise RuntimeError(str(error)) from error
-        draft = restore_truncated_revision(draft, approved_complete_draft)
         revision_scope_baseline = approved_complete_draft or draft
-        operator_allowed_headings = changed_study_guide_sections(revision_scope_baseline, draft)
-        if not operator_allowed_headings:
-            # Renderer-only requests are valid; they must not authorize a
-            # content rewrite during later automatic review passes.
-            operator_allowed_headings = set()
+        if visual_only_revision:
+            # Layout and diagram corrections use the exact approved Markdown.
+            # The visual planner and renderer own all requested changes.
+            draft = revision_scope_baseline
+        else:
+            try:
+                draft = targeted_study_guide_revision(
+                    seed.slug,
+                    draft,
+                    revision_feedback,
+                    references,
+                    level=seed.level,
+                )
+            except ModelRequestError as error:
+                block(run, "lesson_draft", f"Configured technical-content model could not revise Lesson {lesson_number}.\n\nReason: {error}")
+                raise RuntimeError(str(error)) from error
+            draft = restore_truncated_revision(draft, approved_complete_draft)
+            operator_allowed_headings = changed_study_guide_sections(revision_scope_baseline, draft)
         require_targeted_study_guide_scope(revision_scope_baseline, draft, operator_allowed_headings)
         write_text(working_path, draft)
     prior_revision_was_noop = False
