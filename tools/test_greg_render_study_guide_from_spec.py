@@ -341,7 +341,7 @@ class RenderStudyGuideFromSpecTests(unittest.TestCase):
             {"title": "Pre-Construction Plan", "detail": "Define scope, budget, controls"},
             {"title": "Design & Permit Readiness", "detail": "Route questions; permit filed"},
             {"title": "Procurement & Mobilization", "detail": "Order long-leads; set up site"},
-            {"title": "Construction Control", "detail": "Track changes, cost, quality"},
+            {"title": "Implementation", "detail": "Track changes, cost, quality"},
             {"title": "Closeout & Warranty", "detail": "Punch, records, callback response"},
         ]
         diagram = pdf_renderer.ProcessFlowDiagram("Residential Project Lifecycle Stages", nodes)
@@ -355,7 +355,7 @@ class RenderStudyGuideFromSpecTests(unittest.TestCase):
         self.assertTrue(any("Lead/" in line for line in rendered_lines))
         self.assertIn("Viabilidade", rendered_lines)
         self.assertIn("Procurement", rendered_lines)
-        self.assertIn("Construction", rendered_lines)
+        self.assertIn("Implementation", rendered_lines)
         self.assertNotIn("Opportun", rendered_lines)
 
     def test_source_with_paragraph_summary_is_blocked_before_rendering(self) -> None:

@@ -420,6 +420,8 @@ class ProcessFlowDiagram(Flowable):
         # squeezed into unreadable fragments.
         gap = 10
         box_w = min(108, (w - gap * (count - 1)) / count)
+        text_inset = 6 if count >= 6 else 9
+        text_width = box_w - 2 * text_inset
         total_w = box_w * count + gap * (count - 1)
         x0 = (w - total_w) / 2
         y = 42
@@ -431,7 +433,7 @@ class ProcessFlowDiagram(Flowable):
             c.roundRect(x, y, box_w, box_h, 5, stroke=1, fill=1)
             c.setFillColor(ORANGE)
             c.setFont(FONT_BOLD, 9)
-            c.drawString(x + 9, y + 98, str(index + 1))
+            c.drawString(x + text_inset, y + 98, str(index + 1))
             c.setFillColor(NAVY)
             title_size = 8.5
             title_text = str(node.get("title", ""))
@@ -443,9 +445,9 @@ class ProcessFlowDiagram(Flowable):
                 # A slash is a meaningful, safe break in compact localized
                 # labels (for example, "Lead/Viabilidade").  Do not split
                 # ordinary words merely to force them into a narrow node.
-                title_lines = wrap_lines(re.sub(r"/(?=\S)", "/ ", title_text), FONT_BOLD, candidate, box_w - 18, break_long_words=False)
+                title_lines = wrap_lines(re.sub(r"/(?=\S)", "/ ", title_text), FONT_BOLD, candidate, text_width, break_long_words=False)
                 title_size = candidate
-                if len(title_lines) <= 3 and all(stringWidth(line, FONT_BOLD, candidate) <= box_w - 18 for line in title_lines):
+                if len(title_lines) <= 3 and all(stringWidth(line, FONT_BOLD, candidate) <= text_width for line in title_lines):
                     break
                 # A compound may break after its visible hyphen, but ordinary
                 # words must never be split at arbitrary character positions.
@@ -453,30 +455,30 @@ class ProcessFlowDiagram(Flowable):
                     re.sub(r"-(?=\S)", "- ", title_text),
                     FONT_BOLD,
                     candidate,
-                    box_w - 18,
+                    text_width,
                     break_long_words=False,
                 )
-                if len(title_lines) <= 3 and all(stringWidth(line, FONT_BOLD, candidate) <= box_w - 18 for line in title_lines):
+                if len(title_lines) <= 3 and all(stringWidth(line, FONT_BOLD, candidate) <= text_width for line in title_lines):
                     break
-            if len(title_lines) > 3 or any(stringWidth(line, FONT_BOLD, title_size) > box_w - 18 for line in title_lines):
+            if len(title_lines) > 3 or any(stringWidth(line, FONT_BOLD, title_size) > text_width for line in title_lines):
                 raise ValueError(f"Process-flow title does not fit in three visible lines: {node.get('title', '')}")
             c.setFont(FONT_BOLD, title_size)
             title_gap = title_size + 1.5
             title_top = y + 80
             for line_index, line in enumerate(title_lines):
-                c.drawString(x + 9, title_top - line_index * title_gap, line)
+                c.drawString(x + text_inset, title_top - line_index * title_gap, line)
             c.setFillColor(INK)
             detail_lines: list[str] = []
             detail_size = 7.2
             detail_top = title_top - (len(title_lines) - 1) * title_gap - 15
             for candidate in (7.2, 6.8, 6.4):
                 candidate_lines = wrap_lines(
-                    str(node.get("detail", "")), FONT_REGULAR, candidate, box_w - 18, break_long_words=False
+                    str(node.get("detail", "")), FONT_REGULAR, candidate, text_width, break_long_words=False
                 )
                 candidate_gap = candidate + 1.8
                 last_baseline = detail_top - max(0, len(candidate_lines) - 1) * candidate_gap
                 if len(candidate_lines) <= 4 and last_baseline >= y + 10 and all(
-                    stringWidth(line, FONT_REGULAR, candidate) <= box_w - 18 for line in candidate_lines
+                    stringWidth(line, FONT_REGULAR, candidate) <= text_width for line in candidate_lines
                 ):
                     detail_lines = candidate_lines
                     detail_size = candidate
@@ -486,7 +488,7 @@ class ProcessFlowDiagram(Flowable):
             c.setFont(FONT_REGULAR, detail_size)
             detail_gap = detail_size + 1.8
             for line_index, line in enumerate(detail_lines):
-                c.drawString(x + 9, detail_top - line_index * detail_gap, line)
+                c.drawString(x + text_inset, detail_top - line_index * detail_gap, line)
             if index < count - 1:
                 start = x + box_w + 3
                 end = x + box_w + gap - 3
