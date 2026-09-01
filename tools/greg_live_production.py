@@ -3083,6 +3083,33 @@ def approved_deck_baseline(run: Path, lesson_tag: str) -> Path:
     return artifact
 
 
+def approved_deck_source_spec(run: Path, lesson_tag: str) -> tuple[Path, Path]:
+    """Return the approved deck and the spec that rendered that exact revision.
+
+    Approval is both the localization gate and its source of truth.  Selecting
+    the newest spec independently can translate a later, unapproved revision.
+    """
+    approved_deck = approved_deck_baseline(run, lesson_tag)
+    match = re.fullmatch(rf"{re.escape(lesson_tag)}_deck_r(\d+)\.pptx", approved_deck.name)
+    if not match:
+        raise RuntimeError(
+            f"The approved English presentation is not a revisioned pipeline artifact: {approved_deck.name}. "
+            "Import it as a deck revision before localization."
+        )
+    source_spec = run / "deck" / f"{lesson_tag}_deck_spec_r{int(match.group(1)):02d}.json"
+    if not source_spec.is_file():
+        raise RuntimeError(
+            f"The approved English presentation has no matching deck spec: {source_spec.name}."
+        )
+    source = json.loads(source_spec.read_text(encoding="utf-8"))
+    rendered_path = run / str((source.get("output") or {}).get("pptx") or "")
+    if rendered_path.resolve() != approved_deck.resolve():
+        raise RuntimeError(
+            f"The approved English presentation does not match its deck spec: {source_spec.name}."
+        )
+    return approved_deck, source_spec
+
+
 def localization_name(locale: str) -> tuple[str, str]:
     if locale == "pt_br":
         return "Brazilian Portuguese for learners working in the U.S. market", "pt-br"
@@ -3469,6 +3496,41 @@ def localized_deck_slides(
                     if isinstance(value, str) and value.strip():
                         merged_value[text_field] = value.strip()
                 localized[field] = merged_value
+        if source_slide.get("schedule_rows") is not None:
+            translated_rows = translated_slide.get("schedule_rows")
+            source_rows = source_slide["schedule_rows"]
+            if not isinstance(translated_rows, list) or len(translated_rows) != len(source_rows):
+                raise RuntimeError(f"Localized presentation slide {index} did not preserve its schedule rows.")
+            merged_rows = copy.deepcopy(source_rows)
+            for translated_row, merged_row in zip(translated_rows, merged_rows):
+                activity = translated_row.get("activity") if isinstance(translated_row, dict) else None
+                if not isinstance(activity, str) or not activity.strip():
+                    raise RuntimeError(f"Localized presentation slide {index} contains an invalid schedule row.")
+                merged_row["activity"] = activity.strip()
+            localized["schedule_rows"] = merged_rows
+        if source_slide.get("network_paths") is not None:
+            translated_paths = translated_slide.get("network_paths")
+            source_paths = source_slide["network_paths"]
+            if not isinstance(translated_paths, list) or len(translated_paths) != len(source_paths):
+                raise RuntimeError(f"Localized presentation slide {index} did not preserve its network paths.")
+            merged_paths = copy.deepcopy(source_paths)
+            for source_path, translated_path, merged_path in zip(source_paths, translated_paths, merged_paths):
+                if not isinstance(translated_path, dict):
+                    raise RuntimeError(f"Localized presentation slide {index} contains an invalid network path.")
+                label = translated_path.get("label")
+                if not isinstance(label, str) or not label.strip():
+                    raise RuntimeError(f"Localized presentation slide {index} contains an invalid network label.")
+                merged_path["label"] = label.strip()
+                translated_activities = translated_path.get("activities")
+                source_activities = source_path.get("activities") or []
+                if not isinstance(translated_activities, list) or len(translated_activities) != len(source_activities):
+                    raise RuntimeError(f"Localized presentation slide {index} did not preserve its network activities.")
+                for translated_activity, merged_activity in zip(translated_activities, merged_path.get("activities") or []):
+                    title = translated_activity.get("title") if isinstance(translated_activity, dict) else None
+                    if not isinstance(title, str) or not title.strip():
+                        raise RuntimeError(f"Localized presentation slide {index} contains an invalid network activity.")
+                    merged_activity["title"] = title.strip()
+            localized["network_paths"] = merged_paths
         result.append(localized)
     return result
 
@@ -3502,10 +3564,7 @@ def localize_deck(course_slug: str, lesson_number: int, locale: str) -> list[str
     seed = parse_intake(course_slug)
     run = RUNS / seed.slug
     lesson_tag = lid(lesson_number)
-    approved_deck_baseline(run, lesson_tag)
-    source_spec = latest_matching_path(run / "deck", f"{lesson_tag}_deck_spec_r*.json")
-    if not source_spec:
-        raise RuntimeError("The approved English presentation has no revisioned deck spec for localization.")
+    source_deck, source_spec = approved_deck_source_spec(run, lesson_tag)
     language, folder = localization_name(locale)
     source = json.loads(source_spec.read_text(encoding="utf-8"))
     revision_feedback = feedback_for(run, lesson_tag, f"{locale}_deck")
@@ -3564,7 +3623,7 @@ def localize_deck(course_slug: str, lesson_number: int, locale: str) -> list[str
     qa = run / spec["output"]["qa"]
     if not qa.exists():
         raise RuntimeError("Localized presentation QA failed.")
-    write_localized_deck_text_map(run, lesson_tag, folder, source["slides"], slides, seed.slug, approved_deck_baseline(run, lesson_tag))
+    write_localized_deck_text_map(run, lesson_tag, folder, source["slides"], slides, seed.slug, source_deck)
     complete_revision_request(run, lesson_tag, f"{locale}_deck", run / spec["output"]["pptx"])
     update_canonical_manifest(seed.slug)
     return [f"{locale} presentation r{revision:02d} created: {rel(run / spec['output']['pptx'])}"]
