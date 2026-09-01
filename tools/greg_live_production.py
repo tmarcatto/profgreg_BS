@@ -1102,6 +1102,36 @@ def normalize_prose_dashes(draft: str) -> str:
     return "\n".join(lines).rstrip() + "\n"
 
 
+def normalize_repeated_lesson_objectives(draft: str) -> str:
+    """Remove lesson-level objective lists repeated inside numbered sections."""
+    lines = draft.splitlines()
+    normalized: list[str] = []
+    index = 0
+    inside_numbered_section = False
+    while index < len(lines):
+        line = lines[index]
+        if re.match(r"^#\s+Section\s+\d{2}\s+-\s+", line):
+            inside_numbered_section = True
+        elif re.match(r"^#\s+(?:Summary and Key Takeaways|Glossary|References)\s*$", line):
+            inside_numbered_section = False
+        if inside_numbered_section and re.search(r"\bby the end of this (?:lesson|chapter)\b", line, flags=re.I):
+            index += 1
+            while index < len(lines) and not lines[index].strip():
+                index += 1
+            removed = 0
+            while index < len(lines) and re.match(r"^\s*[-*+]\s+\S", lines[index]):
+                removed += 1
+                index += 1
+            if removed:
+                while normalized and not normalized[-1].strip():
+                    normalized.pop()
+                normalized.append("")
+                continue
+        normalized.append(line)
+        index += 1
+    return "\n".join(normalized).rstrip() + "\n"
+
+
 def normalize_reviewed_factual_language(draft: str) -> str:
     """Apply reviewer-approved factual corrections that require no new content."""
     corrected = draft.replace(
@@ -1112,7 +1142,9 @@ def normalize_reviewed_factual_language(draft: str) -> str:
         "After award, estimate decisions become contractual or procurement obligations only when they are incorporated into executed contract and purchasing documents. The next lesson carries those documented obligations into procurement and execution.",
         "An estimate is not itself a binding project obligation. The applicable proposal, contract, subcontract, purchase order, and governing law control the parties' commitments as procurement and execution begin.",
     )
-    return normalize_prose_dashes(normalize_ordered_step_tables(corrected))
+    return normalize_repeated_lesson_objectives(
+        normalize_prose_dashes(normalize_ordered_step_tables(corrected))
+    )
 
 
 def preserves_complete_study_guide_structure(candidate: str, previous: str) -> bool:
