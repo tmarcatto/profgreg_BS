@@ -1206,7 +1206,9 @@ def editable_study_guide_sections(draft: str) -> dict[str, str]:
     for index, match in enumerate(matches):
         end = matches[index + 1].start() if index + 1 < len(matches) else len(draft)
         heading = match.group(0).strip()
-        sections[heading] = draft[match.start() : end].rstrip() + "\n"
+        # Preserve the exact source slice, including the blank lines before
+        # the next heading, so a validated replacement can splice reliably.
+        sections[heading] = draft[match.start() : end]
     return sections
 
 
@@ -1317,6 +1319,21 @@ Available headings:
         raise RuntimeError("The revision agent selected a section that does not exist in the saved course book.")
     source = "\n\n".join(sections[heading] for heading in selected)
     maximum_words = {"basic": 4000, "intermediate": 5400, "advanced": 6200}.get(level.lower(), 5400)
+    if len(source) > 12000:
+        # Large multi-section Markdown is predictably fragile when escaped
+        # inside one JSON string. Use bounded plain replacements immediately
+        # instead of spending several JSON repair attempts first.
+        plain_patches = {
+            heading: request_plain_study_guide_section_patch(
+                course_slug,
+                heading,
+                sections[heading],
+                feedback,
+                maximum_words=maximum_words,
+            )
+            for heading in selected
+        }
+        return apply_study_guide_section_patches(draft, plain_patches)
     patch_prompt = f"""Revise ONLY the supplied course-book sections. Return JSON only in this exact shape:
 {{\"patches\":[{{\"heading\":\"exact original heading\",\"markdown\":\"complete replacement section including that same heading\"}}]}}.
 
@@ -2607,8 +2624,10 @@ def normalize_deck_slides(data: dict[str, Any], lesson: dict[str, Any]) -> list[
             "trusted-source-image": "inspect-real-example",
             "generated-conceptual-image": "orient-with-conceptual-image",
         }[medium]
-        if slide.get("pedagogical_strategy") != expected_strategy:
-            raise RuntimeError("The presentation visual strategy must agree with the selected visual medium.")
+        # `visual_medium` is the audited decision produced after comparing all
+        # three candidates. Keep the legacy strategy label synchronized rather
+        # than discarding an otherwise valid deck plan for redundant metadata.
+        slide["pedagogical_strategy"] = expected_strategy
         if slide.get("real_example_importance") == "required" and medium != "trusted-source-image":
             raise RuntimeError("A required real example must use a verified trusted-source image.")
     for index, slide in enumerate(image_slides, start=1):

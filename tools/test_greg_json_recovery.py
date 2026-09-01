@@ -133,6 +133,25 @@ Original summary.
         self.assertIn("A concise corrected section.", revised)
         self.assertIn("Intro stays fixed.", revised)
 
+    def test_large_selected_source_uses_plain_markdown_without_json_patch_attempt(self) -> None:
+        large_draft = self.DRAFT.replace("Original section.", "Field detail. " * 1200)
+        replacement = "# Section 01 - Communicate\n\nA concise corrected section."
+        with (
+            patch.object(
+                production,
+                "request_json_with_retry",
+                return_value={"headings": ["# Section 01 - Communicate"]},
+            ) as request_json,
+            patch.object(production, "request_text", return_value=replacement) as request_text,
+        ):
+            revised = production.targeted_study_guide_revision(
+                "course", large_draft, "Make the section concise.", "", level="intermediate"
+            )
+
+        self.assertEqual(1, request_json.call_count)
+        self.assertEqual(1, request_text.call_count)
+        self.assertIn("A concise corrected section.", revised)
+
 
 class LessonSourceMergeTests(unittest.TestCase):
     def test_research_passes_merge_distinct_authorities_and_use_later_gap_state(self) -> None:
