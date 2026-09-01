@@ -77,6 +77,19 @@ class ModelRouterRetryTests(unittest.TestCase):
         self.assertEqual("review", result)
         self.assertEqual({"effort": "max"}, post_json.call_args.args[1]["reasoning"])
 
+    @patch("greg_model_router.post_json")
+    def test_openai_partial_text_is_rejected_when_response_is_incomplete(self, post_json):
+        post_json.return_value = {
+            "status": "incomplete",
+            "incomplete_details": {"reason": "max_output_tokens"},
+            "output_text": "A sentence cut off",
+        }
+
+        with self.assertRaisesRegex(greg_model_router.ModelRequestError, "incomplete text content"):
+            greg_model_router.openai_text(
+                "https://example.test", "secret", "gpt-5.6-luna", "prompt", 100, False, reasoning="high"
+            )
+
     @patch("greg_model_router.openai_text")
     @patch("greg_model_router.append_usage")
     @patch("greg_model_router.binding_for")

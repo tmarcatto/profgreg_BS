@@ -1287,6 +1287,9 @@ Section:
         if other_headings:
             last_error = f"unexpected additional headings were returned: {other_headings}"
             continue
+        if value.rstrip()[-1:] not in {".", "!", "?", ")", "]", "}", "'", '"'}:
+            last_error = "the replacement ended mid-sentence"
+            continue
         if section_word_limit and len(value.split()) > section_word_limit:
             if not shortest_over_budget or len(value.split()) < len(shortest_over_budget.split()):
                 shortest_over_budget = value.rstrip() + "\n"

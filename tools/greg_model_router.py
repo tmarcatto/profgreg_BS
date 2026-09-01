@@ -295,6 +295,11 @@ def openai_text(
             f"OpenAI returned no text content (status={response.get('status')!r}, "
             f"reason={reason!r}, output={output_shapes!r})."
         )
+    if response.get("status") == "incomplete":
+        reason = response.get("incomplete_details") or "no completion detail"
+        raise ModelRequestError(
+            f"OpenAI returned incomplete text content (reason={reason!r})."
+        )
     usage = dict(response.get("usage") or {})
     web_search_runs = sum(1 for item in response.get("output") or [] if item.get("type") == "web_search_call")
     if web_search_runs:
@@ -346,7 +351,10 @@ def request_text(course_slug: str, role: str, prompt: str, *, max_tokens: int = 
                 # emitting an answer, including after successful web-search
                 # calls. Recover with the same approved model at one lower
                 # effort instead of repeating the empty configuration.
-                if reasoning not in {"max", "high"} or "no text content" not in str(error):
+                if (
+                    reasoning not in {"max", "high"}
+                    or not any(marker in str(error) for marker in ("no text content", "incomplete text content"))
+                ):
                     raise
                 fallback_reasoning = "high" if reasoning == "max" else "medium"
                 text, usage = openai_text(

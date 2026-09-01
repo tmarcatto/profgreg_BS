@@ -184,6 +184,22 @@ Original summary.
         self.assertIn("Shorter version.", result)
         self.assertNotIn("First version.", result)
 
+    def test_plain_section_patch_retries_a_mid_sentence_response(self) -> None:
+        responses = [
+            "# Section 01 - Communicate\n\nThis response is cut off",
+            "# Section 01 - Communicate\n\nThis response is complete.",
+        ]
+        with patch.object(production, "request_text", side_effect=responses):
+            result = production.request_plain_study_guide_section_patch(
+                "course",
+                "# Section 01 - Communicate",
+                "# Section 01 - Communicate\n\nOriginal.",
+                "Complete the section.",
+                maximum_words=5400,
+            )
+
+        self.assertIn("This response is complete.", result)
+
 
 class LessonSourceMergeTests(unittest.TestCase):
     def test_research_passes_merge_distinct_authorities_and_use_later_gap_state(self) -> None:
