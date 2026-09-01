@@ -253,7 +253,8 @@ def request_json_with_retry(course_slug: str, role: str, prompt: str, *, max_tok
             )
             return strip_json_fence(malformed_output)
         except ModelRequestError as error:
-            if "returned invalid JSON" not in str(error):
+            message = str(error).lower()
+            if "returned invalid json" not in message and "did not return the required json object" not in message:
                 raise
             last_error = error
     raise ModelRequestError(f"The model returned invalid JSON after {attempts - 1} automatic recovery attempts: {last_error}")
@@ -2799,7 +2800,7 @@ def localized_book_visuals(seed, run: Path, lesson_tag: str, locale: str, langua
     headings = re.findall(r"(?im)^#{1,2}\s+(.+)$", translated)
     def translate_visual(source_visual: dict[str, Any]) -> dict[str, Any]:
         prompt = f"""Translate every student-visible text value in this single course-book visual specification into {language}.
-Return exactly one JSON object in the form {{"visual": {{...}}}}. The first response character must be `{{` and the last must be `}}`; do not use Markdown or commentary. The approved English visual is the source contract: preserve its visual_id, type, figure number, node count, row count, ordering, and section number. Localize only learner-visible text, captions, and source explanations. The system assigns `after_heading` from the exact translated Markdown heading; never invent, shorten, or move it. Keep each process-flow title short enough to occupy at most three narrow box lines (prefer 22 characters or fewer and no unbreakable word longer than 12 characters); keep details at most 36 characters. If a literal translation is too long, use a concise equivalent that preserves the central construction meaning. Keep comparison-matrix left cells at most 40 characters and right cells at most 130 characters. Do not omit, merge, or add nodes or rows. Preserve U.S. construction meaning.
+Return exactly one JSON object in the form {{"visual": {{...}}}}. The first response character must be `{{` and the last must be `}}`; do not use Markdown or commentary. The approved English visual is the source contract: preserve its visual_id, type, figure number, node count, row count, column count, ordering, and section number. Localize only learner-visible text, captions, and source explanations. The system assigns `after_heading` from the exact translated Markdown heading; never invent, shorten, or move it. Keep each process-flow title short enough to occupy at most three narrow box lines (prefer 22 characters or fewer and no unbreakable word longer than 12 characters); keep details at most 36 characters. If a literal translation is too long, use a concise equivalent that preserves the central construction meaning. Preserve every comparison-matrix column: one variable column plus one dedicated column per compared entity, with one localized `cells` value per column in every row. Do not combine compared entities inside one cell. Do not omit, merge, or add nodes, rows, or columns. Preserve U.S. construction meaning.
 
 Exact target headings:
 {json.dumps(headings, ensure_ascii=False)}

@@ -40,6 +40,15 @@ class JsonRecoveryTests(unittest.TestCase):
         self.assertEqual(3, request.call_count)
         self.assertIn("Regenerate the complete result", request.call_args_list[2].args[2])
 
+    def test_missing_json_object_uses_the_same_recovery_path(self) -> None:
+        responses = ["I could not complete the structured response.", '{"sources":[]}']
+        with patch.object(production, "request_text", side_effect=responses) as request:
+            result = production.request_json_with_retry("course", "source_research", "Research sources", max_tokens=2000)
+
+        self.assertEqual({"sources": []}, result)
+        self.assertEqual(2, request.call_count)
+        self.assertIn("Repair the malformed JSON object", request.call_args_list[1].args[2])
+
 
 class VisualDecisionEvidenceTests(unittest.TestCase):
     def test_old_visual_plan_requires_conscious_reaudit(self) -> None:
