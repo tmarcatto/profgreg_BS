@@ -435,6 +435,22 @@ class RenderStudyGuideFromSpecTests(unittest.TestCase):
         blocks = pdf_renderer.parse_markdown("* Primeiro\n+ Segundo\n- Terceiro")
         self.assertEqual(blocks, [{"type": "bullets", "items": ["Primeiro", "Segundo", "Terceiro"]}])
 
+    def test_ordered_markdown_steps_remain_separate_render_blocks(self) -> None:
+        if pdf_renderer is None:
+            self.skipTest("ReportLab is not installed in this Python environment.")
+        blocks = pdf_renderer.parse_markdown("1. Record the condition.\n2. Protect the work.\n3. Assign the owner.")
+        self.assertEqual(
+            blocks,
+            [{
+                "type": "numbered",
+                "items": [
+                    ("1", "Record the condition."),
+                    ("2", "Protect the work."),
+                    ("3", "Assign the owner."),
+                ],
+            }],
+        )
+
     def test_unapproved_callout_label_is_not_rendered_as_box(self) -> None:
         if pdf_renderer is None:
             self.skipTest("ReportLab is not installed in this Python environment.")

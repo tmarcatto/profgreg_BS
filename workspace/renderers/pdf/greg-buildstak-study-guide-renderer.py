@@ -902,6 +902,23 @@ def bullets(items: list[str], style: str = "BodyGreg"):
     return table
 
 
+def numbered_steps(items: list[tuple[str, str]], style: str = "BodyGreg"):
+    """Render each ordered Markdown step as its own visible table row."""
+    rows = [
+        [Paragraph(inline(f"{number}."), styles[style]), Paragraph(inline(item), styles[style])]
+        for number, item in items
+    ]
+    table = Table(rows, colWidths=[20, 6.28 * inch], hAlign="LEFT")
+    table.setStyle(TableStyle([
+        ("VALIGN", (0, 0), (-1, -1), "TOP"),
+        ("LEFTPADDING", (0, 0), (-1, -1), 0),
+        ("RIGHTPADDING", (0, 0), (-1, -1), 0),
+        ("TOPPADDING", (0, 0), (-1, -1), 0),
+        ("BOTTOMPADDING", (0, 0), (-1, -1), 4),
+    ]))
+    return table
+
+
 def markdown_table(headers: list[str], rows: list[list[str]]):
     """Render source Markdown tables as real, readable PDF tables."""
     columns = len(headers)
@@ -1017,6 +1034,16 @@ def parse_markdown(markdown: str, locale: str = "en") -> list[dict[str, Any]]:
                 index += 1
             blocks.append({"type": "bullets", "items": items})
             continue
+        if re.match(r"^\d+[.)]\s+\S", line):
+            items: list[tuple[str, str]] = []
+            while index < len(lines):
+                match = re.match(r"^(\d+)[.)]\s+(\S.*)$", lines[index].strip())
+                if not match:
+                    break
+                items.append((match.group(1), match.group(2).strip()))
+                index += 1
+            blocks.append({"type": "numbered", "items": items})
+            continue
         if line.startswith(">"):
             quote_lines: list[str] = []
             while index < len(lines) and lines[index].strip().startswith(">"):
@@ -1045,7 +1072,12 @@ def parse_markdown(markdown: str, locale: str = "en") -> list[dict[str, Any]]:
         index += 1
         while index < len(lines):
             next_line = lines[index].strip()
-            if not next_line or next_line == "---" or next_line.startswith(("# ", "## ", "- ", ">")):
+            if (
+                not next_line
+                or next_line == "---"
+                or next_line.startswith(("# ", "## ", "- ", ">"))
+                or re.match(r"^\d+[.)]\s+\S", next_line)
+            ):
                 break
             paragraph.append(next_line)
             index += 1
@@ -1449,6 +1481,8 @@ def build_story(blocks: list[dict[str, Any]], visuals: list[dict[str, Any]], loc
         elif block_type == "bullets":
             style = "RefGreg" if normalized_heading(current_heading) == normalized_heading(locale_labels(locale)["references"]) else "BodyGreg"
             story.append(bullets(block["items"], style=style))
+        elif block_type == "numbered":
+            story.append(numbered_steps(block["items"]))
         elif block_type == "table":
             if pending_section_header:
                 story.extend(pending_section_header)
