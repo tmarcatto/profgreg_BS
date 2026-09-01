@@ -1499,9 +1499,9 @@ def ui_shell(default_course: str) -> str:
       }}
       const availableLessons = Object.keys(operatorTargetsByLesson);
       const targetLesson = operatorTargetMap[previouslySelected]?.lesson;
-      const selectedLesson = String(targetLesson || (availableLessons.includes(previouslySelectedLesson) ? previouslySelectedLesson : availableLessons[0] || ''));
+      const selectedLesson = String(targetLesson || (availableLessons.includes(previouslySelectedLesson) ? previouslySelectedLesson : ''));
       lessonSelect.innerHTML = availableLessons.length
-        ? availableLessons.map(number => `<option value="${{esc(number)}}">Lesson ${{String(number).padStart(2, '0')}}</option>`).join('')
+        ? '<option value="">Choose a lesson</option>' + availableLessons.map(number => `<option value="${{esc(number)}}">Lesson ${{String(number).padStart(2, '0')}}</option>`).join('')
         : '<option value="">No lesson needs operator action</option>';
       lessonSelect.disabled = !availableLessons.length;
       if (selectedLesson) lessonSelect.value = selectedLesson;
@@ -1756,6 +1756,16 @@ def ui_shell(default_course: str) -> str:
     async function refreshWorkspaceIfIdle() {{
       if (document.hidden || operatorActionInFlight || operatorFormIsBeingEdited()) return;
       await loadWorkspace();
+    }}
+    let workspaceRefreshTimer = null;
+    function scheduleWorkspaceRefresh() {{
+      if (workspaceRefreshTimer) clearTimeout(workspaceRefreshTimer);
+      const hasActiveWork = currentJobs.some(job => ['queued', 'running'].includes(job.state));
+      const delay = hasActiveWork ? 30000 : 120000;
+      workspaceRefreshTimer = setTimeout(async () => {{
+        await refreshWorkspaceIfIdle();
+        scheduleWorkspaceRefresh();
+      }}, delay);
     }}
     function renderJobs() {{
       renderWorkerLanes();
@@ -2185,8 +2195,7 @@ def ui_shell(default_course: str) -> str:
     window.addEventListener('hashchange', () => showConsolePage(location.hash.slice(1)));
     showConsolePage(location.hash.slice(1) || 'dashboard');
     toggleLessonInput();
-    restoreSavedCourse();
-    setInterval(refreshWorkspaceIfIdle, 10000);
+    restoreSavedCourse().finally(scheduleWorkspaceRefresh);
   </script>
 </body>
 </html>"""

@@ -138,7 +138,11 @@ class GregUiServerTests(unittest.TestCase):
         self.assertIn("if (!course.value.trim()) {\n        return;", html)
         self.assertIn("function operatorFormIsBeingEdited", html)
         self.assertIn("function refreshWorkspaceIfIdle", html)
-        self.assertIn("setInterval(refreshWorkspaceIfIdle, 10000)", html)
+        self.assertIn("Choose a lesson</option>", html)
+        self.assertIn("function scheduleWorkspaceRefresh", html)
+        self.assertIn("const delay = hasActiveWork ? 30000 : 120000", html)
+        self.assertIn("restoreSavedCourse().finally(scheduleWorkspaceRefresh)", html)
+        self.assertNotIn("setInterval(refreshWorkspaceIfIdle, 10000)", html)
         self.assertIn("operatorActionInFlight", html)
         self.assertNotIn('value="demo-course"', html)
 
