@@ -638,7 +638,7 @@ def record_ui_approval(*, course_slug: str, lesson: int, artifact_type: str, not
 
 
 def record_ui_artifact_approval(*, course_slug: str, lesson: int, artifact_type: str, artifact: str, note: str) -> dict:
-    return record_approval(
+    result = record_approval(
         course_slug,
         lesson,
         artifact_type,
@@ -648,6 +648,23 @@ def record_ui_artifact_approval(*, course_slug: str, lesson: int, artifact_type:
         note=note or "Approved in Prof Greg Operator.",
         force=True,
     )
+    run = ROOT / "runs" / slugify(course_slug)
+    lesson_tag = f"lesson_{lesson:02d}"
+    state_path = run / "operator_feedback" / f"{lesson_tag}_{artifact_type}_revision_state.json"
+    if state_path.exists():
+        try:
+            state = json.loads(state_path.read_text(encoding="utf-8"))
+        except json.JSONDecodeError:
+            state = {}
+        candidate = str(state.get("candidate_artifact") or "")
+        if state.get("state") == "ready_for_review" and candidate and Path(candidate).name == Path(artifact).name:
+            state.update({
+                "state": "approved",
+                "approved_artifact": artifact,
+                "approved_at": datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
+            })
+            state_path.write_text(json.dumps(state, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
+    return result
 
 
 def record_revision_request(
@@ -700,6 +717,7 @@ def record_revision_request(
             "feedback_path": str(target.relative_to(ROOT)),
             "requests": all_requests,
             "request_count": len(all_requests),
+            "accepted_at": datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
         }, indent=2, ensure_ascii=False) + "\n",
         encoding="utf-8",
     )
@@ -1276,7 +1294,7 @@ def ui_shell(default_course: str) -> str:
         <div class="operator-tool">
           <div><label for="operatorLesson">Lesson</label><select id="operatorLesson"></select></div>
           <div><label for="operatorTarget">File or image request</label><select id="operatorTarget"></select></div>
-          <div><label for="operatorAction">Action</label><select id="operatorAction"><option value="approve">Approve</option><option value="request_edits">Request edits</option><option value="attach_images">Attach requested images</option></select></div>
+          <div><label for="operatorAction">Action</label><select id="operatorAction"><option value="approve">Approve</option><option value="request_edits">Request edits</option><option value="retry_revision">Retry requested revision</option><option value="attach_images">Attach requested images</option></select></div>
           <div class="operator-tool-details" id="operatorToolDetails"></div>
           <div class="operator-result" id="operatorResult" role="status" aria-live="polite"></div>
           <div class="operator-tool-actions"><button class="primary" id="applyOperatorAction">Apply action</button></div>
@@ -1507,9 +1525,21 @@ def ui_shell(default_course: str) -> str:
           const pathField = `${{group.key}}_path`;
           const path = lesson[pathField];
           const status = lesson[group.approvalField];
+          const revision = lesson[`${{group.approvalField}}_revision`];
+          if (revision?.state === 'revision_requested') {{
+            const stageByArtifact = {{study_guide:'study_guide', deck:'deck', pt_br_study_guide:'pt_br_book', pt_br_deck:'pt_br_deck', es_study_guide:'es_book', es_deck:'es_deck'}};
+            const stage = stageByArtifact[group.artifactType];
+            const matchingJobs = currentJobs.filter(job => String(job?.payload?.stage || '') === stage && (job?.payload?.lessons || []).map(Number).includes(Number(lesson.lesson)));
+            const active = matchingJobs.some(job => ['queued', 'running'].includes(job.state));
+            const failed = matchingJobs.some(job => job.state === 'failed');
+            const id = `revision:${{lesson.lesson}}:${{group.key}}`;
+            operatorTargetMap[id] = {{kind:'revision', lesson:Number(lesson.lesson), group, path, status, title:lesson.title, revision, stage, active, failed}};
+            lessonTargets.push({{id, label: `${{group.title}} · ${{failed ? 'revision needs attention' : active ? 'revision in progress' : 'revision accepted'}}`}});
+            continue;
+          }}
           if (!isDownloadablePath(path) || status === 'blocked') continue;
           const id = `artifact:${{lesson.lesson}}:${{group.key}}`;
-          operatorTargetMap[id] = {{kind:'artifact', lesson:Number(lesson.lesson), group, path, status, title:lesson.title}};
+          operatorTargetMap[id] = {{kind:'artifact', lesson:Number(lesson.lesson), group, path, status, title:lesson.title, revision}};
           lessonTargets.push({{id, label: `${{group.title}} · ${{status === 'approved' ? 'approved' : 'ready for review'}}`}});
         }}
         const requests = lesson.image_requests || [];
@@ -1548,16 +1578,27 @@ def ui_shell(default_course: str) -> str:
       const details = document.getElementById('operatorToolDetails');
       if (!target) {{ action.disabled = true; details.innerHTML = '<div class="notice">Generated files will appear in the lesson table and become available here only after automatic QA passes.</div>'; return; }}
       action.disabled = false;
-      if (resetAction) action.value = target.kind === 'image' ? 'attach_images' : (target.status === 'approved' ? 'request_edits' : 'approve');
-      [...action.options].forEach(option => option.disabled = target.kind === 'image' ? option.value !== 'attach_images' : option.value === 'attach_images');
+      if (resetAction) action.value = target.kind === 'image' ? 'attach_images' : target.kind === 'revision' ? 'retry_revision' : (target.status === 'approved' ? 'request_edits' : 'approve');
+      [...action.options].forEach(option => option.disabled = target.kind === 'image' ? option.value !== 'attach_images' : target.kind === 'revision' ? option.value !== 'retry_revision' : ['attach_images', 'retry_revision'].includes(option.value));
       if (target.kind === 'image') {{
         const requestList = target.requests.map(request => `<li><strong>${{esc(request.visual_id)}}</strong> · ${{esc(request.learning_claim || request.purpose || '')}}</li>`).join('');
         details.innerHTML = `<div class="notice"><strong>Lesson ${{String(target.lesson).padStart(2, '0')}} technical image batch</strong><ul>${{requestList}}</ul></div><label>Image files</label><input id="operatorImageFiles" type="file" multiple accept=".png,.jpg,.jpeg,.webp"><label>Sources and URLs</label><textarea id="operatorImageSources" placeholder="filename.ext | source or attribution | https://source-url\nOne line per file, in the same order as the requests above."></textarea>`;
+      }} else if (target.kind === 'revision') {{
+        const requestItems = (target.revision?.requests || []).map((request, index) => `<li><strong>Request ${{index + 1}}:</strong> ${{esc(request.note || 'Revision requested.')}}</li>`).join('');
+        const statusText = target.failed
+          ? 'The request was accepted, but production stopped before a corrected file was created. Retry the revision to continue.'
+          : target.active
+            ? 'The request was accepted and the corrected file is being produced. It will appear here when every automatic check passes.'
+            : 'The request was accepted. No active production job is visible, so you can safely retry it.';
+        const baselineLink = isDownloadablePath(target.path) ? `<div><a class="download-link" href="/artifact?path=${{encodeURIComponent(target.path)}}" target="_blank" rel="noopener">Open approved baseline</a></div>` : '';
+        details.innerHTML = `<div class="notice"><strong>${{target.failed ? 'Revision needs attention' : target.active ? 'Revision in progress' : 'Revision accepted'}}</strong><div>${{statusText}}</div>${{requestItems ? `<ol>${{requestItems}}</ol>` : ''}}</div>${{baselineLink}}`;
+        action.disabled = target.active;
       }} else {{
         const group = target.group;
         const filename = downloadFilename(group, target.path, target);
+        const revisionItems = target.revision?.requests?.length ? `<div class="notice"><strong>Requested corrections applied</strong><ol>${{target.revision.requests.map((request, index) => `<li><strong>Request ${{index + 1}}:</strong> ${{esc(request.note || 'Revision requested.')}}</li>`).join('')}}</ol><div>Review the corrected file below, then approve it or request another edit.</div></div>` : '';
         const supportingFiles = action.value === 'request_edits' ? `<div class="hint">Add every requested change before applying the action. The agent receives them as one revision. Evidence files document an issue only; files marked for use can guide the edit and never become student references automatically.</div><div id="operatorRevisionRequests"></div><button type="button" class="mini" onclick="addRevisionRequest()">+ Add another requested change</button>` : '';
-        details.innerHTML = `<div><a class="download-link" href="/artifact?path=${{encodeURIComponent(target.path)}}&filename=${{encodeURIComponent(filename)}}" target="_blank" rel="noopener">Download selected file</a></div>${{action.value === 'request_edits' ? '' : '<textarea id="operatorNote" placeholder="Optional approval note."></textarea>'}}${{supportingFiles}}`;
+        details.innerHTML = `${{revisionItems}}<div><a class="download-link" href="/artifact?path=${{encodeURIComponent(target.path)}}&filename=${{encodeURIComponent(filename)}}" target="_blank" rel="noopener">Download selected file</a></div>${{action.value === 'request_edits' ? '' : '<textarea id="operatorNote" placeholder="Optional approval note."></textarea>'}}${{supportingFiles}}`;
         if (action.value === 'request_edits') {{ revisionRequestCount = 0; addRevisionRequest(); }}
       }}
     }}
@@ -1586,6 +1627,11 @@ def ui_shell(default_course: str) -> str:
       showOperatorResult('Saving your action…');
       try {{
         if (action === 'attach_images') {{ await uploadVisualBatch(target.lesson, target.requests); return; }}
+        if (action === 'retry_revision') {{
+          const data = await post('/api/produce', {{course: course.value, stage: target.stage, lessons: [target.lesson]}});
+          showOperatorResult(data.message || 'Requested revision queued again.', 'success');
+          return;
+        }}
         const note = document.getElementById('operatorNote')?.value || '';
         if (action === 'request_edits' && ![...document.querySelectorAll('.revision-note')].some(item => item.value.trim())) {{ msg.textContent = 'Write at least one requested change before sending the file back.'; return; }}
         if (action === 'approve') {{ await approveArtifact(target.group.artifactType, null, target.path, target.lesson, note); return; }}
@@ -2064,10 +2110,19 @@ def ui_shell(default_course: str) -> str:
     function documentCell(item, statusField, pathField, label) {{
       const status = item[statusField] || 'missing';
       const path = item[pathField] || '';
+      const revision = item[`${{statusField}}_revision`];
       const pendingRevision = status === 'revision_requested';
       const stageByStatus = {{study_guide:'study_guide', deck:'deck', pt_br_study_guide:'pt_br_book', pt_br_deck:'pt_br_deck', es_study_guide:'es_book', es_deck:'es_deck'}};
       const failedRevision = pendingRevision && currentJobs.some(job => job.state === 'failed' && String(job?.payload?.stage || '') === stageByStatus[statusField] && (job?.payload?.lessons || []).map(Number).includes(Number(item.lesson)));
-      const normalized = status === 'approved' ? 'approved' : failedRevision ? 'revision needs attention' : pendingRevision ? 'revision in progress' : path ? 'ready for review' : 'not generated';
+      const normalized = status === 'approved'
+        ? (revision?.state === 'approved' ? 'revision approved' : 'approved')
+        : failedRevision
+          ? 'revision needs attention'
+          : pendingRevision
+            ? 'revision accepted · in progress'
+            : status === 'ready_for_review' && revision
+              ? 'revision corrected · ready for review'
+              : path ? 'ready for review' : 'not generated';
       const pill = statusPill(normalized);
       if (pendingRevision || !isDownloadablePath(path)) return `<span class="doc-cell">${{pill}}</span>`;
       const title = cleanFilenamePart(item.title || `Lesson ${{item.lesson}}`);

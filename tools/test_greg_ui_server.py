@@ -386,6 +386,42 @@ class GregUiServerTests(unittest.TestCase):
             if run.exists():
                 shutil.rmtree(run)
 
+    def test_ui_exposes_revision_acknowledgement_retry_and_corrected_states(self) -> None:
+        html = ui.ui_shell("demo")
+        self.assertIn("Retry requested revision", html)
+        self.assertIn("Revision accepted", html)
+        self.assertIn("Requested corrections applied", html)
+        self.assertIn("revision corrected · ready for review", html)
+
+    def test_approving_corrected_candidate_closes_revision_state(self) -> None:
+        course = "revision-approval-test"
+        run = ROOT / "runs" / course
+        if run.exists():
+            shutil.rmtree(run)
+        state_path = run / "operator_feedback" / "lesson_06_study_guide_revision_state.json"
+        state_path.parent.mkdir(parents=True)
+        artifact = f"runs/{course}/docx_pdf/lesson_06_study_guide_r02.pdf"
+        state_path.write_text(
+            json.dumps({"state": "ready_for_review", "candidate_artifact": artifact}),
+            encoding="utf-8",
+        )
+        try:
+            with patch.object(ui, "record_approval", return_value={"status": "approved"}):
+                ui.record_ui_artifact_approval(
+                    course_slug=course,
+                    lesson=6,
+                    artifact_type="study_guide",
+                    artifact=artifact,
+                    note="Corrections verified.",
+                )
+            saved = json.loads(state_path.read_text(encoding="utf-8"))
+            self.assertEqual("approved", saved["state"])
+            self.assertEqual(artifact, saved["approved_artifact"])
+            self.assertTrue(saved["approved_at"])
+        finally:
+            if run.exists():
+                shutil.rmtree(run)
+
     def test_visual_batch_maps_ids_by_filename_then_order(self) -> None:
         files = [{"filename": "L01V02-plan.png"}, {"filename": "field-photo.jpg"}]
         mapped = ui.map_visual_batch(files, ["L01V01", "L01V02"])

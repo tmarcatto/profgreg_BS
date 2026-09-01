@@ -101,6 +101,56 @@ class CourseStatusTests(unittest.TestCase):
             self.assertEqual(lessons[0]["deck"], "approved")
             self.assertEqual(lessons[0]["pipeline_qa"], "present")
 
+    def test_ready_revision_candidate_is_visible_with_request_history(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            run = Path(tmp) / "runs" / "demo"
+            for folder in ("course_map", "docx_pdf", "operator_feedback"):
+                (run / folder).mkdir(parents=True, exist_ok=True)
+            (run / "course_map" / "course_map.json").write_text(
+                '{"lessons": [{"lesson_number": 6, "title": "Control the Money"}]}',
+                encoding="utf-8",
+            )
+            candidate = run / "docx_pdf" / "lesson_06_study_guide_r02.pdf"
+            candidate.write_bytes(b"corrected pdf")
+            (run / "operator_feedback" / "lesson_06_study_guide_revision_state.json").write_text(
+                json.dumps({
+                    "state": "ready_for_review",
+                    "candidate_artifact": "docx_pdf/lesson_06_study_guide_r02.pdf",
+                    "request_count": 2,
+                    "requests": [
+                        {"id": "1", "note": "Correct the cash-flow formula."},
+                        {"id": "2", "note": "Clarify the worked example."},
+                    ],
+                }),
+                encoding="utf-8",
+            )
+
+            lessons = status.summarize_lessons(run, {"artifacts": []})
+
+            self.assertEqual("ready_for_review", lessons[0]["study_guide"])
+            self.assertEqual(str(candidate), lessons[0]["study_guide_path"])
+            self.assertEqual(2, lessons[0]["study_guide_revision"]["request_count"])
+            self.assertEqual("Correct the cash-flow formula.", lessons[0]["study_guide_revision"]["requests"][0]["note"])
+
+    def test_legacy_revision_note_is_visible_as_request_history(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            run = Path(tmp) / "runs" / "demo"
+            for folder in ("course_map", "operator_feedback"):
+                (run / folder).mkdir(parents=True, exist_ok=True)
+            (run / "course_map" / "course_map.json").write_text(
+                '{"lessons": [{"lesson_number": 6, "title": "Control the Money"}]}',
+                encoding="utf-8",
+            )
+            (run / "operator_feedback" / "lesson_06_study_guide_revision_state.json").write_text(
+                '{"state":"revision_requested","note":"Correct the budget table."}',
+                encoding="utf-8",
+            )
+
+            lesson = status.summarize_lessons(run, {"artifacts": []})[0]
+
+            self.assertEqual(1, lesson["study_guide_revision"]["request_count"])
+            self.assertEqual("Correct the budget table.", lesson["study_guide_revision"]["requests"][0]["note"])
+
     def test_stale_study_guide_is_blocked(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)

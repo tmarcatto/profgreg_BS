@@ -73,6 +73,21 @@ def load_json(path: Path) -> dict:
         return {}
 
 
+def revision_candidate_path(run: Path, value: object) -> Path | None:
+    """Resolve both run-relative and repository-relative revision candidates."""
+    raw = str(value or "").strip()
+    if not raw:
+        return None
+    candidate = Path(raw)
+    if candidate.is_absolute():
+        return candidate
+    run_prefix = Path("runs") / run.name
+    try:
+        return run / candidate.relative_to(run_prefix)
+    except ValueError:
+        return run / candidate
+
+
 def file_sha256(path: Path) -> str:
     digest = hashlib.sha256()
     with path.open("rb") as handle:
@@ -505,10 +520,35 @@ def summarize_lessons(run: Path, manifest: dict) -> list[dict]:
         ):
             state_path = run / "operator_feedback" / f"lesson_{lesson}_{artifact_type}_revision_state.json"
             state = load_json(state_path) if state_path.exists() else {}
+            if state:
+                candidate = revision_candidate_path(run, state.get("candidate_artifact"))
+                state_requests = [item for item in (state.get("requests") or []) if isinstance(item, dict)]
+                if not state_requests and str(state.get("note") or "").strip():
+                    state_requests = [{"id": "1", "note": str(state.get("note"))}]
+                public_state = {
+                    "state": str(state.get("state") or ""),
+                    "request_count": int(state.get("request_count") or len(state_requests)),
+                    "requests": [
+                        {"id": str(item.get("id") or ""), "note": str(item.get("note") or "")}
+                        for item in state_requests
+                    ],
+                    "accepted_at": str(state.get("accepted_at") or ""),
+                    "completed_at": str(state.get("completed_at") or ""),
+                    "approved_at": str(state.get("approved_at") or ""),
+                }
+                if candidate and candidate.exists() and candidate.is_file():
+                    public_state["candidate_artifact"] = rel(candidate)
+                row[f"{field}_revision"] = public_state
             if state.get("state") == "revision_requested":
                 row[field] = "revision_requested"
             elif state.get("state") == "ready_for_review":
                 row[field] = "ready_for_review"
+                if candidate and candidate.exists() and candidate.is_file():
+                    row[f"{field}_path"] = rel(candidate)
+            elif state.get("state") == "approved":
+                row[field] = "approved"
+                if candidate and candidate.exists() and candidate.is_file():
+                    row[f"{field}_path"] = rel(candidate)
         row["videos"] = video_generation_status(run, lesson, row)
     return [lessons[key] for key in sorted(lessons)]
 

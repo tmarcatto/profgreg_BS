@@ -11,6 +11,7 @@ from __future__ import annotations
 import argparse
 import contextvars
 import copy
+import difflib
 from contextlib import contextmanager
 import hashlib
 import importlib.util
@@ -1580,7 +1581,11 @@ def complete_revision_request(run: Path, lesson_tag: str, artifact_type: str, ca
         state = {}
     if state.get("state") != "revision_requested":
         return
-    state.update({"state": "ready_for_review", "candidate_artifact": rel(candidate)})
+    state.update({
+        "state": "ready_for_review",
+        "candidate_artifact": rel(candidate),
+        "completed_at": datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
+    })
     write_json(state_path, state)
 
 
@@ -1772,16 +1777,45 @@ def merge_lesson_sources(run: Path, ledger: dict[str, Any], refresh: dict[str, A
     return ledger, refs
 
 
-def reviewer_prompt(kind: str, seed, lesson: dict[str, Any], draft: str, ledger: dict[str, Any]) -> str:
+def reviewer_prompt(
+    kind: str,
+    seed,
+    lesson: dict[str, Any],
+    draft: str,
+    ledger: dict[str, Any],
+    *,
+    approved_baseline: str = "",
+    operator_revision_request: str = "",
+) -> str:
     criteria = {
         "pedagogy_review": "Check only learning progression, depth for level, MECE sections, residential examples, explanations before bullets, no classroom/group activities or quizzes, and no audience boilerplate. A HANDS-ON EXAMPLE is a deliberate exception: it must give the individual learner supplied inputs, a concrete action to perform, and an answer or result check; reject a HANDS-ON box that merely contains explanatory course-book prose. Any ordered procedure must use a real numbered Markdown list with exactly one step per source line; reject `1. ... 2. ... 3. ...` embedded in one paragraph because it hides the sequence from the learner and renderer. The Summary and Key Takeaways section is a strict exception: it must contain only 4-6 bullets, with no framing sentence or prose. Require a readable Markdown table only for one uninterrupted list of seven or more comparable items that repeatedly state category, quantity or amount, and the same condition or comment. Do not demand tables for conceptual lists, short examples, WBS vocabulary, or distinct decision steps. After a table, require prose to add a decision, exception, or interpretation rather than restating its rows. Citation style and reference formatting belong to the citation reviewer; do not fail this review merely because ordinary claims lack inline citations. Figures are planned and inserted by a separate visual pipeline after this review. Do not request ASCII diagrams, Markdown tables used as figures, fenced visual source, or final figure rendering inside the chapter Markdown.",
         "citation_review": "Check factual support against the ledger, current applicability, clean student references, no invented claims, and no internal/local source language. Internal/local source language means file paths, ledger mechanics, reviewer rationale, or private production notes; neutral student-facing references to documented authority, organizational procedures, or project procedures are allowed. Do not demand inline citations for every source or every ordinary claim. References may include materially consulted sources even when they are not named decoratively in the teaching prose. List each work only once, even when multiple chapters or claims used it; omit chapter, section, and page details from the final References section. Evaluate that bibliography rule only against the text after the final `# References` heading. A chapter, section, or direct-content hyperlink discussed in the teaching prose is not a bibliography defect and must not be reported as one. Never request or add accessed/retrieved dates. Books must be cited as books without abstract, catalog, preview, or search-result links; webpage references may include only the direct content URL actually used. The Summary and Key Takeaways section must be only 4-6 bullets, with no introductory prose; never request a summary opener.",
         "design_review": "Check only the draft's approved structural and presentation contract: Introduction followed by Learning Objectives with no Lesson Roadmap; continuous lesson body; separate summary, glossary, and references; only the six approved callout labels; no callouts in structural sections; no H3 or deeper headings; no dash punctuation in prose; no one-line section openers; and every ordered procedure formatted as a real numbered Markdown list with one step per source line rather than several numbered markers embedded in a paragraph. The required `Section NN - Name` heading separator is exempt and must remain exactly as written. Useful callouts inside the teaching body are allowed. Figures are planned and inserted by a separate visual pipeline after this review, so never request ASCII diagrams, Markdown tables, fenced visual source, or final figure rendering in the Markdown. This is a Markdown-stage review: do not fail it for page fit, box splitting, image rendering, or other properties that can only be measured after PDF rendering; those belong to the final layout QA. Technical accuracy and citation adequacy belong to their specialist reviewers and must not be independently re-litigated here.",
     }[kind]
+    revision_scope = ""
+    if approved_baseline and operator_revision_request:
+        changed_lines = "\n".join(difflib.unified_diff(
+            approved_baseline.splitlines(),
+            draft.splitlines(),
+            fromfile="approved-baseline",
+            tofile="revision-candidate",
+            lineterm="",
+            n=3,
+        ))
+        revision_scope = f"""
+This is a targeted revision of an operator-approved baseline. Review the candidate against the requested changes and the diff below. Fail only when a requested change is missing, the revision introduces a new problem within your specialist criteria, or it materially worsens a baseline condition. Do not reopen or fail a condition already present in the approved baseline when it is unrelated to the operator request. Do not demand broad lesson improvements outside this revision scope.
+
+Operator revision request:
+{operator_revision_request[:7000]}
+
+Candidate diff from approved baseline:
+{changed_lines[:24000]}
+"""
     return f"""Return JSON only as an independent Prof Greg reviewer.
 Review Lesson {lesson['lesson_number']}: {lesson['title']} for {seed.title}.
 {criteria}
 The artifact must be genuinely student-ready, not merely present. Apply only your assigned specialist criteria. Do not invent new requirements outside that scope or repeat another reviewer's job.
+{revision_scope}
 
 Draft:
 {draft[:52000]}
@@ -1885,7 +1919,17 @@ def archive_review_report(run: Path, lesson_tag: str, suffix: str, revision: int
         write_text(run / "review" / f"{lesson_tag}_{suffix}_r{revision:02d}.md", source.read_text(encoding="utf-8", errors="replace"))
 
 
-def run_content_reviewers(seed, lesson: dict[str, Any], draft: str, ledger: dict[str, Any], run: Path, lesson_tag: str) -> tuple[bool, list[str]]:
+def run_content_reviewers(
+    seed,
+    lesson: dict[str, Any],
+    draft: str,
+    ledger: dict[str, Any],
+    run: Path,
+    lesson_tag: str,
+    *,
+    approved_baseline: str = "",
+    operator_revision_request: str = "",
+) -> tuple[bool, list[str]]:
     passed = True
     required_changes: list[str] = []
     labels = {
@@ -1898,7 +1942,15 @@ def run_content_reviewers(seed, lesson: dict[str, Any], draft: str, ledger: dict
             data = request_json_with_retry(
                 seed.slug,
                 role,
-                reviewer_prompt(role, seed, lesson, draft, ledger),
+                reviewer_prompt(
+                    role,
+                    seed,
+                    lesson,
+                    draft,
+                    ledger,
+                    approved_baseline=approved_baseline,
+                    operator_revision_request=operator_revision_request,
+                ),
                 max_tokens=8000,
             )
         except ModelRequestError as error:
@@ -2142,6 +2194,7 @@ def create_visual_assets(seed, lesson: dict[str, Any], draft: str, run: Path, le
         and "Visual plan QA passed: yes" in prior_visual_qa.read_text(encoding="utf-8", errors="replace")
     )
     revision_feedback = feedback_for(run, lesson_tag, "study_guide")
+    operator_revision_request = revision_feedback
     if revision_feedback and prior_plan.exists():
         existing_plan = json.loads(prior_plan.read_text(encoding="utf-8"))
         revision_prompt = visual_plan_prompt(seed, lesson, draft, read_uploads(seed.slug)) + (
@@ -2555,7 +2608,16 @@ def produce_study_guide(course_slug: str, lesson_number: int) -> list[str]:
                     "No partial draft was saved or released."
                 )
             write_text(working_path, draft)
-        reviewer_passed, changes = run_content_reviewers(seed, lesson, draft, active_ledger, run, lesson_tag)
+        reviewer_passed, changes = run_content_reviewers(
+            seed,
+            lesson,
+            draft,
+            active_ledger,
+            run,
+            lesson_tag,
+            approved_baseline=approved_complete_draft if operator_revision_request else "",
+            operator_revision_request=operator_revision_request,
+        )
         deterministic_qa = deterministic_checker.run_checks(working_path, seed.level)
         if not deterministic_qa["passed"]:
             reviewer_passed = False
