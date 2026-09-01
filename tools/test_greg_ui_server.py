@@ -392,6 +392,8 @@ class GregUiServerTests(unittest.TestCase):
         self.assertIn("Revision accepted", html)
         self.assertIn("Requested corrections applied", html)
         self.assertIn("revision corrected · ready for review", html)
+        self.assertIn(".status-pill.approved, .status-pill.active, .status-pill.revision-approved { background: #e7f6ec; color: var(--ok); }", html)
+        self.assertIn(".status-pill.ready-for-review, .status-pill.revision-corrected-ready-for-review { background: #fff6e8; color: var(--warn); }", html)
 
     def test_approving_corrected_candidate_closes_revision_state(self) -> None:
         course = "revision-approval-test"

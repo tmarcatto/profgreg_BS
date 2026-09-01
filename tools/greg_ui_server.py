@@ -1028,10 +1028,11 @@ def ui_shell(default_course: str) -> str:
       font-weight: 760;
       text-transform: capitalize;
     }}
-    .status-pill.approved, .status-pill.active {{ background: #e7f6ec; color: var(--ok); }}
+    .status-pill.approved, .status-pill.active, .status-pill.revision-approved {{ background: #e7f6ec; color: var(--ok); }}
     .status-pill.blocked {{ background: #fff1f0; color: var(--bad); }}
     .status-pill.missing {{ background: #f2f4f7; color: #667085; }}
     .status-pill.pending {{ background: #fff6e8; color: var(--warn); }}
+    .status-pill.ready-for-review, .status-pill.revision-corrected-ready-for-review {{ background: #fff6e8; color: var(--warn); }}
     .status-pill.not-generated {{ background: #f2f4f7; color: #667085; }}
     .status-pill.not-approved {{ background: #fff6e8; color: var(--warn); }}
     .status-pill.revision-needs-attention {{ background: #fff1f0; color: var(--bad); }}
