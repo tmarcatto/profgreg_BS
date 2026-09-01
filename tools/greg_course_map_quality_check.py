@@ -128,6 +128,38 @@ def run_checks(course_map_json: Path, course_map_md: Path, adaptation_log: Path,
     else:
         findings.append(Finding("fail", "lessons_present", "Course Map JSON has no lessons."))
 
+    visual_brief_gaps = []
+    visual_protocol = int(data.get("visual_decision_protocol_version") or 0)
+    allowed_forms = {"process-flow", "relationship-map", "comparison-matrix", "card-sequence", "cost-stack", "schedule-bar-chart", "activity-network", "trusted-source-image", "generated-conceptual-image"}
+    if visual_protocol >= 2:
+        for index, lesson in enumerate(lessons, start=1):
+            insertions = lesson.get("visual_insertions") or []
+            if not 2 <= len(insertions) <= 4:
+                visual_brief_gaps.append(f"lesson {lesson.get('lesson_number') or lesson.get('number') or index}: needs 2-4 insertions")
+                continue
+            for insertion_index, insertion in enumerate(insertions, start=1):
+                if (
+                    not str(insertion.get("placement_hint") or "").strip()
+                    or len(str(insertion.get("learning_job") or "").split()) < 5
+                    or insertion.get("recommended_form") not in allowed_forms
+                    or not (insertion.get("must_show") or [])
+                    or insertion.get("source_strategy") not in {"deterministic", "trusted-source", "generated-fallback"}
+                    or insertion.get("pedagogical_strategy") not in {"inspect-real-example", "explain-with-diagram", "orient-with-conceptual-image"}
+                    or insertion.get("real_example_importance") not in {"required", "preferred", "not-needed"}
+                    or insertion.get("generation_suitability") not in {"safe", "unsafe"}
+                    or not str(insertion.get("targeted_search_query") or "").strip()
+                    or not (insertion.get("evidence_considered") or [])
+                    or not (insertion.get("alternatives_considered") or [])
+                    or len(str(insertion.get("selection_reason") or "").split()) < 6
+                ):
+                    visual_brief_gaps.append(f"lesson {lesson.get('lesson_number') or lesson.get('number') or index} insertion {insertion_index}: incomplete visual decision")
+    if visual_brief_gaps:
+        findings.append(Finding("fail", "visual_insertion_brief", f"Course Map lacks production-ready visual insertion decisions: {visual_brief_gaps}."))
+    elif visual_protocol < 2:
+        findings.append(Finding("warn", "visual_insertion_brief", "Legacy Course Map remains usable, but should be regenerated to apply evidence-backed visual decisions to every lesson."))
+    else:
+        findings.append(Finding("pass", "visual_insertion_brief", "Every lesson has 2-4 placement-specific visual insertion decisions."))
+
     level = str(data.get("level") or (data.get("course") or {}).get("level") or "")
     audience = str(data.get("target_audience") or (data.get("course") or {}).get("target_audience") or "")
     if "basic" in level.lower() or "entry" in level.lower() or "intermediate" in level.lower() or "advanced" in level.lower():

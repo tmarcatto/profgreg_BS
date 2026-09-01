@@ -34,7 +34,8 @@ class CourseMapQualityCheckTests(unittest.TestCase):
             course_json.write_text(
                 json.dumps(
                     {
-                        "level": "Basic",
+            "level": "Basic",
+            "visual_decision_protocol_version": 2,
                         "target_audience": "Residential construction workers in the United States",
                         "sector_anchor": "Residential construction first.",
                         "approval_status": "autonomously_approved",
@@ -42,7 +43,10 @@ class CourseMapQualityCheckTests(unittest.TestCase):
                         "syllabus_adaptations": [
                             {"lesson": 1, "decision": "reframed", "rationale": "The lesson needs clearer PM framing for beginner learners."}
                         ],
-                        "lessons": [{"lesson_number": 1, "title": "Foundations Reframed"}],
+                        "lessons": [{"lesson_number": 1, "title": "Foundations Reframed", "visual_insertions": [
+                            {"placement_hint": "after section one", "learning_job": "Show how approved information becomes field action", "pedagogical_strategy": "explain-with-diagram", "real_example_importance": "not-needed", "generation_suitability": "safe", "recommended_form": "process-flow", "must_show": ["approved input", "field action"], "source_strategy": "deterministic", "targeted_search_query": "official construction workflow visual", "evidence_considered": [{"source_type": "authoritative-web", "locator": "https://example.com/one"}], "alternatives_considered": ["conceptual image"], "selection_reason": "A flow directly explains the ordered transformation."},
+                            {"placement_hint": "after section two", "learning_job": "Show who coordinates the residential project team", "pedagogical_strategy": "explain-with-diagram", "real_example_importance": "not-needed", "generation_suitability": "safe", "recommended_form": "relationship-map", "must_show": ["project manager", "trade leads"], "source_strategy": "deterministic", "targeted_search_query": "official construction coordination relationship map", "evidence_considered": [{"source_type": "authoritative-web", "locator": "https://example.com/two"}], "alternatives_considered": ["table"], "selection_reason": "A relationship map directly exposes coordination connections."},
+                        ]}],
                         "qa": {"approval_status": "approved"},
                     }
                 ),

@@ -640,6 +640,61 @@ class SourceToWBSMatrix(Flowable):
         c.line(table_x + left_w, table_y, table_x + left_w, table_y - header_h - row_h * min(len(self.rows), 5))
 
 
+class ScheduleBarChartDiagram(Flowable):
+    """A real time-scaled activity view, not a table describing one."""
+    def __init__(self, title: str, rows: list[dict[str, Any]]):
+        super().__init__()
+        self.title = title
+        self.rows = rows[:8]
+        self.height = 255
+
+    def wrap(self, availWidth, availHeight):
+        self.width = availWidth
+        return availWidth, self.height
+
+    def draw(self):
+        c = self.canv
+        w = self.width
+        draw_visual_title(c, self.title, w, self.height)
+        label_w = min(132, w * 0.25)
+        chart_x = label_w + 12
+        chart_w = w - chart_x - 8
+        maximum = max((int(row.get("start", 0)) + int(row.get("duration", 1)) for row in self.rows), default=1)
+        row_h = min(25, 150 / max(len(self.rows), 1))
+        top = 188
+        c.setFont(FONT_REGULAR, 7.2)
+        c.setFillColor(MUTED)
+        for tick in range(maximum + 1):
+            x = chart_x + chart_w * tick / maximum
+            c.setStrokeColor(LINE)
+            c.setLineWidth(0.55)
+            c.line(x, top - row_h * len(self.rows), x, top + 10)
+            c.drawCentredString(x, top + 14, str(tick))
+        status_colors = {
+            "complete": NAVY,
+            "in-progress": ORANGE,
+            "delayed": colors.HexColor("#B4452D"),
+            "planned": colors.HexColor("#7B8797"),
+        }
+        for index, row in enumerate(self.rows):
+            y = top - (index + 1) * row_h + 5
+            activity = str(row.get("activity") or "")
+            c.setFillColor(NAVY)
+            c.setFont(FONT_BOLD, 7.8)
+            label = wrap_lines(activity, FONT_BOLD, 7.8, label_w - 6)[:2]
+            for line_index, line in enumerate(label):
+                c.drawString(0, y + 5 - line_index * 8, line)
+            start = int(row.get("start", 0))
+            duration = int(row.get("duration", 1))
+            x = chart_x + chart_w * start / maximum
+            bar_w = max(5, chart_w * duration / maximum)
+            c.setFillColor(status_colors.get(str(row.get("status") or "planned").lower(), status_colors["planned"]))
+            c.roundRect(x, y, bar_w, 12, 3, stroke=0, fill=1)
+        c.setFillColor(MUTED)
+        c.setFont(FONT_ITALIC, 7.4)
+        c.drawRightString(w, 12, "Time units")
+
+
 class CPMNetworkDiagram(Flowable):
     def __init__(self, title: str, paths: list[dict[str, Any]]):
         super().__init__()
@@ -1001,6 +1056,8 @@ def visual_flowables(visual: dict[str, Any]) -> list[Any]:
         flowable = TimelineDiagram(visual["title"])
     elif diagram_type == "source_to_wbs_matrix":
         flowable = SourceToWBSMatrix(visual["title"], visual["left_header"], visual["right_header"], visual["rows"])
+    elif diagram_type == "schedule_bar_chart":
+        flowable = ScheduleBarChartDiagram(visual["title"], visual["rows"])
     elif diagram_type == "process_flow":
         flowable = ProcessFlowDiagram(visual["title"], visual["nodes"])
     elif diagram_type == "relationship_map":
@@ -1071,6 +1128,13 @@ def validate_visual_text_fit(visuals: list[dict[str, Any]]) -> None:
             )
             if any(len(wrap_lines(text, font, size, width - 18)) > 3 for text, font, size, width in cells):
                 raise ValueError("Comparison-matrix cell does not fit in three visible lines.")
+        if visual_type == "schedule_bar_chart":
+            rows = visual.get("rows") or []
+            if not 3 <= len(rows) <= 8:
+                raise ValueError("schedule_bar_chart must contain 3-8 visible activity rows.")
+            for row in rows:
+                if not str(row.get("activity") or "").strip() or not isinstance(row.get("start"), int) or not isinstance(row.get("duration"), int) or row.get("start", -1) < 0 or row.get("duration", 0) <= 0:
+                    raise ValueError("schedule_bar_chart rows require activity, nonnegative integer start, and positive integer duration.")
 
 
 def validate_visuals(visuals: list[dict[str, Any]]) -> None:
@@ -1251,7 +1315,11 @@ def build_story(blocks: list[dict[str, Any]], visuals: list[dict[str, Any]], loc
             story.append(KeepTogether([markdown_table(block["headers"], block["rows"])]))
             story.append(Spacer(1, 8))
         elif block_type == "callout":
-            story.append(Callout(block["label"], block["body"]).flowable())
+            opening_headings = {"introduction", "learning objectives", "introdução", "objetivos de aprendizagem", "introducción", "objetivos de aprendizaje"}
+            if normalized_heading(current_heading) in opening_headings:
+                story.append(p(block["body"], "IntroBody"))
+            else:
+                story.append(Callout(block["label"], block["body"]).flowable())
         elif block_type == "paragraph":
             paragraph = p(block["text"], "IntroBody" if len(story) < 20 else "BodyGreg")
             # Do not begin a fresh page with a short tail of the preceding

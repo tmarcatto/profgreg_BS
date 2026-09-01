@@ -17,6 +17,8 @@ class Finding:
 
 
 STRUCTURAL_HEADINGS = {
+    "introduction",
+    "learning objectives",
     "summary",
     "summary and key takeaways",
     "key takeaways",
@@ -284,7 +286,7 @@ def run_checks(draft_path: Path, level: str | None = None) -> dict:
     if structural_callouts:
         findings.append(Finding("fail", "callouts_not_structural", f"Callouts appear in structural sections: {structural_callouts}."))
     else:
-        findings.append(Finding("pass", "callouts_not_structural", "No callouts found in summary, glossary, or references."))
+        findings.append(Finding("pass", "callouts_not_structural", "No callouts found in Introduction, Learning Objectives, summary, glossary, or references."))
 
     long_callouts = [f"{block['label']} line {block['line']} ({block['paragraph_count']} paragraphs)" for block in blocks if block["paragraph_count"] > 3]
     if long_callouts:

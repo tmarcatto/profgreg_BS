@@ -92,7 +92,7 @@ Use a callout only when it improves:
 - continuity across lessons.
 
 Remove a callout if it repeats adjacent prose.
-Do not place callouts in structural sections such as the static TOC, summary/key takeaways, glossary, or references.
+Do not place callouts in structural sections such as the static TOC, Introduction, Learning Objectives, summary/key takeaways, glossary, or references. The Introduction must always be normal unboxed prose.
 Keep callouts concise: one paragraph is typical, and three paragraphs is a hard practical ceiling unless the lesson explicitly needs a worked example.
 
 Recommended use:

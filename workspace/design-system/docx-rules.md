@@ -85,7 +85,7 @@ Rules:
 Callouts should be visually distinct but not loud.
 
 Use restrained fills, borders, and typography. Callouts must not cluster. Leave enough normal prose between them.
-Callouts should not appear in structural sections such as TOC, summary/key takeaways, glossary, or references.
+Callouts should not appear in structural sections such as TOC, Introduction, Learning Objectives, summary/key takeaways, glossary, or references. The Introduction must always remain normal unboxed prose.
 Callouts should usually be short: one paragraph is typical, and three paragraphs is the practical upper bound.
 
 ## Footer

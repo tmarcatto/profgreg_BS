@@ -19,7 +19,7 @@ class Finding:
 GENERATED_TYPES = {"generated-conceptual-image"}
 SOURCE_TYPES = {"trusted-source-image", "real-source-image"}
 DIAGRAM_TYPES = {"deterministic-diagram", "chart", "process-flow", "structured-visual"}
-DIAGRAM_MECHANISMS = {"process-flow", "relationship-map", "comparison-matrix", "card-sequence", "cost-stack"}
+DIAGRAM_MECHANISMS = {"process-flow", "relationship-map", "comparison-matrix", "card-sequence", "cost-stack", "schedule-bar-chart", "activity-network"}
 BRAND_TYPES = {"brand-mark", "logo"}
 ALLOWED_HIGHLIGHT_REASONS = {
     "exception",
@@ -106,6 +106,8 @@ def run_checks(plan_path: Path) -> dict[str, Any]:
     unsuitable_diagram_decisions = []
     diagram_capacity_violations = []
     cost_stack_total_layers = []
+    visual_decision_evidence_gaps = []
+    forbidden_generated_real_examples = []
     diagram_mechanisms: dict[str, list[str]] = {}
 
     for index, visual in enumerate(visuals):
@@ -167,6 +169,18 @@ def run_checks(plan_path: Path) -> dict[str, Any]:
                 generated_deck_captions.append(label)
             if visual.get("core_message_depends_on_real_example") is True and source_status != "visual-curation-required":
                 generated_for_real_example.append(label)
+            if visual.get("real_example_importance") == "required" or visual.get("generation_suitability") == "unsafe":
+                forbidden_generated_real_examples.append(label)
+
+        if (
+            visual.get("pedagogical_strategy") not in {"inspect-real-example", "explain-with-diagram", "orient-with-conceptual-image"}
+            or visual.get("real_example_importance") not in {"required", "preferred", "not-needed"}
+            or visual.get("generation_suitability") not in {"safe", "unsafe"}
+            or not (visual.get("evidence_considered") or [])
+            or not (visual.get("alternatives_considered") or [])
+            or len(str(visual.get("selection_reason") or "").split()) < 6
+        ):
+            visual_decision_evidence_gaps.append(label)
 
         if visual.get("highlighted") is True:
             reason = str(visual.get("highlight_reason") or "").strip()
@@ -212,6 +226,18 @@ def run_checks(plan_path: Path) -> dict[str, Any]:
                             break
                 elif mechanism in {"card-sequence", "cost-stack"} and not 2 <= len(nodes) <= 8:
                     diagram_capacity_violations.append((label, f"{mechanism} requires 2-8 visible cards"))
+                elif mechanism == "schedule-bar-chart":
+                    schedule_rows = visual.get("schedule_rows") or []
+                    if not 3 <= len(schedule_rows) <= 8:
+                        diagram_capacity_violations.append((label, "schedule-bar-chart requires 3-8 visible rows"))
+                    for row in schedule_rows:
+                        if not str(row.get("activity") or "").strip() or not isinstance(row.get("start"), int) or not isinstance(row.get("duration"), int) or row.get("start", -1) < 0 or row.get("duration", 0) <= 0:
+                            diagram_capacity_violations.append((label, "schedule-bar-chart rows require activity, nonnegative integer start, and positive integer duration"))
+                            break
+                elif mechanism == "activity-network":
+                    network_paths = visual.get("network_paths") or []
+                    if not 1 <= len(network_paths) <= 2 or any(not 2 <= len(path.get("activities") or []) <= 4 for path in network_paths):
+                        diagram_capacity_violations.append((label, "activity-network requires 1-2 visible paths with 2-4 activities each"))
                 if mechanism == "cost-stack":
                     if any(re.search(r"\b(proposal price|final total|total price)\b", str(node.get("title") or ""), re.I) for node in nodes):
                         cost_stack_total_layers.append(label)
@@ -277,6 +303,16 @@ def run_checks(plan_path: Path) -> dict[str, Any]:
         findings.append(Finding("fail", "real_example_priority", f"Generated images used where real examples are core and curation was not requested: {generated_for_real_example}."))
     else:
         findings.append(Finding("pass", "real_example_priority", "Generated images are not replacing required real examples."))
+
+    if visual_decision_evidence_gaps:
+        findings.append(Finding("fail", "visual_decision_evidence", f"Visuals lack an auditable pedagogical/source decision: {visual_decision_evidence_gaps}."))
+    else:
+        findings.append(Finding("pass", "visual_decision_evidence", "Every visual records strategy, real-example importance, evidence, alternatives, and selection reason."))
+
+    if forbidden_generated_real_examples:
+        findings.append(Finding("fail", "generated_real_example_forbidden", f"Generated imagery was selected where a real example is required or generation is unsafe: {forbidden_generated_real_examples}."))
+    else:
+        findings.append(Finding("pass", "generated_real_example_forbidden", "No generated image substitutes for a required real example."))
 
     if highlighted_without_reason or invalid_highlight_reasons:
         findings.append(Finding("fail", "highlight_reason", f"Highlight issues: missing {highlighted_without_reason}; invalid {invalid_highlight_reasons}."))

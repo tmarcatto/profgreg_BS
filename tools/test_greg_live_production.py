@@ -50,6 +50,7 @@ class GregLiveProductionTests(unittest.TestCase):
             asset.write_bytes(b"already-generated")
             slides = [{
                 "layout": "image_bullets",
+                "image_source_strategy": "generated-conceptual",
                 "image_prompt": "A residential field verification scene.",
                 "image_alt": "Residential field verification.",
                 "image_name": "teaching-image-1",
@@ -68,10 +69,18 @@ class GregLiveProductionTests(unittest.TestCase):
             spec.write_text('{"slides": []}', encoding="utf-8")
             self.assertTrue(spec.exists() and not (deck / "lesson_02_deck_r03.pptx").exists())
 
-    def test_deck_plan_requires_a_teaching_image_and_layout_diversity(self) -> None:
+    def test_deck_plan_validates_visual_decisions_and_layout_diversity(self) -> None:
+        decision = {
+            "pedagogical_strategy": "explain-with-diagram",
+            "real_example_importance": "not-needed",
+            "generation_suitability": "safe",
+            "source_strategy": "deterministic",
+            "evidence_considered": [{"locator": "Course Map", "relevance": "Matches the teaching job."}],
+            "selection_reason": "This slide mechanism directly teaches the mapped decision clearly.",
+        }
         slides = [
             {"layout": "cover", "title": "Buildable Work", "subtitle": "Make the job ready.", "topics": ["Intake", "Scope", "Permits"]},
-            {"layout": "intro_image_bullets", "title": "Start with the site", "intro": "A field visit turns assumptions into decisions.", "bullets": ["Verify access", "Record constraints", "Confirm owners"], "image_prompt": "A residential project manager reviewing a home site plan with a field lead.", "image_alt": "Project manager and field lead review a residential site plan."},
+            {"layout": "intro_image_bullets", "title": "Start with the site", "intro": "A field visit turns assumptions into decisions.", "bullets": ["Verify access", "Record constraints", "Confirm owners"], "image_source_strategy": "generated-conceptual", "image_prompt": "A residential project manager reviewing a home site plan with a field lead.", "image_alt": "Project manager and field lead review a residential site plan.", **decision},
             {"layout": "card_sequence", "title": "Move facts into action", "items": [], "takeaway": "Sequence creates control."},
             {"layout": "comparison", "title": "Separate the request from the scope", "left": {"title": "Request", "body": "Starting point"}, "right": {"title": "Scope", "body": "Verified commitment"}, "bottom_line": "Clarify first."},
             {"layout": "planned_actual", "title": "Test the gap", "left": {"title": "Planned", "body": "What was assumed"}, "right": {"title": "Actual", "body": "What the site allows"}, "bottom_line": "Price the real job."},
@@ -81,17 +90,30 @@ class GregLiveProductionTests(unittest.TestCase):
             {"layout": "card_sequence", "title": "Keep the handoff visible", "items": [], "takeaway": "A clear handoff prevents rework."},
             {"layout": "takeaway", "title": "Buildability comes before production", "body": "Verify the job before committing the work.", "final_line": "Make the job buildable first."},
         ]
+        for slide in slides[2:-1]:
+            slide.update(decision)
+        slides[1]["source_strategy"] = "generated-fallback"
+        slides[7]["image_source_strategy"] = "generated-conceptual"
+        slides[7]["source_strategy"] = "generated-fallback"
         normalized = production.normalize_deck_slides({"slides": slides}, {"title": "Buildability", "learning_goal": "Make the job buildable."})
         self.assertEqual(10, len(normalized))
         self.assertEqual("right", normalized[1]["image_side"])
         self.assertEqual("left", normalized[7]["image_side"])
 
-    def test_deck_plan_rejects_missing_teaching_image(self) -> None:
+    def test_deck_plan_allows_no_teaching_image_when_strategy_does_not_call_for_one(self) -> None:
+        decision = {
+            "pedagogical_strategy": "explain-with-diagram",
+            "real_example_importance": "not-needed",
+            "generation_suitability": "safe",
+            "source_strategy": "deterministic",
+            "evidence_considered": [{"locator": "Course Map", "relevance": "Matches the teaching job."}],
+            "selection_reason": "A structured slide directly explains this mapped concept clearly.",
+        }
         slides = [{"layout": "cover", "title": "A", "subtitle": "B", "topics": ["One", "Two", "Three"]}]
-        slides.extend({"layout": layout} for layout in ["card_sequence", "comparison", "planned_actual", "row_list", "checklist_rows", "card_sequence", "comparison", "row_list"])
+        slides.extend({"layout": layout, **decision} for layout in ["card_sequence", "comparison", "planned_actual", "row_list", "checklist_rows", "card_sequence", "comparison", "row_list"])
         slides.append({"layout": "takeaway"})
-        with self.assertRaisesRegex(RuntimeError, "teaching image"):
-            production.normalize_deck_slides({"slides": slides}, {"title": "Test", "learning_goal": "Test"})
+        normalized = production.normalize_deck_slides({"slides": slides}, {"title": "Test", "learning_goal": "Test"})
+        self.assertEqual(10, len(normalized))
 
     def test_image_only_upload_text_is_never_extracted_for_content(self) -> None:
         with tempfile.TemporaryDirectory() as directory:

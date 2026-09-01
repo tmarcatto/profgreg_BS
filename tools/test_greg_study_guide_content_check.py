@@ -110,6 +110,21 @@ class StudyGuideContentCheckTests(unittest.TestCase):
             self.assertFalse(result["passed"])
             self.assertTrue(any(item["check"] == "course_focused_introduction" for item in result["findings"] if item["status"] == "fail"))
 
+    def test_intro_callout_fails_even_with_approved_label(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "draft.md"
+            path.write_text(
+                "# Introduction\n\nOpening prose.\n\n> **CALLBACK**\n> Prior lesson connection.\n\n"
+                "## Learning Objectives\n\n- One\n- Two\n- Three\n- Four\n\n"
+                "# Section 01 - One\n\nBody.\n\n> **SCENARIO**\n> Field example.\n\n"
+                "# Summary and Key Takeaways\n\n- One.\n- Two.\n- Three.\n- Four.\n\n"
+                "# Glossary\n\n- Term: meaning.\n\n# References\n\n- A formal book.\n",
+                encoding="utf-8",
+            )
+            result = checker.run_checks(path)
+            failures = [item for item in result["findings"] if item["status"] == "fail"]
+            self.assertTrue(any(item["check"] == "callouts_not_structural" and "introduction" in item["note"].lower() for item in failures))
+
     def test_intermediate_underwritten_draft_fails_depth_gate(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             path = Path(tmp) / "draft.md"
