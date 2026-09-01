@@ -3446,36 +3446,49 @@ def localized_book_visuals(seed, run: Path, lesson_tag: str, locale: str, langua
     if not source_visuals:
         return []
     headings = re.findall(r"(?im)^#{1,2}\s+(.+)$", translated)
-    def translate_visual(source_visual: dict[str, Any]) -> dict[str, Any]:
-        prompt = f"""Translate every student-visible text value in this single course-book visual specification into {language}.
-Return exactly one JSON object in the form {{"visual": {{...}}}}. The first response character must be `{{` and the last must be `}}`; do not use Markdown or commentary. The approved English visual is the source contract: preserve its visual_id, type, figure number, node count, row count, column count, ordering, and section number. Localize only learner-visible text, captions, and source explanations. The system assigns `after_heading` from the exact translated Markdown heading; never invent, shorten, or move it. Keep each process-flow title short enough to occupy at most three narrow box lines (prefer 22 characters or fewer and no unbreakable word longer than 12 characters); keep details at most 36 characters. If a literal translation is too long, use a concise equivalent that preserves the central construction meaning. Preserve every comparison-matrix column: one variable column plus one dedicated column per compared entity, with one localized `cells` value per column in every row. Do not combine compared entities inside one cell. Do not omit, merge, or add nodes, rows, or columns. Preserve U.S. construction meaning.
+    prompt = f"""Translate every student-visible text value in this lesson's course-book visual specifications into {language}.
+Return exactly one JSON object in the form {{"visuals": [{{...}}]}}. The first response character must be `{{` and the last must be `}}`; do not use Markdown or commentary. Return exactly {len(source_visuals)} visuals in the original order. The approved English visuals are the source contract: preserve each visual_id, type, figure number, node count, row count, column count, ordering, and section number. Localize only learner-visible text, captions, and source explanations. The system assigns `after_heading` from the exact translated Markdown heading; never invent, shorten, or move it. Keep each process-flow title short enough to occupy at most three narrow box lines (prefer 22 characters or fewer and no unbreakable word longer than 12 characters); keep details at most 36 characters. If a literal translation is too long, use a concise equivalent that preserves the central construction meaning. Preserve every comparison-matrix column: one variable column plus one dedicated column per compared entity, with one localized `cells` value per column in every row. Do not combine compared entities inside one cell. Do not omit, merge, or add nodes, rows, columns, or visuals. Preserve U.S. construction meaning.
 
 Exact target headings:
 {json.dumps(headings, ensure_ascii=False)}
 
-English visual specification:
-{json.dumps(source_visual, ensure_ascii=False)}"""
-        parsed: dict[str, Any] | None = None
-        last_error: Exception | None = None
-        for attempt in range(2):
-            try:
-                retry_note = ""
-                if attempt and last_error:
-                    retry_note = f"\n\nThe exact PDF renderer rejected your previous translation: {last_error} Shorten only the affected learner-visible labels or cells and return the complete visual again."
-                parsed = request_json_with_retry(seed.slug, "diagram_planning", prompt + retry_note, max_tokens=4000)
-                if isinstance(parsed.get("visual"), dict):
-                    visual = parsed["visual"]
-                    contract_error = localized_visual_contract_error([visual])
-                    if contract_error:
-                        raise ModelRequestError(contract_error)
-                    break
-                raise ModelRequestError("The diagram model did not return the required `visual` object.")
-            except (ModelRequestError, json.JSONDecodeError) as error:
-                last_error = error
-                parsed = None
-        if not parsed:
-            raise RuntimeError(f"Localized visual translation failed after two validated attempts: {last_error}")
-        visual = parsed["visual"]
+English visual specifications:
+{json.dumps(source_visuals, ensure_ascii=False)}"""
+    visuals: list[dict[str, Any]] | None = None
+    last_error: Exception | None = None
+    for attempt in range(2):
+        try:
+            retry_note = ""
+            if attempt and last_error:
+                retry_note = (
+                    f"\n\nThe exact PDF renderer or parity validator rejected the previous batch: {last_error} "
+                    "Correct only the affected learner-visible labels or structure and return the complete batch again."
+                )
+            parsed = request_json_with_retry(seed.slug, "diagram_planning", prompt + retry_note, max_tokens=12000)
+            candidate = parsed.get("visuals")
+            if not isinstance(candidate, list) or not all(isinstance(item, dict) for item in candidate):
+                raise ModelRequestError("The diagram model did not return the required `visuals` array.")
+            if len(candidate) != len(source_visuals):
+                raise ModelRequestError(
+                    f"Localized visual count changed from {len(source_visuals)} to {len(candidate)}."
+                )
+            for source_visual, visual in zip(source_visuals, candidate):
+                if visual.get("visual_id") != source_visual.get("visual_id"):
+                    raise ModelRequestError("Localized visual IDs or ordering changed.")
+                if visual.get("type") != source_visual.get("type"):
+                    raise ModelRequestError("Localized visual plan changed a renderer type.")
+            contract_error = localized_visual_contract_error(candidate)
+            if contract_error:
+                raise ModelRequestError(contract_error)
+            visuals = candidate
+            break
+        except (ModelRequestError, json.JSONDecodeError) as error:
+            last_error = error
+            visuals = None
+    if visuals is None:
+        raise RuntimeError(f"Localized visual translation failed after two validated batch attempts: {last_error}")
+
+    for source_visual, visual in zip(source_visuals, visuals):
         source_section = re.search(r"(?:Section|Seção|Sección)\s+(\d{1,2})", str(source_visual.get("after_heading") or ""), flags=re.I)
         if not source_section:
             raise RuntimeError(f"English visual `{source_visual.get('visual_id')}` has no numbered section placement.")
@@ -3483,15 +3496,6 @@ English visual specification:
         if len(target) != 1:
             raise RuntimeError(f"Localized visual `{source_visual.get('visual_id')}` cannot be anchored to exactly one translated section.")
         visual["after_heading"] = target[0]
-        return visual
-
-    with ThreadPoolExecutor(max_workers=min(4, len(source_visuals))) as executor:
-        visuals = list(executor.map(translate_visual, source_visuals))
-    if len(visuals) != len(source_visuals):
-        raise RuntimeError("Localized visual plan changed the required visual count.")
-    for source_visual, localized_visual in zip(source_visuals, visuals):
-        if source_visual.get("type") != localized_visual.get("type"):
-            raise RuntimeError("Localized visual plan changed a renderer type.")
     final_contract_error = localized_visual_contract_error(visuals)
     if final_contract_error:
         raise RuntimeError(f"Localized visual plan failed the exact PDF renderer contract: {final_contract_error}")

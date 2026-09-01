@@ -467,6 +467,34 @@ class GregLiveProductionTests(unittest.TestCase):
             "type": "source_to_wbs_matrix", "rows": [{"left": "X" * 41, "right": "Valid detail"}],
         }]))
 
+    def test_localized_book_visuals_translates_the_lesson_in_one_batch(self) -> None:
+        source_visuals = [
+            {"visual_id": "L01V01", "type": "card_row", "after_heading": "Section 01 - Start", "title": "Start"},
+            {"visual_id": "L01V02", "type": "card_row", "after_heading": "Section 02 - Finish", "title": "Finish"},
+        ]
+        translated_visuals = [
+            {"visual_id": "L01V01", "type": "card_row", "after_heading": "ignored", "title": "Começar"},
+            {"visual_id": "L01V02", "type": "card_row", "after_heading": "ignored", "title": "Concluir"},
+        ]
+        with tempfile.TemporaryDirectory() as directory:
+            run = Path(directory)
+            spec = run / "docx_pdf" / "lesson_01_study_guide_spec_r01.json"
+            spec.parent.mkdir()
+            spec.write_text(production.json.dumps({"visuals": source_visuals}), encoding="utf-8")
+            translated = "# Seção 01 - Começar\n\n# Seção 02 - Concluir\n"
+            with (
+                patch.object(production, "request_json_with_retry", return_value={"visuals": translated_visuals}) as request,
+                patch.object(production, "localized_visual_contract_error", return_value=""),
+            ):
+                result = production.localized_book_visuals(
+                    SimpleNamespace(slug="demo"), run, "lesson_01", "pt_br", "Brazilian Portuguese", translated
+                )
+
+        self.assertEqual(1, request.call_count)
+        self.assertEqual(["Seção 01 - Começar", "Seção 02 - Concluir"], [item["after_heading"] for item in result])
+        self.assertIn('"visual_id": "L01V01"', request.call_args.args[2])
+        self.assertIn('"visual_id": "L01V02"', request.call_args.args[2])
+
     def test_localized_book_structure_requires_english_heading_hierarchy(self) -> None:
         complete = "\n".join([
             "# Seção 1 — Primeiro", "# Seção 2: Segundo", "# Seção 03 - Terceiro", "# Seção 4 – Quarto",
