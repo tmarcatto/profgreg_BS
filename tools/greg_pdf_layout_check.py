@@ -178,6 +178,10 @@ def expected_visible_visual_text(spec: dict) -> list[str]:
             expected.extend([str(visual.get("left_header") or ""), str(visual.get("right_header") or "")])
             for row in visual.get("rows") or []:
                 expected.extend([str(row.get("left") or ""), str(row.get("right") or "")])
+        elif visual_type == "comparison_matrix":
+            expected.extend(str(column) for column in visual.get("columns") or [])
+            for row in visual.get("rows") or []:
+                expected.extend(str(cell) for cell in row.get("cells") or [])
     return [text for text in expected if text.strip()]
 
 
@@ -211,6 +215,18 @@ def localized_visual_parity_issues(pdf_path: Path, localized_spec: dict) -> list
             issues.append(f"Visual `{source.get('visual_id')}` is not anchored to the corresponding English section.")
         if source.get("caption") and not localized.get("caption"):
             issues.append(f"Visual `{source.get('visual_id')}` lost its localized caption/source explanation.")
+        if source.get("type") == "comparison_matrix":
+            source_columns = source.get("columns") or []
+            localized_columns = localized.get("columns") or []
+            source_rows = source.get("rows") or []
+            localized_rows = localized.get("rows") or []
+            if len(source_columns) != len(localized_columns):
+                issues.append(f"Visual `{source.get('visual_id')}` changed comparison-matrix column count.")
+            if len(source_rows) != len(localized_rows) or any(
+                len(source_row.get("cells") or []) != len(localized_row.get("cells") or [])
+                for source_row, localized_row in zip(source_rows, localized_rows)
+            ):
+                issues.append(f"Visual `{source.get('visual_id')}` changed comparison-matrix row or cell structure.")
     return issues
 
 
@@ -405,6 +421,7 @@ def run_checks(pdf_path: Path, qa_path: Path | None = None) -> dict:
     orphan_openings = []
     heading_openings = []
     split_callout_labels = []
+    inline_numbered_procedures = []
     figures_by_page: dict[int, list[str]] = {}
     for page_number in content_pages:
         if page_number < 1 or page_number > page_count:
@@ -437,6 +454,9 @@ def run_checks(pdf_path: Path, qa_path: Path | None = None) -> dict:
                 remaining = " ".join(lines[index + 1 : index + 3])
                 if len(remaining.split()) < 6:
                     split_callout_labels.append((page_number, line))
+            numbered_markers = re.findall(r"(?<!\w)(\d{1,2})\.\s+", line)
+            if len(numbered_markers) >= 2:
+                inline_numbered_procedures.append((page_number, numbered_markers[:8]))
 
     if sparse_pages:
         findings.append(Finding("fail", "sparse_content_pages", f"Content pages with very little extracted text and no figure: {sparse_pages}."))
@@ -462,6 +482,11 @@ def run_checks(pdf_path: Path, qa_path: Path | None = None) -> dict:
         findings.append(Finding("fail", "split_callout_labels", f"Callout labels appear separated from body text: {split_callout_labels[:5]}."))
     else:
         findings.append(Finding("pass", "split_callout_labels", "No isolated callout labels found in content pages."))
+
+    if inline_numbered_procedures:
+        findings.append(Finding("fail", "ordered_steps_one_per_line", f"Ordered procedures render multiple numbered steps on one visible line: {inline_numbered_procedures[:5]}."))
+    else:
+        findings.append(Finding("pass", "ordered_steps_one_per_line", "Ordered procedures render one numbered step per visible line."))
 
     if content_pages:
         figure_pages = sorted(figures_by_page)

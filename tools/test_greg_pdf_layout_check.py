@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import importlib.util
+import re
 import sys
 import tempfile
 import unittest
@@ -35,6 +36,10 @@ class PdfLayoutCheckUnitTests(unittest.TestCase):
             "References",
         ]
         self.assertEqual(pdf_qa.find_page(pages, r"References", min_page=3, heading_only=True), 4)
+
+    def test_inline_numbered_markers_are_detectable_on_one_visible_line(self) -> None:
+        line = "1. Verify the data. 2. Name the cause. 3. Update the forecast."
+        self.assertEqual(["1", "2", "3"], re.findall(r"(?<!\w)(\d{1,2})\.\s+", line))
 
     def test_forbidden_patterns(self) -> None:
         self.assertTrue(pdf_qa.contains("References Accessed August 9, 2026", r"\bAccessed\s+August\b"))

@@ -1378,7 +1378,23 @@ Available headings:
                 executor.submit(context.run, patch_one, heading)
                 for context, heading in zip(contexts, selected)
             ]
-            return dict(future.result() for future in futures)
+            patches: dict[str, str] = {}
+            errors: list[str] = []
+            for future in futures:
+                try:
+                    heading, replacement = future.result()
+                    patches[heading] = replacement
+                except (ModelRequestError, RuntimeError) as error:
+                    errors.append(str(error))
+            if not patches:
+                raise RuntimeError(
+                    "The revision agent could not return any safe plain-Markdown section patches: "
+                    + "; ".join(errors)
+                )
+            # Preserve every independently validated section replacement. A
+            # failed section remains unchanged and is isolated by the next
+            # reviewer round instead of discarding the entire safe batch.
+            return patches
 
     if len(source) > 12000:
         # Large multi-section Markdown is predictably fragile when escaped

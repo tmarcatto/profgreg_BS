@@ -20,6 +20,19 @@ sys.modules["greg_artifact_spec_check"] = checker
 spec.loader.exec_module(checker)
 
 
+def slide_decision(medium: str = "native-diagram") -> dict:
+    return {
+        "learning_job": "Learners can make this construction decision correctly.",
+        "teaching_strategy": "diagnose-and-decide",
+        "visual_medium": medium,
+        "visual_candidates": [
+            {"medium": candidate, "decision": "selected" if candidate == medium else "rejected", "reason": "This option has a specific instructional fit."}
+            for candidate in ["native-diagram", "trusted-source-image", "generated-conceptual-image"]
+        ],
+        "text_role": "Text explains the visible decision rule.",
+    }
+
+
 class ArtifactSpecCheckTests(unittest.TestCase):
     fixture_run = ROOT / "runs" / "tmp-artifact-spec-test"
 
@@ -119,7 +132,8 @@ class ArtifactSpecCheckTests(unittest.TestCase):
         ]
         slides = [{"layout": "cover", "topics": ["One", "Two", "Three"]}]
         for index, layout in enumerate(body, start=2):
-            slide = {"layout": layout}
+            medium = "generated-conceptual-image" if layout in {"intro_image_bullets", "image_bullets"} else "native-diagram"
+            slide = {"layout": layout, **slide_decision(medium)}
             if layout in {"intro_image_bullets", "image_bullets"}:
                 slide["image"] = {"path": f"deck/assets/lesson_01_teaching_image_{index:02d}.png", "alt": "Residential construction teaching image"}
             slides.append(slide)
@@ -140,8 +154,27 @@ class ArtifactSpecCheckTests(unittest.TestCase):
         data = checker.run_checks(self.write_spec(spec_data), "deck")
         checks = {item["check"]: item["status"] for item in data["findings"]}
         self.assertTrue(data["passed"], data["findings"])
-        self.assertEqual(checks["deck_required_teaching_image"], "pass")
+        self.assertEqual(checks["deck_teaching_image_fit"], "pass")
         self.assertEqual(checks["deck_layout_diversity"], "pass")
+        self.assertEqual(checks["deck_visual_decision_protocol"], "pass")
+
+    def test_native_visual_plan_is_not_forced_to_add_an_image(self) -> None:
+        body = ["card_sequence", "comparison", "planned_actual", "row_list", "checklist_rows", "card_sequence", "comparison", "row_list"]
+        slides = [{"layout": "cover", "topics": ["One", "Two", "Three"]}]
+        slides.extend({"layout": layout, **slide_decision()} for layout in body)
+        slides.append({"layout": "takeaway"})
+        spec_data = {
+            "course_slug": "tmp-artifact-spec-test", "course_title": "Temporary Artifact Spec Test", "lesson_number": 1,
+            "production_mode": "revision", "revision": "r04", "run_folder": "runs/tmp-artifact-spec-test",
+            "approved_baseline_artifact": "deck/lesson_01_deck_r03.pptx",
+            "assets": {"brand_icon": "workspace/assets/logos/buildstak-icon.png"},
+            "output": {"pptx": "deck/lesson_01_deck_r04.pptx", "qa": "deck/lesson_01_deck_qa.md", "rendered_dir": "deck/rendered_slides"},
+            "slides": slides, "qa_checks": ["MECE", "no automatic last-item highlight", "residential"],
+        }
+        data = checker.run_checks(self.write_spec(spec_data), "deck")
+        checks = {item["check"]: item["status"] for item in data["findings"]}
+        self.assertTrue(data["passed"], data["findings"])
+        self.assertEqual("pass", checks["deck_teaching_image_fit"])
 
     def test_localized_deck_inherits_approved_layout_structure(self) -> None:
         body = ["card_sequence", "card_sequence", "comparison", "row_list", "checklist_rows", "comparison", "checklist_rows", "row_list"]

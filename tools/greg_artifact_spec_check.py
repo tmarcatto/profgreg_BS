@@ -18,13 +18,16 @@ DECK_LAYOUTS = {
     "intro_image_bullets",
     "image_bullets",
     "card_sequence",
+    "process_flow",
+    "schedule_bar_chart",
+    "activity_network",
     "comparison",
     "planned_actual",
     "row_list",
     "checklist_rows",
     "takeaway",
 }
-PDF_VISUAL_TYPES = {"card_row", "cost_stack", "cpm_network", "source_to_wbs_matrix", "timeline", "process_flow", "relationship_map", "schedule_bar_chart", "image"}
+PDF_VISUAL_TYPES = {"card_row", "comparison_matrix", "cost_stack", "cpm_network", "source_to_wbs_matrix", "timeline", "process_flow", "relationship_map", "schedule_bar_chart", "image"}
 PATH_KEYS = {"run_folder", "source_markdown", "approved_baseline_artifact", "pptx", "pdf", "qa", "render_qa", "layout_qa", "rendered_dir"}
 
 
@@ -197,19 +200,21 @@ def deck_checks(spec: dict[str, Any]) -> list[Finding]:
         findings.append(Finding("pass", "deck_image_cadence", "Image slides are not consecutive."))
 
     if localized:
-        findings.append(Finding("pass", "deck_required_teaching_image", "Localized deck retains the approved source deck's visual structure."))
+        findings.append(Finding("pass", "deck_teaching_image_fit", "Localized deck retains the approved source deck's visual structure."))
     elif image_layout_slides and all(isinstance(slides[index - 1].get("image"), dict) for index in image_layout_slides):
-        findings.append(Finding("pass", "deck_required_teaching_image", f"Deck includes half-slide teaching image layout(s): {image_layout_slides}."))
+        findings.append(Finding("pass", "deck_teaching_image_fit", f"Every selected image layout has a teaching asset: {image_layout_slides}."))
+    elif not image_layout_slides:
+        findings.append(Finding("pass", "deck_teaching_image_fit", "The evidence-backed plan selected native diagrams for this lesson; an image was not forced."))
     else:
-        findings.append(Finding("fail", "deck_required_teaching_image", "Deck needs at least one image-plus-teaching-bullets slide with a declared image asset."))
+        findings.append(Finding("fail", "deck_teaching_image_fit", "Every selected image layout needs a declared teaching asset."))
 
     body_layouts = [str(slide.get("layout") or "") for slide in slides[1:-1]]
     if localized:
         findings.append(Finding("pass", "deck_layout_diversity", "Localized deck retains the approved source deck's layout sequence."))
-    elif len(set(body_layouts)) >= 6:
-        findings.append(Finding("pass", "deck_layout_diversity", f"Deck uses {len(set(body_layouts))} distinct body layouts."))
+    elif len(set(body_layouts)) >= 4:
+        findings.append(Finding("pass", "deck_layout_diversity", f"Deck uses {len(set(body_layouts))} evidence-selected body layouts."))
     else:
-        findings.append(Finding("fail", "deck_layout_diversity", "Deck needs at least six distinct body layouts across slides 2-9."))
+        findings.append(Finding("fail", "deck_layout_diversity", "Deck needs at least four distinct body layouts as an anti-repetition floor."))
     if localized:
         findings.append(Finding("pass", "deck_adjacent_layout_repeat", "Localized deck retains the approved source deck's layout sequence."))
     elif any(left == right for left, right in zip(body_layouts, body_layouts[1:])):
@@ -230,6 +235,32 @@ def deck_checks(spec: dict[str, Any]) -> list[Finding]:
         findings.append(Finding("fail", "deck_image_fields", f"Image field issues: {missing_image_fields}."))
     else:
         findings.append(Finding("pass", "deck_image_fields", "Deck image declarations have path/alt and no captions."))
+
+    if localized:
+        findings.append(Finding("pass", "deck_visual_decision_protocol", "Localized deck preserves the approved source deck's visual decisions."))
+    else:
+        decision_gaps = []
+        expected_media = {"native-diagram", "trusted-source-image", "generated-conceptual-image"}
+        for index, slide in enumerate(slides[1:-1], start=2):
+            candidates = slide.get("visual_candidates") if isinstance(slide.get("visual_candidates"), list) else []
+            candidate_media = [str(item.get("medium") or "") for item in candidates if isinstance(item, dict)]
+            selected = [str(item.get("medium") or "") for item in candidates if isinstance(item, dict) and item.get("decision") == "selected"]
+            medium = str(slide.get("visual_medium") or "")
+            image_layout = slide.get("layout") in {"intro_image_bullets", "image_bullets"}
+            if (
+                len(str(slide.get("learning_job") or "").split()) < 5
+                or not str(slide.get("teaching_strategy") or "")
+                or set(candidate_media) != expected_media
+                or len(candidate_media) != 3
+                or selected != [medium]
+                or image_layout != (medium in {"trusted-source-image", "generated-conceptual-image"})
+                or len(str(slide.get("text_role") or "").split()) < 4
+            ):
+                decision_gaps.append(index)
+        if decision_gaps:
+            findings.append(Finding("fail", "deck_visual_decision_protocol", f"Slides missing pedagogy-first three-medium decisions: {decision_gaps}."))
+        else:
+            findings.append(Finding("pass", "deck_visual_decision_protocol", "Every body slide chooses pedagogy first, compares all three media, and defines the role of text."))
 
     qa_checks = " ".join(str(item) for item in spec.get("qa_checks", []))
     for needle, label in [("MECE", "qa_mece"), ("no automatic last-item highlight", "qa_no_last_item_highlight"), ("residential", "qa_residential")]:

@@ -119,8 +119,38 @@ class RenderStudyGuideFromSpecTests(unittest.TestCase):
         diagram.width = 6.5 * pdf_renderer.inch
         diagram.canv = Canvas()
         diagram.draw()
-        total_box = next(box for box in diagram.canv.boxes if abs(box[0] - diagram.width * .25) < 1)
+        total_box = next(box for box in diagram.canv.boxes if abs(box[0] - diagram.width * .10) < 1)
         self.assertLess(total_box[1] + total_box[3], 300)
+
+    def test_cost_stack_total_is_wrapped_inside_a_wide_result_box(self) -> None:
+        if pdf_renderer is None:
+            self.skipTest("ReportLab is not installed in this Python environment.")
+        class Canvas:
+            def __init__(self): self.boxes = []; self.lines = []
+            def setFillColor(self, *_): pass
+            def setStrokeColor(self, *_): pass
+            def setFont(self, *_): pass
+            def roundRect(self, x, y, w, h, *_, **__): self.boxes.append((x, y, w, h))
+            def drawString(self, *_): pass
+            def drawCentredString(self, _, __, text): self.lines.append(text)
+        total = "Forecast at completion $42,000 (budget $42,000, variance $0)"
+        diagram = pdf_renderer.CostStackDiagram("Trim Cost Code", [{"title": "Actual", "detail": "Recorded"}] * 4, total)
+        diagram.width = 6.5 * pdf_renderer.inch
+        diagram.canv = Canvas()
+        diagram.draw()
+        total_box = max(diagram.canv.boxes, key=lambda box: box[1])
+        self.assertAlmostEqual(diagram.width * .80, total_box[2])
+        self.assertEqual(total, " ".join(diagram.canv.lines[:2]))
+
+    def test_card_row_rejects_ordered_numbered_steps(self) -> None:
+        if pdf_renderer is None:
+            self.skipTest("ReportLab is not installed in this Python environment.")
+        with self.assertRaisesRegex(ValueError, "cannot represent ordered steps"):
+            pdf_renderer.validate_visuals([{
+                "type": "card_row",
+                "title": "Six-Step Order for Acting on a Variance",
+                "cards": [{"title": f"{number}. Step {number}"} for number in range(1, 7)],
+            }])
 
     def test_localized_source_accepts_plain_localized_callout_labels(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
@@ -185,6 +215,33 @@ class RenderStudyGuideFromSpecTests(unittest.TestCase):
             "title": "Cost Stack",
             "nodes": [{"title": "Direct cost", "detail": "Measured work"}, {"title": "Price", "detail": "Final proposal"}],
         }])
+
+    def test_true_comparison_matrix_requires_entity_columns(self) -> None:
+        if pdf_renderer is None:
+            self.skipTest("ReportLab is not installed in this Python environment.")
+        pdf_renderer.validate_visuals([{
+            "type": "comparison_matrix",
+            "title": "Cost Control vs. Cash-Flow Control",
+            "columns": ["Variable", "Cost control", "Cash-flow control"],
+            "rows": [
+                {"cells": ["Question", "Will the job finish within budget?", "When will money arrive and leave?"]},
+                {"cells": ["Records", "Budget, commitments, actuals", "Billings, collections, due dates"]},
+            ],
+        }])
+
+    def test_two_column_comparison_matrix_is_rejected(self) -> None:
+        if pdf_renderer is None:
+            self.skipTest("ReportLab is not installed in this Python environment.")
+        with self.assertRaisesRegex(ValueError, "one criterion column and 2-3 entity columns"):
+            pdf_renderer.validate_visuals([{
+                "type": "comparison_matrix",
+                "title": "Cost Control vs. Cash-Flow Control",
+                "columns": ["Concept", "Field meaning"],
+                "rows": [
+                    {"cells": ["Question", "Cost: final cost? Cash: when money moves?"]},
+                    {"cells": ["Records", "Cost: budget. Cash: billing dates."]},
+                ],
+            }])
 
     def test_relationship_map_central_title_keeps_three_visible_lines(self) -> None:
         if pdf_renderer is None:

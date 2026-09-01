@@ -355,14 +355,30 @@ class CostStackDiagram(Flowable):
         layer_h = min(42, 225 / count)
         start_y = 38
         if self.total:
+            total_x = w * .10
+            total_w = w * .80
+            total_lines = []
+            total_size = 9.0
+            for candidate in (9.0, 8.5, 8.0, 7.5):
+                candidate_lines = wrap_lines(self.total, FONT_BOLD, candidate, total_w - 20, break_long_words=False)
+                if len(candidate_lines) <= 2 and all(
+                    stringWidth(line, FONT_BOLD, candidate) <= total_w - 20 for line in candidate_lines
+                ):
+                    total_lines = candidate_lines
+                    total_size = candidate
+                    break
+            if not total_lines:
+                raise ValueError("Cost-stack total does not fit inside its visible result box.")
+            total_h = 22 + (len(total_lines) - 1) * (total_size + 2)
+            total_y = 258 - (total_h - 24)
             c.setFillColor(PALE_ORANGE)
             c.setStrokeColor(ORANGE)
-            # Keep the calculated total below the title's reserved baseline.
-            # The former 288-312 box collided with the one-line title at 312.
-            c.roundRect(w * .25, 258, w * .5, 24, 5, stroke=1, fill=1)
+            c.roundRect(total_x, total_y, total_w, total_h, 5, stroke=1, fill=1)
             c.setFillColor(NAVY)
-            c.setFont(FONT_BOLD, 9)
-            c.drawCentredString(w / 2, 267, self.total[:72])
+            c.setFont(FONT_BOLD, total_size)
+            first_baseline = total_y + total_h / 2 + (len(total_lines) - 1) * (total_size + 2) / 2 - 3
+            for line_index, line in enumerate(total_lines):
+                c.drawCentredString(w / 2, first_baseline - line_index * (total_size + 2), line)
         for index, layer in enumerate(self.layers):
             inset = min(index * 13, 75)
             x = 44 + inset
@@ -638,6 +654,96 @@ class SourceToWBSMatrix(Flowable):
         c.setLineWidth(1)
         c.roundRect(table_x, table_y - header_h - row_h * min(len(self.rows), 5), table_w, header_h + row_h * min(len(self.rows), 5), 6, stroke=1, fill=0)
         c.line(table_x + left_w, table_y, table_x + left_w, table_y - header_h - row_h * min(len(self.rows), 5))
+
+
+class ComparisonMatrixDiagram(Flowable):
+    """A true comparison: one criterion column plus one column per entity."""
+    def __init__(self, title: str, columns: list[str], rows: list[dict[str, Any]]):
+        super().__init__()
+        self.title = title
+        self.columns = [str(column) for column in columns[:4]]
+        self.rows = rows[:5]
+        self.height = 310
+        self._layout: tuple[list[float], list[list[list[str]]], list[float]] | None = None
+
+    def _prepare(self, width: float):
+        if not 3 <= len(self.columns) <= 4:
+            raise ValueError("Comparison matrix requires one criterion column and 2-3 entity columns.")
+        table_w = width - 32
+        first_w = table_w * .30
+        other_w = (table_w - first_w) / (len(self.columns) - 1)
+        widths = [first_w] + [other_w] * (len(self.columns) - 1)
+        wrapped_rows: list[list[list[str]]] = []
+        row_heights: list[float] = []
+        for row in self.rows:
+            cells = [str(cell) for cell in (row.get("cells") or [])]
+            if len(cells) != len(self.columns):
+                raise ValueError("Every comparison-matrix row must have one cell per visible column.")
+            wrapped = []
+            for index, (cell, cell_w) in enumerate(zip(cells, widths)):
+                font = FONT_BOLD if index == 0 else FONT_REGULAR
+                size = 7.6 if index == 0 else 7.3
+                lines = wrap_lines(cell, font, size, cell_w - 16, break_long_words=False)
+                if len(lines) > 4 or any(stringWidth(line, font, size) > cell_w - 16 for line in lines):
+                    raise ValueError(f"Comparison-matrix cell does not fit in four visible lines: {cell}")
+                wrapped.append(lines)
+            wrapped_rows.append(wrapped)
+            row_heights.append(max(34, 16 + 9 * max(len(lines) for lines in wrapped)))
+        self._layout = (widths, wrapped_rows, row_heights)
+        self.height = 58 + 30 + sum(row_heights)
+
+    def wrap(self, availWidth, availHeight):
+        self.width = availWidth
+        self._prepare(availWidth)
+        return availWidth, self.height
+
+    def draw(self):
+        if self._layout is None:
+            self._prepare(self.width)
+        widths, wrapped_rows, row_heights = self._layout
+        c = self.canv
+        w = self.width
+        draw_visual_title(c, self.title, w, self.height)
+        table_x = 16
+        table_w = sum(widths)
+        table_top = self.height - 52
+        header_h = 30
+
+        c.setFillColor(NAVY)
+        c.roundRect(table_x, table_top - header_h, table_w, header_h, 6, stroke=0, fill=1)
+        x = table_x
+        for column, cell_w in zip(self.columns, widths):
+            c.setFillColor(colors.white)
+            c.setFont(FONT_BOLD, 8.2)
+            header_lines = wrap_lines(column, FONT_BOLD, 8.2, cell_w - 16, break_long_words=False)
+            if len(header_lines) > 2:
+                raise ValueError(f"Comparison-matrix header does not fit in two visible lines: {column}")
+            for line_index, line in enumerate(header_lines):
+                c.drawString(x + 8, table_top - 18 - line_index * 9, line)
+            x += cell_w
+
+        y_top = table_top - header_h
+        for row_index, (wrapped, row_h) in enumerate(zip(wrapped_rows, row_heights)):
+            c.setFillColor(LIGHT if row_index % 2 == 0 else colors.white)
+            c.rect(table_x, y_top - row_h, table_w, row_h, stroke=0, fill=1)
+            x = table_x
+            for cell_index, (lines, cell_w) in enumerate(zip(wrapped, widths)):
+                c.setFillColor(NAVY if cell_index == 0 else INK)
+                c.setFont(FONT_BOLD if cell_index == 0 else FONT_REGULAR, 7.6 if cell_index == 0 else 7.3)
+                for line_index, line in enumerate(lines):
+                    c.drawString(x + 8, y_top - 13 - line_index * 9, line)
+                x += cell_w
+            c.setStrokeColor(LINE)
+            c.line(table_x, y_top - row_h, table_x + table_w, y_top - row_h)
+            y_top -= row_h
+
+        c.setStrokeColor(LINE)
+        c.setLineWidth(1)
+        c.roundRect(table_x, y_top, table_w, table_top - y_top, 6, stroke=1, fill=0)
+        x = table_x
+        for cell_w in widths[:-1]:
+            x += cell_w
+            c.line(x, table_top, x, y_top)
 
 
 class ScheduleBarChartDiagram(Flowable):
@@ -1056,6 +1162,8 @@ def visual_flowables(visual: dict[str, Any]) -> list[Any]:
         flowable = TimelineDiagram(visual["title"])
     elif diagram_type == "source_to_wbs_matrix":
         flowable = SourceToWBSMatrix(visual["title"], visual["left_header"], visual["right_header"], visual["rows"])
+    elif diagram_type == "comparison_matrix":
+        flowable = ComparisonMatrixDiagram(visual["title"], visual["columns"], visual["rows"])
     elif diagram_type == "schedule_bar_chart":
         flowable = ScheduleBarChartDiagram(visual["title"], visual["rows"])
     elif diagram_type == "process_flow":
@@ -1128,6 +1236,25 @@ def validate_visual_text_fit(visuals: list[dict[str, Any]]) -> None:
             )
             if any(len(wrap_lines(text, font, size, width - 18)) > 3 for text, font, size, width in cells):
                 raise ValueError("Comparison-matrix cell does not fit in three visible lines.")
+        if visual_type == "comparison_matrix":
+            probe = ComparisonMatrixDiagram(
+                str(visual.get("title") or ""),
+                visual.get("columns") or [],
+                visual.get("rows") or [],
+            )
+            probe._prepare(6.5 * inch)
+        if visual_type == "cost_stack":
+            total = str(visual.get("total") or "")
+            if total:
+                total_width = 6.5 * inch * .80 - 20
+                fits = False
+                for size in (9.0, 8.5, 8.0, 7.5):
+                    lines = wrap_lines(total, FONT_BOLD, size, total_width, break_long_words=False)
+                    if len(lines) <= 2 and all(stringWidth(line, FONT_BOLD, size) <= total_width for line in lines):
+                        fits = True
+                        break
+                if not fits:
+                    raise ValueError("Cost-stack total does not fit inside its visible result box.")
         if visual_type == "schedule_bar_chart":
             rows = visual.get("rows") or []
             if not 3 <= len(rows) <= 8:
@@ -1206,6 +1333,14 @@ def validate_visuals(visuals: list[dict[str, Any]]) -> None:
             )
             if any(len(wrap_lines(text, font, size, width - 18)) > 3 for text, font, size, width in cells):
                 raise ValueError("Comparison-matrix cell does not fit in three visible lines.")
+        if visual_type == "comparison_matrix":
+            columns = visual.get("columns")
+            rows = visual.get("rows")
+            if not isinstance(columns, list) or not 3 <= len(columns) <= 4:
+                raise ValueError("Comparison matrix requires one criterion column and 2-3 entity columns.")
+            if not isinstance(rows, list) or not 2 <= len(rows) <= 5:
+                raise ValueError("Comparison matrix must contain 2-5 visible criterion rows.")
+            ComparisonMatrixDiagram(str(visual.get("title") or ""), columns, rows)._prepare(6.5 * inch)
         if visual_type == "cost_stack":
             nodes = visual.get("nodes")
             if not isinstance(nodes, list) or not 2 <= len(nodes) <= 8:
@@ -1219,6 +1354,10 @@ def validate_visuals(visuals: list[dict[str, Any]]) -> None:
         if not isinstance(cards, list) or not 2 <= len(cards) <= 8:
             raise ValueError("Card-row diagram must contain 2-8 visible cards.")
         title = str(visual.get("title", "")).lower()
+        numbered_cards = sum(bool(re.match(r"^\s*\d+[.)]\s+", str(card.get("title") or ""))) for card in cards)
+        sequential_title = bool(re.search(r"\b(step|steps|sequence|order|workflow|process|from .+ to .+)\b", title))
+        if sequential_title or numbered_cards >= 2:
+            raise ValueError("Card-row diagrams cannot represent ordered steps; use a process-flow with visible connectors.")
         declarations: list[tuple[int, int]] = []
         for word, value in _COUNT_WORDS.items():
             match = re.search(rf"\b{word}\b", title)
