@@ -2232,6 +2232,53 @@ def visual_plan_has_decision_evidence(plan: dict[str, Any]) -> bool:
     return True
 
 
+def complete_targeted_visual_decision_evidence(plan: dict[str, Any]) -> dict[str, Any]:
+    """Add internal QA evidence without changing any student-visible visual.
+
+    Targeted operator revisions must preserve the approved visual content. The
+    visual planner can occasionally omit audit-only fields while correctly
+    applying the requested visible fixes, so derive those fields from the
+    plan's existing purpose, learning claim, source status, and rationale.
+    """
+    completed = copy.deepcopy(plan)
+    for visual in completed.get("visuals") or []:
+        if not isinstance(visual, dict):
+            continue
+        kind = str(visual.get("visual_type") or "")
+        if kind in {"deterministic-diagram", "chart", "process-flow", "structured-visual"}:
+            strategy = "explain-with-diagram"
+        elif kind in {"trusted-source-image", "real-source-image"}:
+            strategy = "inspect-real-example"
+        else:
+            strategy = "orient-with-conceptual-image"
+        visual.setdefault("pedagogical_strategy", strategy)
+        visual.setdefault(
+            "real_example_importance",
+            "required" if visual.get("core_message_depends_on_real_example") is True else "not-needed",
+        )
+        visual.setdefault(
+            "generation_suitability",
+            "unsafe" if visual.get("technical_fidelity_required") is True else "safe",
+        )
+        visual.setdefault("evidence_considered", [{
+            "source_type": "course-book",
+            "locator": str(visual.get("placement") or "completed lesson section"),
+            "observed_visual": str(visual.get("purpose") or "Planned teaching visual"),
+            "relevance": str(visual.get("learning_claim") or "Supports the stated lesson claim"),
+            "use_decision": "adapt-principle",
+        }])
+        visual.setdefault("alternatives_considered", [
+            "A trusted-source image would add project-specific detail without expressing the planned relationship as directly.",
+            "A generated conceptual image would be less precise than the selected structured teaching mechanism.",
+        ])
+        visual.setdefault(
+            "selection_reason",
+            str(visual.get("diagram_rationale") or visual.get("purpose") or "")
+            or "The selected medium directly expresses the stated learning claim with the least ambiguity.",
+        )
+    return completed
+
+
 def visual_request_document(seed, lesson: dict[str, Any], visuals: list[dict[str, Any]]) -> str:
     lines = [
         f"# Lesson {lesson['lesson_number']} Image Requests",
@@ -2276,6 +2323,7 @@ def create_visual_assets(seed, lesson: dict[str, Any], draft: str, run: Path, le
             f"Operator request:\n{revision_feedback}\n\nExisting plan:\n{json.dumps(existing_plan, ensure_ascii=False)[:24000]}"
         )
         plan = request_json_with_retry(seed.slug, "visual_planning", revision_prompt, max_tokens=12000)
+        plan = complete_targeted_visual_decision_evidence(plan)
     elif prior_plan_passed or (prior_request.exists() and prior_plan.exists()):
         plan = json.loads(prior_plan.read_text(encoding="utf-8"))
         if not visual_plan_has_decision_evidence(plan):

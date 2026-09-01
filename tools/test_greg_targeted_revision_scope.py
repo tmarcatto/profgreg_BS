@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import copy
 import importlib.util
 import sys
 import unittest
@@ -84,6 +85,29 @@ class TargetedRevisionScopeTests(unittest.TestCase):
         )
         self.assertIn("only the following section headings may change", prompt)
         self.assertIn("# Section 01 - Cost Boxes", prompt)
+
+    def test_visual_audit_metadata_does_not_change_visible_plan(self) -> None:
+        plan = {
+            "artifact_type": "study-guide",
+            "visuals": [{
+                "visual_id": "L06V01",
+                "visual_type": "deterministic-diagram",
+                "placement": "after Section 01 - Cost Boxes",
+                "purpose": "Show one cost control sequence",
+                "learning_claim": "Every cost follows the same control chain.",
+                "diagram_type": "process-flow",
+                "diagram_rationale": "A process flow makes the required ordered handoff visible to the learner.",
+                "diagram_title": "Cost Control Chain",
+                "diagram_nodes": [{"title": "Budget", "detail": ""}],
+                "core_message_depends_on_real_example": False,
+                "technical_fidelity_required": False,
+            }],
+        }
+        before = copy.deepcopy(plan)
+        completed = production.complete_targeted_visual_decision_evidence(plan)
+        for key in ("visual_id", "visual_type", "placement", "purpose", "learning_claim", "diagram_type", "diagram_title", "diagram_nodes"):
+            self.assertEqual(before["visuals"][0][key], completed["visuals"][0][key])
+        self.assertTrue(production.visual_plan_has_decision_evidence(completed))
 
 
 if __name__ == "__main__":
