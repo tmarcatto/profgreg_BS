@@ -1933,6 +1933,17 @@ DIAGRAM_VISUAL_TERMS = re.compile(
 
 def infer_diagram_type(visual: dict[str, Any]) -> str:
     requested = str(visual.get("diagram_type") or "").strip().lower()
+    # Prefer the learner-visible structure over a stale mechanism label. Model
+    # revisions can correctly replace a process flow with a comparison matrix
+    # (or another structured diagram) while accidentally retaining the old
+    # `diagram_type`. QA and rendering must evaluate the diagram that students
+    # will actually see.
+    if visual.get("diagram_columns") and visual.get("diagram_rows"):
+        return "comparison-matrix"
+    if visual.get("schedule_rows"):
+        return "schedule-bar-chart"
+    if visual.get("network_paths"):
+        return "activity-network"
     description = " ".join(
         str(visual.get(key) or "")
         for key in ("purpose", "learning_claim", "diagram_title")
@@ -2100,6 +2111,8 @@ def create_visual_assets(seed, lesson: dict[str, Any], draft: str, run: Path, le
                 if generated_seen > 1:
                     visual["visual_type"] = "deterministic-diagram"
                     visual["source_status"] = "not-required"
+            if visual.get("visual_type") == "deterministic-diagram":
+                visual["diagram_type"] = infer_diagram_type(visual)
         return prepared
 
     visuals = prepare_visuals(plan.get("visuals") or [])
