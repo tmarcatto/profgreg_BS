@@ -948,6 +948,7 @@ Pedagogical requirements:
 - Build a MECE lesson: each section must teach a distinct job and avoid repeating another section.
 - Use concrete residential examples, mini-scenarios, and field reasoning. Avoid generic business prose.
 - Explain concepts in paragraphs before bullets. Bullets are allowed, but they must not replace teaching.
+- Format every ordered procedure as a real Markdown numbered list with exactly one step per source line. Never embed `1. ... 2. ... 3. ...` in one paragraph.
 - Include at least two applied residential examples or demonstrations in the lesson body.
 - Use exactly 2-4 callouts. Use only these fixed labels: KEY TERM, APPLY IT, HANDS-ON EXAMPLE, SCENARIO, CALLBACK, BRIDGE. Never invent a callout label. Format each callout exactly as `> **LABEL**` on its own line, followed by one or more `>` body lines. Never write `LABEL: body` as ordinary prose.
 - A HANDS-ON EXAMPLE must be something the learner does, not a box of explanatory course-book prose. Supply the figures or information, ask for one concrete calculation, classification, comparison, or decision, and include a brief answer/check after the task. Keep explanatory teaching in the normal body text.
@@ -1197,7 +1198,7 @@ def editable_study_guide_sections(draft: str) -> dict[str, str]:
     byte-for-byte as it was in the reviewed draft.
     """
     heading_pattern = re.compile(
-        r"(?im)^#\s+(?:Section\s+\d{2}\s+-\s+.+|Summary and Key Takeaways|Glossary)\s*$"
+        r"(?im)^(?:##\s+Learning Objectives|#\s+(?:Section\s+\d{2}\s+-\s+.+|Summary and Key Takeaways|Glossary))\s*$"
     )
     matches = list(heading_pattern.finditer(draft))
     sections: dict[str, str] = {}
@@ -1244,7 +1245,7 @@ def targeted_study_guide_revision(
         "technical_content",
         f"""Select the smallest set of existing course-book sections needed to address the revision request.
 Return JSON only: {{\"headings\": [\"exact heading\"]}}.
-Choose one to three headings from this exact list. Do not select Introduction, Learning Objectives, or References.
+Choose one to five headings from this exact list. Do not select Introduction or References.
 
 Revision request:
 {feedback}
@@ -1255,17 +1256,14 @@ Available headings:
         max_tokens=1200,
     )
     selected = plan.get("headings")
-    if not isinstance(selected, list) or not 1 <= len(selected) <= 3 or any(not isinstance(item, str) for item in selected):
+    if not isinstance(selected, list) or not 1 <= len(selected) <= 5 or any(not isinstance(item, str) for item in selected):
         raise RuntimeError("The revision agent did not identify a valid, limited set of sections.")
     selected = list(dict.fromkeys(selected))
     if not set(selected).issubset(sections):
         raise RuntimeError("The revision agent selected a section that does not exist in the saved course book.")
     source = "\n\n".join(sections[heading] for heading in selected)
     maximum_words = {"basic": 4000, "intermediate": 5400, "advanced": 6200}.get(level.lower(), 5400)
-    patch_response = request_json_with_retry(
-        course_slug,
-        "technical_content",
-        f"""Revise ONLY the supplied course-book sections. Return JSON only in this exact shape:
+    patch_prompt = f"""Revise ONLY the supplied course-book sections. Return JSON only in this exact shape:
 {{\"patches\":[{{\"heading\":\"exact original heading\",\"markdown\":\"complete replacement section including that same heading\"}}]}}.
 
 Hard preservation contract:
@@ -1283,26 +1281,47 @@ Revision request:
 
 Selected sections to patch:
 {source}
-""",
-        max_tokens=10000,
-    )
-    raw_patches = patch_response.get("patches")
-    if not isinstance(raw_patches, list) or not raw_patches:
-        raise RuntimeError("The revision agent returned an incomplete section-patch response.")
-    patches: dict[str, str] = {}
-    for item in raw_patches:
-        if not isinstance(item, dict) or not isinstance(item.get("heading"), str) or not isinstance(item.get("markdown"), str):
-            raise RuntimeError("The revision agent returned an invalid section patch.")
-        # Models occasionally format the metadata heading differently while
-        # preserving the exact heading in the Markdown itself. The Markdown
-        # controls the splice, so accept that safe equivalent and reject any
-        # patch whose actual heading is not selected.
-        markdown_heading = re.match(r"(?m)^#\s+.+$", item["markdown"].lstrip())
-        heading = markdown_heading.group(0).strip() if markdown_heading else item["heading"].strip()
-        patches[heading] = item["markdown"]
-    if not set(patches).issubset(selected):
-        raise RuntimeError("The revision agent returned patches outside the selected sections.")
-    return apply_study_guide_section_patches(draft, patches)
+"""
+    last_patch_error = ""
+    for patch_attempt in range(2):
+        active_prompt = patch_prompt
+        if patch_attempt:
+            active_prompt += (
+                "\n\nYour previous patch set violated the preservation contract. Return exactly one patch for each "
+                f"of these headings and no others: {json.dumps(selected, ensure_ascii=False)}. "
+                f"Validation error: {last_patch_error}"
+            )
+        patch_response = request_json_with_retry(
+            course_slug,
+            "technical_content",
+            active_prompt,
+            max_tokens=10000,
+        )
+        raw_patches = patch_response.get("patches")
+        if not isinstance(raw_patches, list) or not raw_patches:
+            last_patch_error = "The response did not contain a non-empty patches array."
+            continue
+        patches: dict[str, str] = {}
+        invalid_patch = False
+        for item in raw_patches:
+            if not isinstance(item, dict) or not isinstance(item.get("heading"), str) or not isinstance(item.get("markdown"), str):
+                invalid_patch = True
+                break
+            # Models occasionally format the metadata heading differently while
+            # preserving the exact heading in the Markdown itself. The Markdown
+            # controls the splice, so accept that safe equivalent and reject any
+            # patch whose actual heading is not selected.
+            markdown_heading = re.match(r"(?m)^#{1,2}\s+.+$", item["markdown"].lstrip())
+            heading = markdown_heading.group(0).strip() if markdown_heading else item["heading"].strip()
+            patches[heading] = item["markdown"]
+        if invalid_patch:
+            last_patch_error = "A patch was missing its string heading or Markdown body."
+            continue
+        if set(patches) != set(selected):
+            last_patch_error = f"Expected {selected}; received {list(patches)}."
+            continue
+        return apply_study_guide_section_patches(draft, patches)
+    raise RuntimeError(f"The revision agent could not return the exact selected section patches after one focused retry: {last_patch_error}")
 
 
 def approved_study_guide_baseline(run: Path, lesson_tag: str) -> str | None:
@@ -1483,9 +1502,9 @@ def merge_lesson_sources(run: Path, ledger: dict[str, Any], refresh: dict[str, A
 
 def reviewer_prompt(kind: str, seed, lesson: dict[str, Any], draft: str, ledger: dict[str, Any]) -> str:
     criteria = {
-        "pedagogy_review": "Check only learning progression, depth for level, MECE sections, residential examples, explanations before bullets, no classroom/group activities or quizzes, and no audience boilerplate. A HANDS-ON EXAMPLE is a deliberate exception: it must give the individual learner supplied inputs, a concrete action to perform, and an answer or result check; reject a HANDS-ON box that merely contains explanatory course-book prose. The Summary and Key Takeaways section is a strict exception: it must contain only 4-6 bullets, with no framing sentence or prose. Require a readable Markdown table only for one uninterrupted list of seven or more comparable items that repeatedly state category, quantity or amount, and the same condition or comment. Do not demand tables for conceptual lists, short examples, WBS vocabulary, or distinct decision steps. After a table, require prose to add a decision, exception, or interpretation rather than restating its rows. Citation style and reference formatting belong to the citation reviewer; do not fail this review merely because ordinary claims lack inline citations. Figures are planned and inserted by a separate visual pipeline after this review. Do not request ASCII diagrams, Markdown tables used as figures, fenced visual source, or final figure rendering inside the chapter Markdown.",
+        "pedagogy_review": "Check only learning progression, depth for level, MECE sections, residential examples, explanations before bullets, no classroom/group activities or quizzes, and no audience boilerplate. A HANDS-ON EXAMPLE is a deliberate exception: it must give the individual learner supplied inputs, a concrete action to perform, and an answer or result check; reject a HANDS-ON box that merely contains explanatory course-book prose. Any ordered procedure must use a real numbered Markdown list with exactly one step per source line; reject `1. ... 2. ... 3. ...` embedded in one paragraph because it hides the sequence from the learner and renderer. The Summary and Key Takeaways section is a strict exception: it must contain only 4-6 bullets, with no framing sentence or prose. Require a readable Markdown table only for one uninterrupted list of seven or more comparable items that repeatedly state category, quantity or amount, and the same condition or comment. Do not demand tables for conceptual lists, short examples, WBS vocabulary, or distinct decision steps. After a table, require prose to add a decision, exception, or interpretation rather than restating its rows. Citation style and reference formatting belong to the citation reviewer; do not fail this review merely because ordinary claims lack inline citations. Figures are planned and inserted by a separate visual pipeline after this review. Do not request ASCII diagrams, Markdown tables used as figures, fenced visual source, or final figure rendering inside the chapter Markdown.",
         "citation_review": "Check factual support against the ledger, current applicability, clean student references, no invented claims, and no internal/local source language. Internal/local source language means file paths, ledger mechanics, reviewer rationale, or private production notes; neutral student-facing references to documented authority, organizational procedures, or project procedures are allowed. Do not demand inline citations for every source or every ordinary claim. References may include materially consulted sources even when they are not named decoratively in the teaching prose. List each work only once, even when multiple chapters or claims used it; omit chapter, section, and page details from the final References section. Evaluate that bibliography rule only against the text after the final `# References` heading. A chapter, section, or direct-content hyperlink discussed in the teaching prose is not a bibliography defect and must not be reported as one. Never request or add accessed/retrieved dates. Books must be cited as books without abstract, catalog, preview, or search-result links; webpage references may include only the direct content URL actually used. The Summary and Key Takeaways section must be only 4-6 bullets, with no introductory prose; never request a summary opener.",
-        "design_review": "Check only the draft's approved structural and presentation contract: Introduction followed by Learning Objectives with no Lesson Roadmap; continuous lesson body; separate summary, glossary, and references; only the six approved callout labels; no callouts in structural sections; no H3 or deeper headings; no dash punctuation in prose; no one-line section openers. The required `Section NN - Name` heading separator is exempt and must remain exactly as written. Useful callouts inside the teaching body are allowed. Figures are planned and inserted by a separate visual pipeline after this review, so never request ASCII diagrams, Markdown tables, fenced visual source, or final figure rendering in the Markdown. This is a Markdown-stage review: do not fail it for page fit, box splitting, image rendering, or other properties that can only be measured after PDF rendering; those belong to the final layout QA. Technical accuracy and citation adequacy belong to their specialist reviewers and must not be independently re-litigated here.",
+        "design_review": "Check only the draft's approved structural and presentation contract: Introduction followed by Learning Objectives with no Lesson Roadmap; continuous lesson body; separate summary, glossary, and references; only the six approved callout labels; no callouts in structural sections; no H3 or deeper headings; no dash punctuation in prose; no one-line section openers; and every ordered procedure formatted as a real numbered Markdown list with one step per source line rather than several numbered markers embedded in a paragraph. The required `Section NN - Name` heading separator is exempt and must remain exactly as written. Useful callouts inside the teaching body are allowed. Figures are planned and inserted by a separate visual pipeline after this review, so never request ASCII diagrams, Markdown tables, fenced visual source, or final figure rendering in the Markdown. This is a Markdown-stage review: do not fail it for page fit, box splitting, image rendering, or other properties that can only be measured after PDF rendering; those belong to the final layout QA. Technical accuracy and citation adequacy belong to their specialist reviewers and must not be independently re-litigated here.",
     }[kind]
     return f"""Return JSON only as an independent Prof Greg reviewer.
 Review Lesson {lesson['lesson_number']}: {lesson['title']} for {seed.title}.
@@ -1671,8 +1690,9 @@ Lesson draft:
 For every deterministic diagram, explicitly choose the mechanism that best matches the learning job:
 - process-flow for sequence, lifecycle, workflow, or handoff;
 - relationship-map for roles, stakeholders, coordination, or influence;
-- comparison-matrix only when learners must compare the same attributes across alternatives;
-- card-sequence for a small ordered or grouped set that does not require arrows.
+- comparison-matrix only when learners must compare the same variables across alternatives. It must use one criterion/variable column plus one dedicated column for each compared entity. Never combine both entities as `A: ... B: ...` inside one field-meaning cell;
+- card-sequence only for a small unordered or grouped set. Never use it for numbered steps, an order, a sequence, a workflow, or any content where direction changes meaning.
+- process-flow is mandatory for ordered steps or a numbered procedure; show visible connectors and preserve the source order exactly.
 - cost-stack for cumulative cost, price, or allowance layers that must read as a vertical stack. A proposal price or other final total is the calculated result, never a stack layer: put it in `diagram_total` and omit it from `diagram_nodes`.
 - schedule-bar-chart when the learning job is to read planned timing, overlaps, status, or variance from time-scaled horizontal activity bars;
 - activity-network when the learning job is to read predecessor/successor logic, parallel paths, or the controlling path from connected activity nodes.
@@ -1681,20 +1701,20 @@ Do not choose the same mechanism repeatedly without a distinct pedagogical reaso
 Design within the renderer's visible capacity. Never rely on omitted or hidden items:
 - process-flow: 2-6 nodes; each title at most 30 characters and each visible detail at most 36 characters;
 - relationship-map: 2-6 nodes including the center;
-- comparison-matrix: 2-5 rows; each left label at most 40 characters and each right cell at most 130 characters;
+- comparison-matrix: 3-4 columns total, consisting of one criterion/variable column and 2-3 entity columns; 2-5 rows; every row must provide one `cells` value per column;
 - card-sequence and cost-stack: 2-8 cards, and every item named by the title or caption must be one of the visible cards. For cost-stack, `diagram_total` is a separate result label and not a card.
 - schedule-bar-chart: 3-8 schedule rows with `activity`, nonnegative integer `start`, positive integer `duration`, and `status`;
 - activity-network: 1-2 paths with 2-4 connected activities per path, each with `title` and `duration`.
 The diagram title, learning claim, caption, visible nodes/cards/rows, and lesson prose must agree exactly. Do not promise a lifecycle endpoint, responsibility, role, comparison attribute, or item that the visible diagram omits.
 
 Return:
-{{"artifact_type":"study-guide","visual_curation_required":false,"visuals":[{{"visual_id":"L{int(lesson['lesson_number']):02d}V01","visual_type":"deterministic-diagram|generated-conceptual-image|trusted-source-image","placement":"after Section 01 - exact heading","purpose":"at least four words","learning_claim":"at least five words and unique","pedagogical_strategy":"inspect-real-example|explain-with-diagram|orient-with-conceptual-image","real_example_importance":"required|preferred|not-needed","generation_suitability":"safe|unsafe","source_status":"not-required|verified|source-needed","source_id":"","source_url":"","attribution":"","evidence_considered":[{{"source_type":"attached-pdf|authoritative-web|course-map","locator":"filename and page or URL","observed_visual":"what it shows","relevance":"why it matters","use_decision":"adapt-principle|use-with-attribution|reject"}}],"alternatives_considered":["specific alternative"],"selection_reason":"final pedagogical reason","strategy_change_reason":"empty when map strategy is preserved","prompt":"detailed English image prompt when generated","google_search_phrase":"the Course Map targeted query only","diagram_type":"process-flow|relationship-map|comparison-matrix|card-sequence|cost-stack|schedule-bar-chart|activity-network","diagram_rationale":"why this mechanism teaches this claim better than the alternatives","diagram_title":"short student-facing title","diagram_total":"final calculated total only for a cost-stack; otherwise empty","diagram_nodes":[{{"title":"short label","detail":"short explanation"}}],"diagram_rows":[{{"left":"specific concept","right":"specific field meaning"}}],"schedule_rows":[{{"activity":"short activity","start":0,"duration":3,"status":"planned|complete|in-progress|delayed"}}],"network_paths":[{{"label":"path label","critical":true,"activities":[{{"title":"short activity","duration":"3d"}}]}}],"context_focus":"U.S. residential construction","depicts_people":false,"workforce_representation":"","core_message_depends_on_real_example":false,"technical_fidelity_required":false,"technical_object_type":"","max_area_percent":45,"highlighted":false,"highlight_reason":"exception|warning|decision-point|risk-threshold|contrast|lesson-emphasis, required only when highlighted is true","internal_text":false,"internal_text_position":"top"}}]}}"""
+{{"artifact_type":"study-guide","visual_curation_required":false,"visuals":[{{"visual_id":"L{int(lesson['lesson_number']):02d}V01","visual_type":"deterministic-diagram|generated-conceptual-image|trusted-source-image","placement":"after Section 01 - exact heading","purpose":"at least four words","learning_claim":"at least five words and unique","pedagogical_strategy":"inspect-real-example|explain-with-diagram|orient-with-conceptual-image","real_example_importance":"required|preferred|not-needed","generation_suitability":"safe|unsafe","source_status":"not-required|verified|source-needed","source_id":"","source_url":"","attribution":"","evidence_considered":[{{"source_type":"attached-pdf|authoritative-web|course-map","locator":"filename and page or URL","observed_visual":"what it shows","relevance":"why it matters","use_decision":"adapt-principle|use-with-attribution|reject"}}],"alternatives_considered":["specific alternative"],"selection_reason":"final pedagogical reason","strategy_change_reason":"empty when map strategy is preserved","prompt":"detailed English image prompt when generated","google_search_phrase":"the Course Map targeted query only","diagram_type":"process-flow|relationship-map|comparison-matrix|card-sequence|cost-stack|schedule-bar-chart|activity-network","diagram_rationale":"why this mechanism teaches this claim better than the alternatives","diagram_title":"short student-facing title","diagram_total":"final calculated total only for a cost-stack; otherwise empty","diagram_nodes":[{{"title":"short label","detail":"short explanation"}}],"diagram_columns":["Variable","Compared entity A","Compared entity B"],"diagram_rows":[{{"cells":["shared variable","A value","B value"]}}],"schedule_rows":[{{"activity":"short activity","start":0,"duration":3,"status":"planned|complete|in-progress|delayed"}}],"network_paths":[{{"label":"path label","critical":true,"activities":[{{"title":"short activity","duration":"3d"}}]}}],"context_focus":"U.S. residential construction","depicts_people":false,"workforce_representation":"","core_message_depends_on_real_example":false,"technical_fidelity_required":false,"technical_object_type":"","max_area_percent":45,"highlighted":false,"highlight_reason":"exception|warning|decision-point|risk-threshold|contrast|lesson-emphasis, required only when highlighted is true","internal_text":false,"internal_text_position":"top"}}]}}"""
 
 
 def visual_semantic_review_prompt(seed, lesson: dict[str, Any], draft: str, plan: dict[str, Any]) -> str:
     return f"""Your entire response must be one compact JSON object that starts with `{{` and ends with `}}`. Do not include analysis, Markdown, code fences, or introductory text. Independently review this visual plan for Lesson {lesson['lesson_number']}: {lesson['title']} in {seed.title}.
 
-Check every diagram against the lesson prose and against what the deterministic renderer will visibly show. Set `passed` to false only for a material learner-visible error: a factual contradiction, a promised lifecycle endpoint/responsibility/role/comparison item that is actually absent, a materially misleading authority or sequence, failure to implement a Course Map visual insertion, substitution of a descriptive matrix for a required direct demonstration, or content that will be clipped or hidden. Concise instructional compression is expected; a diagram does not need to reproduce every qualification or detail from the prose. Standard construction abbreviations already defined in the lesson and minor editorial preferences are non-blocking findings. Do not fail a correct plan merely because wording could be more exhaustive. Enforce these hard capacities: process-flow 2-6 nodes with titles <=30 characters and visible details <=36 characters, relationship-map 2-6 nodes, comparison-matrix 2-5 rows with left labels <=40 characters and right cells <=130 characters, card-sequence 2-8 cards, schedule-bar-chart 3-8 rows, and activity-network 1-2 paths with 2-4 activities each. Do not accept hidden extra nodes or rows as satisfying a claim. Confirm that each visual is placed after the section that teaches it.
+Check every diagram against the lesson prose and against what the deterministic renderer will visibly show. The student-facing learning claim becomes the figure caption, so it must explain the exact visible relationship, order, grouping, highlight, or calculation instead of making a generic statement that could accompany a different diagram. Require the caption claim, diagram title, and visible nodes/cards/rows to use the same core terms and logic. If the content contains numbered steps, an order, a sequence, a workflow, or first/next/then/finally logic, require a process-flow with visible connectors and the exact source order; a card sequence or collection of boxes is a blocking mismatch. If the content compares two or more entities across the same variables, require a true comparison matrix with one variable column and one separate column per entity; packing `A: ... B: ...` into a single narrative cell is a blocking mismatch. Set `passed` to false for a material learner-visible error: a factual contradiction, a caption or explanation disconnected from the visible diagram, a promised lifecycle endpoint/responsibility/role/comparison item that is actually absent, a materially misleading authority or sequence, failure to implement a Course Map visual insertion, substitution of a descriptive matrix for a required direct demonstration, or content that will be clipped or hidden. Concise instructional compression is expected; a diagram does not need to reproduce every qualification or detail from the prose. Standard construction abbreviations already defined in the lesson and minor editorial preferences are non-blocking findings. Enforce these hard capacities: process-flow 2-6 nodes with titles <=30 characters and visible details <=36 characters, relationship-map 2-6 nodes, comparison-matrix 3-4 columns and 2-5 rows with one cell per column, card-sequence 2-8 cards, schedule-bar-chart 3-8 rows, and activity-network 1-2 paths with 2-4 activities each. Do not accept hidden extra nodes or rows as satisfying a claim. Confirm that each visual is placed after the section that teaches it.
 
 Lesson draft:
 {draft[:36000]}
@@ -1735,15 +1755,22 @@ DIAGRAM_VISUAL_TERMS = re.compile(
 
 def infer_diagram_type(visual: dict[str, Any]) -> str:
     requested = str(visual.get("diagram_type") or "").strip().lower()
-    if requested in {"process-flow", "relationship-map", "comparison-matrix", "card-sequence", "cost-stack", "schedule-bar-chart", "activity-network"}:
-        return requested
-    description = " ".join(str(visual.get(key) or "") for key in ("purpose", "learning_claim")).lower()
+    description = " ".join(
+        str(visual.get(key) or "")
+        for key in ("purpose", "learning_claim", "diagram_title")
+    ).lower()
+    numbered_nodes = sum(
+        bool(re.match(r"^\s*\d+[.)]\s+", str(node.get("title") or "")))
+        for node in (visual.get("diagram_nodes") or [])
+    )
     if re.search(r"\b(bar chart|gantt|time-scaled bar|planned timing|schedule bar)\b", description):
         return "schedule-bar-chart"
     if re.search(r"\b(network view|network diagram|predecessor|successor|parallel path|controlling path)\b", description):
         return "activity-network"
-    if re.search(r"\b(sequence|lifecycle|workflow|process|handoff|phase)\b", description):
+    if numbered_nodes >= 2 or re.search(r"\b(step|steps|sequence|order|lifecycle|workflow|process|handoff|phase|first|next|then|finally)\b", description):
         return "process-flow"
+    if requested in {"process-flow", "relationship-map", "comparison-matrix", "card-sequence", "cost-stack", "schedule-bar-chart", "activity-network"}:
+        return requested
     if re.search(r"\b(role|stakeholder|relationship|coordinate|influence|communication)\b", description):
         return "relationship-map"
     if re.search(r"\b(compare|comparison|versus|difference|alternative|option)\b", description):
@@ -1963,7 +1990,7 @@ def create_visual_assets(seed, lesson: dict[str, Any], draft: str, run: Path, le
             rendered_type = {
                 "process-flow": "process_flow",
                 "relationship-map": "relationship_map",
-                "comparison-matrix": "source_to_wbs_matrix",
+                "comparison-matrix": "comparison_matrix",
                 "card-sequence": "card_row",
                 "cost-stack": "cost_stack",
                 "schedule-bar-chart": "schedule_bar_chart",
@@ -1975,8 +2002,10 @@ def create_visual_assets(seed, lesson: dict[str, Any], draft: str, run: Path, le
                 "title": visual.get("diagram_title") or visual.get("learning_claim") or visual.get("purpose"),
                 "caption": f"Figure {lesson['lesson_number']}.{index + 1}. {visual.get('learning_claim')}",
             }
-            if rendered_type == "source_to_wbs_matrix":
-                rendered.update({"left_header": visual.get("diagram_left_header") or "Concept", "right_header": visual.get("diagram_right_header") or "Field meaning", "rows": section_rows})
+            if rendered_type == "comparison_matrix":
+                comparison_columns = visual.get("diagram_columns") or ["Variable", "Option A", "Option B"]
+                comparison_rows = visual.get("diagram_rows") or []
+                rendered.update({"columns": comparison_columns, "rows": comparison_rows})
             elif rendered_type == "schedule_bar_chart":
                 rendered["rows"] = visual.get("schedule_rows") or []
             elif rendered_type == "cpm_network":
@@ -2319,6 +2348,31 @@ def latest_approved_book(run: Path, lesson_tag: str) -> Path:
     return artifact
 
 
+DECK_TEACHING_STRATEGIES = {
+    "activate-prior-knowledge",
+    "anchor-with-scenario",
+    "worked-example",
+    "compare-and-contrast",
+    "trace-a-process",
+    "inspect-evidence",
+    "diagnose-and-decide",
+    "synthesize-and-recall",
+}
+DECK_VISUAL_MEDIA = {
+    "native-diagram",
+    "trusted-source-image",
+    "generated-conceptual-image",
+}
+DECK_IMAGE_LAYOUTS = {"intro_image_bullets", "image_bullets"}
+DECK_LAYOUT_MECHANISMS = {
+    "card_sequence": "card-sequence",
+    "comparison": "comparison-matrix",
+    "planned_actual": "planned-actual",
+    "row_list": "paired-record-rows",
+    "checklist_rows": "verification-checklist",
+}
+
+
 def deck_prompt(seed, lesson: dict[str, Any], book: str, visual_plan: dict[str, Any], feedback: str) -> str:
     return f"""Return JSON only for a 10-slide English presentation that teaches Lesson {lesson['lesson_number']}: {lesson['title']} from {seed.title}.
 
@@ -2326,14 +2380,20 @@ Audience: U.S. residential construction workforce. Use homes, remodels, townhome
 
 The course book below is the single content authority. The Course Map visual decisions and approved course-book visual plan below are the visual-strategy authority. Produce MECE slides with distinct teaching jobs and visibly different silhouettes. Use these layouts only: cover, intro_image_bullets, image_bullets, card_sequence, comparison, planned_actual, row_list, checklist_rows, takeaway.
 
-Consciously adapt the resolved visual strategy to presentation scale. For every body slide, provide `course_map_visual_id` when it implements a mapped insertion, plus `pedagogical_strategy`, `real_example_importance`, `generation_suitability`, `source_strategy`, `evidence_considered`, and `selection_reason`. Do not conduct a broad inspiration search or invent a new source decision. A deterministic Course Map visual should become the clearest matching slide mechanism, such as a sequence, comparison, planned-versus-actual view, or rows. Use an `intro_image_bullets` or `image_bullets` slide only when the resolved strategy calls for a real or conceptual image; an image slide is not mandatory. Its image must teach a specific point, not decorate the slide.
+Plan every body slide in this order:
+1. State one `learning_job`: the specific change in learner understanding or judgment.
+2. Choose one `teaching_strategy` from activate-prior-knowledge, anchor-with-scenario, worked-example, compare-and-contrast, trace-a-process, inspect-evidence, diagnose-and-decide, or synthesize-and-recall.
+3. Evaluate all three `visual_candidates`: native-diagram, trusted-source-image, and generated-conceptual-image. Give each a concrete fit or rejection reason, mark exactly one selected, and set `visual_medium` to it. Do not begin from a favorite layout.
+4. Choose the renderer layout only after the medium and teaching strategy are resolved. State `text_role`: what the words add that the visual cannot carry alone, such as directing attention, explaining a decision rule, or naming the takeaway.
+
+Consciously adapt the resolved visual strategy to presentation scale. For every body slide, provide `course_map_visual_id` when it implements a mapped insertion, plus `pedagogical_strategy`, `real_example_importance`, `generation_suitability`, `source_strategy`, `evidence_considered`, `alternatives_considered`, and `selection_reason`. Do not conduct a broad inspiration search or invent a new source decision. A native diagram should use the mechanism that matches the content logic: sequence only for ordered movement, comparison only for comparable dimensions, planned-versus-actual only for a consequential variance, paired rows only for records or mappings, and checklist rows only for field verification. Never turn a concept into two generic boxes simply because the layout exists. Use an `intro_image_bullets` or `image_bullets` slide only when the selected medium is a trusted real image or generated conceptual image; an image slide is not mandatory. Its image must teach a specific point, not decorate the slide.
 
 For every image layout, supply `image_alt` and `image_source_strategy` as `trusted-source` or `generated-conceptual`. A generated image also requires `image_prompt`. A trusted-source image requires `source_id` or a reusable `course_book_visual_id`; never provide an image prompt as a substitute. If `real_example_importance` is `required` or `generation_suitability` is `unsafe`, generation is forbidden. If the required verified asset is unavailable, preserve the request rather than silently substituting a generic scene. Generated conceptual images must depict a realistic U.S. residential construction setting when people or a jobsite appear, represent the workforce respectfully, and contain no visible text, labels, logos, watermarks, or UI.
 
-Across slides 2-9, use at least six distinct layouts when an evidence-backed image slide is appropriate, otherwise use all five non-image body layouts. Do not place the same layout on adjacent slides or use a body layout more than twice. Choose the visual mechanism that fits the teaching job: a process for sequence, a comparison for a meaningful distinction, planned_actual for a decision gap, rows for records, and a checklist for field verification. Never highlight a last item merely because it is last.
+Across slides 2-9, use at least four distinct layouts, do not place the same layout on adjacent slides, and do not use one body layout more than twice. This is only an anti-repetition floor. Visual variety must come from different learning jobs; never choose a weaker medium or mechanism merely to increase variety. Never highlight a last item merely because it is last.
 
 Required JSON schema:
-{{"slides":[{{"layout":"cover","title":"...","subtitle":"...","topics":["...","...","...","..."]}},{{"layout":"card_sequence|comparison|planned_actual|row_list|checklist_rows","title":"...","subtitle":"...","course_map_visual_id":"L01V01 or empty only when not mapped","pedagogical_strategy":"inspect-real-example|explain-with-diagram|orient-with-conceptual-image","real_example_importance":"required|preferred|not-needed","generation_suitability":"safe|unsafe","source_strategy":"deterministic|trusted-source|generated-fallback","evidence_considered":[{{"locator":"filename/page or URL","relevance":"..."}}],"selection_reason":"presentation-specific reason","items":[{{"title":"...","body":"..."}}],"bottom_line":"..."}},{{"layout":"intro_image_bullets|image_bullets","title":"...","subtitle":"...","intro":"...","bullets":["...","...","..."],"course_map_visual_id":"...","course_book_visual_id":"...","pedagogical_strategy":"...","real_example_importance":"preferred|not-needed|required","generation_suitability":"safe|unsafe","source_strategy":"trusted-source|generated-fallback","evidence_considered":[{{"locator":"...","relevance":"..."}}],"selection_reason":"...","image_source_strategy":"trusted-source|generated-conceptual","source_id":"required for an operator source when applicable","image_side":"left|right","image_alt":"...","image_prompt":"only for generated-conceptual"}},{{"layout":"takeaway","title":"...","body":"...","final_line":"..."}}]}}
+{{"slides":[{{"layout":"cover","title":"...","subtitle":"...","topics":["...","...","...","..."]}},{{"layout":"card_sequence|comparison|planned_actual|row_list|checklist_rows","title":"...","subtitle":"...","learning_job":"specific learner change","teaching_strategy":"activate-prior-knowledge|anchor-with-scenario|worked-example|compare-and-contrast|trace-a-process|inspect-evidence|diagnose-and-decide|synthesize-and-recall","visual_medium":"native-diagram","visual_candidates":[{{"medium":"native-diagram","decision":"selected|rejected","reason":"specific fit"}},{{"medium":"trusted-source-image","decision":"selected|rejected","reason":"specific fit"}},{{"medium":"generated-conceptual-image","decision":"selected|rejected","reason":"specific fit"}}],"text_role":"what the words add to the visual","course_map_visual_id":"L01V01 or empty only when not mapped","pedagogical_strategy":"explain-with-diagram","real_example_importance":"required|preferred|not-needed","generation_suitability":"safe|unsafe","source_strategy":"deterministic","evidence_considered":[{{"locator":"filename/page or URL","relevance":"..."}}],"alternatives_considered":["trusted real image because...","generated conceptual image because..."],"selection_reason":"presentation-specific reason","items":[{{"title":"...","body":"..."}}],"bottom_line":"..."}},{{"layout":"intro_image_bullets|image_bullets","title":"...","subtitle":"...","intro":"...","bullets":["...","...","..."],"learning_job":"...","teaching_strategy":"...","visual_medium":"trusted-source-image|generated-conceptual-image","visual_candidates":[{{"medium":"native-diagram","decision":"selected|rejected","reason":"..."}},{{"medium":"trusted-source-image","decision":"selected|rejected","reason":"..."}},{{"medium":"generated-conceptual-image","decision":"selected|rejected","reason":"..."}}],"text_role":"...","course_map_visual_id":"...","course_book_visual_id":"...","pedagogical_strategy":"inspect-real-example|orient-with-conceptual-image","real_example_importance":"preferred|not-needed|required","generation_suitability":"safe|unsafe","source_strategy":"trusted-source|generated-fallback","evidence_considered":[{{"locator":"...","relevance":"..."}}],"alternatives_considered":["..."],"selection_reason":"...","image_source_strategy":"trusted-source|generated-conceptual","source_id":"required for an operator source when applicable","image_side":"left|right","image_alt":"...","image_prompt":"only for generated-conceptual"}},{{"layout":"takeaway","title":"...","body":"...","final_line":"..."}}]}}
 Return exactly 10 slides; the first is cover and the final is takeaway. Keep text concise enough to fit the renderer.
 
 Resolved Course Map visual decisions:
@@ -2349,6 +2409,8 @@ def deck_revision_prompt(slides: list[dict[str, Any]], feedback: str) -> str:
     return f"""Revise this existing Prof Greg presentation JSON. Return JSON only as {{"slides":[...]}}.
 
 Apply only the requested changes. Preserve every unmentioned slide, layout, slide order, image path, and student-visible value exactly. Do not rebuild the presentation, add or remove slides, or alter an unrelated diagram or image. The returned `slides` array must contain all 10 slides so the renderer can produce a separate review candidate.
+
+For every body slide, preserve or add the internal visual-decision fields required by the current worker: `learning_job`, `teaching_strategy`, `visual_medium`, all three `visual_candidates` with exactly one selected and concrete reasons, `text_role`, `pedagogical_strategy`, `real_example_importance`, `generation_suitability`, `source_strategy`, `evidence_considered`, `alternatives_considered`, and `selection_reason`. Adding missing internal planning metadata is not a student-visible change. The selected medium must match the preserved layout and asset: non-image layouts use `native-diagram`; trusted image assets use `trusted-source-image`; generated assets use `generated-conceptual-image`.
 
 Requested changes:
 {feedback}
@@ -2373,7 +2435,7 @@ def normalize_deck_slides(data: dict[str, Any], lesson: dict[str, Any]) -> list[
     image_slides = [slide for slide in slides[1:-1] if slide.get("layout") in {"intro_image_bullets", "image_bullets"}]
     if len(image_slides) > 2:
         raise RuntimeError("Presentation may use no more than two teaching-image slides.")
-    required_distinct_layouts = 6 if image_slides else 5
+    required_distinct_layouts = 4
     if len(set(body_layouts)) < required_distinct_layouts:
         raise RuntimeError(f"Presentation needs at least {required_distinct_layouts} distinct body layouts to avoid repetitive slides.")
     if any(left == right for left, right in zip(body_layouts, body_layouts[1:])):
@@ -2381,6 +2443,33 @@ def normalize_deck_slides(data: dict[str, Any], lesson: dict[str, Any]) -> list[
     if any(body_layouts.count(layout) > 2 for layout in set(body_layouts)):
         raise RuntimeError("Presentation may not use a body layout more than twice.")
     for slide in slides[1:-1]:
+        if len(str(slide.get("learning_job") or "").split()) < 5:
+            raise RuntimeError("Every presentation body slide needs one specific learner-facing learning job.")
+        if slide.get("teaching_strategy") not in DECK_TEACHING_STRATEGIES:
+            raise RuntimeError("Every presentation body slide must choose an approved teaching strategy before choosing a visual.")
+        medium = str(slide.get("visual_medium") or "")
+        if medium not in DECK_VISUAL_MEDIA:
+            raise RuntimeError("Every presentation body slide must choose a diagram, trusted real image, or generated conceptual image.")
+        candidates = slide.get("visual_candidates")
+        if not isinstance(candidates, list):
+            raise RuntimeError("Every presentation body slide must compare all three visual media.")
+        candidate_media = [str(candidate.get("medium") or "") for candidate in candidates if isinstance(candidate, dict)]
+        selected_media = [
+            str(candidate.get("medium") or "")
+            for candidate in candidates
+            if isinstance(candidate, dict) and candidate.get("decision") == "selected"
+        ]
+        if set(candidate_media) != DECK_VISUAL_MEDIA or len(candidate_media) != len(DECK_VISUAL_MEDIA):
+            raise RuntimeError("Every presentation body slide must evaluate each visual medium exactly once.")
+        if selected_media != [medium]:
+            raise RuntimeError("Exactly one visual candidate must be selected and it must match visual_medium.")
+        if any(len(str(candidate.get("reason") or "").split()) < 4 for candidate in candidates):
+            raise RuntimeError("Every visual candidate needs a concrete fit or rejection reason.")
+        if len(str(slide.get("text_role") or "").split()) < 4:
+            raise RuntimeError("Every presentation body slide must explain how text works with the selected visual.")
+        is_image_layout = slide.get("layout") in DECK_IMAGE_LAYOUTS
+        if is_image_layout != (medium in {"trusted-source-image", "generated-conceptual-image"}):
+            raise RuntimeError("Presentation layout must follow the selected visual medium.")
         if slide.get("pedagogical_strategy") not in {"inspect-real-example", "explain-with-diagram", "orient-with-conceptual-image"}:
             raise RuntimeError("Every presentation body slide needs an explicit pedagogical strategy.")
         if slide.get("real_example_importance") not in {"required", "preferred", "not-needed"}:
@@ -2391,13 +2480,26 @@ def normalize_deck_slides(data: dict[str, Any], lesson: dict[str, Any]) -> list[
             raise RuntimeError("Every presentation body slide needs a resolved source strategy.")
         if not isinstance(slide.get("evidence_considered"), list) or not slide.get("evidence_considered"):
             raise RuntimeError("Every presentation body slide needs evidence for its visual decision.")
+        if not isinstance(slide.get("alternatives_considered"), list) or len(slide.get("alternatives_considered")) < 2:
+            raise RuntimeError("Every presentation body slide must record the two visual media it rejected.")
         if len(str(slide.get("selection_reason") or "").split()) < 6:
             raise RuntimeError("Every presentation body slide needs a specific visual selection reason.")
+        expected_strategy = {
+            "native-diagram": "explain-with-diagram",
+            "trusted-source-image": "inspect-real-example",
+            "generated-conceptual-image": "orient-with-conceptual-image",
+        }[medium]
+        if slide.get("pedagogical_strategy") != expected_strategy:
+            raise RuntimeError("The presentation visual strategy must agree with the selected visual medium.")
+        if slide.get("real_example_importance") == "required" and medium != "trusted-source-image":
+            raise RuntimeError("A required real example must use a verified trusted-source image.")
     for index, slide in enumerate(image_slides, start=1):
         strategy = str(slide.get("image_source_strategy") or "")
         if strategy not in {"trusted-source", "generated-conceptual"} or not str(slide.get("image_alt") or "").strip():
             raise RuntimeError("Every teaching-image slide needs a resolved image source and accessible description.")
         if strategy == "generated-conceptual":
+            if slide.get("visual_medium") != "generated-conceptual-image":
+                raise RuntimeError("Generated image metadata must match the selected visual medium.")
             if slide.get("source_strategy") != "generated-fallback":
                 raise RuntimeError("A generated teaching image must follow the resolved generated-fallback strategy.")
             if slide.get("real_example_importance") == "required" or slide.get("generation_suitability") == "unsafe":
@@ -2405,6 +2507,8 @@ def normalize_deck_slides(data: dict[str, Any], lesson: dict[str, Any]) -> list[
             if not str(slide.get("image_prompt") or "").strip():
                 raise RuntimeError("Every generated teaching image needs an image prompt.")
         else:
+            if slide.get("visual_medium") != "trusted-source-image":
+                raise RuntimeError("Trusted image metadata must match the selected visual medium.")
             if slide.get("source_strategy") != "trusted-source":
                 raise RuntimeError("A trusted teaching image must follow the resolved trusted-source strategy.")
             if not str(slide.get("source_id") or slide.get("course_book_visual_id") or "").strip():
@@ -2415,6 +2519,59 @@ def normalize_deck_slides(data: dict[str, Any], lesson: dict[str, Any]) -> list[
         slide["image_alt"] = str(slide["image_alt"]).strip()[:300]
         slide["image_name"] = f"teaching-image-{index}"
     return slides
+
+
+def deck_visual_plan_from_slides(slides: list[dict[str, Any]], lesson: dict[str, Any]) -> dict[str, Any]:
+    """Create the auditable deck visual plan consumed by visual QA and the course registry."""
+    visuals: list[dict[str, Any]] = []
+    lesson_number = int(lesson.get("lesson_number") or 1)
+    for slide_number, slide in enumerate(slides[1:-1], start=2):
+        medium = str(slide["visual_medium"])
+        visual_type = {
+            "native-diagram": "deterministic-diagram",
+            "trusted-source-image": "trusted-source-image",
+            "generated-conceptual-image": "generated-conceptual-image",
+        }[medium]
+        candidates = slide.get("visual_candidates") or []
+        rejected = [
+            f"{candidate.get('medium')}: {candidate.get('reason')}"
+            for candidate in candidates
+            if isinstance(candidate, dict) and candidate.get("decision") == "rejected"
+        ]
+        source_status = "verified" if medium == "trusted-source-image" else "not-required"
+        visuals.append({
+            "visual_id": f"L{lesson_number:02d}S{slide_number:02d}",
+            "visual_type": visual_type,
+            "placement": f"slide {slide_number}",
+            "purpose": slide["learning_job"],
+            "learning_claim": slide["learning_job"],
+            "teaching_strategy": slide["teaching_strategy"],
+            "pedagogical_strategy": slide["pedagogical_strategy"],
+            "visual_medium": medium,
+            "visual_candidates": candidates,
+            "text_role": slide["text_role"],
+            "real_example_importance": slide["real_example_importance"],
+            "generation_suitability": slide["generation_suitability"],
+            "source_status": source_status,
+            "source_id": slide.get("source_id") or slide.get("course_book_visual_id") or "",
+            "evidence_considered": slide["evidence_considered"],
+            "alternatives_considered": rejected or slide["alternatives_considered"],
+            "selection_reason": slide["selection_reason"],
+            "diagram_type": DECK_LAYOUT_MECHANISMS.get(str(slide.get("layout") or ""), ""),
+            "diagram_rationale": slide["selection_reason"] if medium == "native-diagram" else "",
+            "context_focus": "U.S. residential construction",
+            "depicts_people": bool(slide.get("depicts_people")),
+            "workforce_representation": slide.get("workforce_representation") or "",
+            "core_message_depends_on_real_example": slide["real_example_importance"] == "required",
+            "technical_fidelity_required": slide["real_example_importance"] == "required",
+            "max_area_percent": 50 if medium != "native-diagram" else 45,
+            "highlighted": bool(slide.get("highlighted")),
+            "highlight_reason": slide.get("highlight_reason") or "",
+            "internal_text": medium == "native-diagram",
+            "internal_text_position": "inside",
+            "structure_justification": slide["selection_reason"],
+        })
+    return {"artifact_type": "deck", "visual_curation_required": False, "visuals": visuals}
 
 
 def create_deck_visual_assets(seed, lesson: dict[str, Any], slides: list[dict[str, Any]], run: Path, lesson_tag: str) -> None:
@@ -2490,7 +2647,19 @@ def produce_deck(course_slug: str, lesson_number: int) -> list[str]:
     try:
         if resumable_spec:
             saved = json.loads(spec_path.read_text(encoding="utf-8"))
-            slides = normalize_deck_slides({"slides": saved.get("slides")}, lesson)
+            try:
+                slides = normalize_deck_slides({"slides": saved.get("slides")}, lesson)
+            except RuntimeError:
+                upgraded = request_json_with_retry(
+                    seed.slug,
+                    "technical_content",
+                    deck_revision_prompt(
+                        saved.get("slides") or [],
+                        "Do not change any student-visible content. Add only the current pedagogy-first visual-decision metadata required for a resumable presentation spec.",
+                    ),
+                    max_tokens=12000,
+                )
+                slides = normalize_deck_slides(upgraded, lesson)
         else:
             prior_spec = latest_matching_path(run / "deck", f"{lesson_tag}_deck_spec_r*.json") if revision_feedback else None
             if prior_spec:
@@ -2512,6 +2681,17 @@ def produce_deck(course_slug: str, lesson_number: int) -> list[str]:
                 )
             slides = normalize_deck_slides(plan, lesson)
         create_deck_visual_assets(seed, lesson, slides, run, lesson_tag)
+        deck_visual_plan_path = run / "deck" / f"{lesson_tag}_visual_plan.json"
+        write_json(deck_visual_plan_path, deck_visual_plan_from_slides(slides, lesson))
+        visual_checker = load_module("greg_visual_plan_check", "tools/greg_visual_plan_check.py")
+        visual_result = visual_checker.run_checks(deck_visual_plan_path)
+        if not visual_result.get("passed"):
+            failures = "; ".join(
+                str(item.get("note") or item.get("check"))
+                for item in visual_result.get("findings") or []
+                if item.get("status") == "fail"
+            )
+            raise RuntimeError(f"Presentation visual-strategy QA failed: {failures}")
     except ModelRequestError as error:
         block(run, "deck", f"Configured technical-content model could not produce Lesson {lesson_number} presentation.\n\nReason: {error}")
         raise RuntimeError(str(error)) from error
@@ -2526,7 +2706,7 @@ def produce_deck(course_slug: str, lesson_number: int) -> list[str]:
         "assets": {"brand_icon": BRAND_ICON, "negative_wordmark": NEGATIVE_WORDMARK},
         "output": {"pptx": f"deck/{filename}", "qa": f"deck/{lesson_tag}_deck_qa_r{revision:02d}.md", "rendered_dir": f"deck/rendered_slides_{lesson_tag}_r{revision:02d}"},
         "slides": slides,
-        "qa_checks": ["10 slides.", "MECE: each slide has a distinct teaching job.", "At least six distinct body layouts and no adjacent layout repetition.", "Every body slide records its visual strategy, evidence, and real-example decision.", "No generated image substitutes for a required real example.", "No automatic last-item highlight.", "Residential-construction-first audience anchor.", "No visible timing or speaker notes."],
+        "qa_checks": ["10 slides.", "MECE: each slide has a distinct teaching job.", "At least four distinct body layouts, with no adjacent repeat and no layout used more than twice.", "Every body slide chooses a teaching strategy before comparing native diagram, trusted real image, and generated conceptual image.", "Every body slide records how text and visual work together.", "No generated image substitutes for a required real example.", "No automatic last-item highlight.", "Residential-construction-first audience anchor.", "No visible timing or speaker notes."],
         "inspection_notes": ["Live deck copy was generated from the approved course book.", "Visual mechanisms follow the resolved Course Map and course-book evidence trail.", "Image-led slides are used only when the strategy calls for a real or conceptual image.", "Deck plan and images are reused after an interrupted render when available.", "Deck is released for review only after renderer QA passes and is visually rechecked."],
     }
     baseline = approved_deck_baseline(run, lesson_tag) if (run / "approval" / f"{lesson_tag}_deck_approval.md").exists() else None

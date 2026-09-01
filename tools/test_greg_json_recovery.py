@@ -59,5 +59,53 @@ class VisualDecisionEvidenceTests(unittest.TestCase):
         self.assertTrue(production.visual_plan_has_decision_evidence(current_plan))
 
 
+class TargetedRevisionRecoveryTests(unittest.TestCase):
+    DRAFT = """# Introduction
+
+Intro stays fixed.
+
+## Learning Objectives
+
+- Original objective.
+
+# Section 01 - Communicate
+
+Original section.
+
+# Summary and Key Takeaways
+
+Original summary.
+
+# Glossary
+
+- Term: definition.
+
+# References
+
+- Source.
+"""
+
+    def test_learning_objectives_are_an_editable_named_section(self) -> None:
+        sections = production.editable_study_guide_sections(self.DRAFT)
+        self.assertIn("## Learning Objectives", sections)
+        self.assertNotIn("# Introduction", sections)
+        self.assertNotIn("# References", sections)
+
+    def test_targeted_revision_retries_an_out_of_scope_patch_set(self) -> None:
+        responses = [
+            {"headings": ["## Learning Objectives"]},
+            {"patches": [{"heading": "# Introduction", "markdown": "# Introduction\n\nChanged."}]},
+            {"patches": [{"heading": "## Learning Objectives", "markdown": "## Learning Objectives\n\nA short orientation.\n\n- Revised objective."}]},
+        ]
+        with patch.object(production, "request_json_with_retry", side_effect=responses) as request:
+            revised = production.targeted_study_guide_revision(
+                "course", self.DRAFT, "Add an orientation sentence.", "", level="intermediate"
+            )
+
+        self.assertEqual(3, request.call_count)
+        self.assertIn("A short orientation.", revised)
+        self.assertIn("Intro stays fixed.", revised)
+
+
 if __name__ == "__main__":
     unittest.main()
