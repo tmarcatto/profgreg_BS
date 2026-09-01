@@ -166,6 +166,24 @@ Original summary.
         self.assertEqual(1, request_text.call_count)
         self.assertIn("A concise corrected section.", revised)
 
+    def test_plain_section_patch_keeps_shortest_safe_over_budget_candidate(self) -> None:
+        responses = [
+            "# Section 01 - Communicate\n\n" + ("First version. " * 30),
+            "# Section 01 - Communicate\n\n" + ("Shorter version. " * 22),
+        ]
+        with patch.object(production, "request_text", side_effect=responses):
+            result = production.request_plain_study_guide_section_patch(
+                "course",
+                "# Section 01 - Communicate",
+                "# Section 01 - Communicate\n\nOriginal.",
+                "Make it concise.",
+                maximum_words=5400,
+                section_word_limit=20,
+            )
+
+        self.assertIn("Shorter version.", result)
+        self.assertNotIn("First version.", result)
+
 
 class LessonSourceMergeTests(unittest.TestCase):
     def test_research_passes_merge_distinct_authorities_and_use_later_gap_state(self) -> None:

@@ -1246,6 +1246,7 @@ def request_plain_study_guide_section_patch(
 ) -> str:
     """Recover a long section patch without embedding Markdown inside JSON."""
     last_error = ""
+    shortest_over_budget = ""
     fence = chr(96) * 3
     for attempt in range(2):
         retry_note = "" if attempt == 0 else (
@@ -1287,9 +1288,16 @@ Section:
             last_error = f"unexpected additional headings were returned: {other_headings}"
             continue
         if section_word_limit and len(value.split()) > section_word_limit:
+            if not shortest_over_budget or len(value.split()) < len(shortest_over_budget.split()):
+                shortest_over_budget = value.rstrip() + "\n"
             last_error = f"the replacement exceeded its {section_word_limit:,}-word section budget"
             continue
         return value.rstrip() + "\n"
+    if shortest_over_budget:
+        # The deterministic whole-chapter checker remains authoritative. Keep
+        # the shortest structurally safe candidate instead of discarding every
+        # other section patch over a modest local budget miss.
+        return shortest_over_budget
     raise RuntimeError(f"The revision agent could not return a safe plain-Markdown patch for {heading}: {last_error}")
 
 
@@ -1349,12 +1357,10 @@ Available headings:
             heading: max(180, int(available_words * words / total_selected_words))
             for heading, words in selected_words.items()
         }
-    if len(source) > 12000:
-        # Large multi-section Markdown is predictably fragile when escaped
-        # inside one JSON string. Use bounded plain replacements immediately
-        # instead of spending several JSON repair attempts first.
-        plain_patches = {
-            heading: request_plain_study_guide_section_patch(
+
+    def request_plain_patch_map() -> dict[str, str]:
+        def patch_one(heading: str) -> tuple[str, str]:
+            return heading, request_plain_study_guide_section_patch(
                 course_slug,
                 heading,
                 sections[heading],
@@ -1362,8 +1368,20 @@ Available headings:
                 maximum_words=maximum_words,
                 section_word_limit=section_word_budgets.get(heading),
             )
-            for heading in selected
-        }
+
+        contexts = [contextvars.copy_context() for _ in selected]
+        with ThreadPoolExecutor(max_workers=min(3, len(selected))) as executor:
+            futures = [
+                executor.submit(context.run, patch_one, heading)
+                for context, heading in zip(contexts, selected)
+            ]
+            return dict(future.result() for future in futures)
+
+    if len(source) > 12000:
+        # Large multi-section Markdown is predictably fragile when escaped
+        # inside one JSON string. Use bounded plain replacements immediately
+        # instead of spending several JSON repair attempts first.
+        plain_patches = request_plain_patch_map()
         return apply_study_guide_section_patches(draft, plain_patches)
     patch_prompt = f"""Revise ONLY the supplied course-book sections. Return JSON only in this exact shape:
 {{\"patches\":[{{\"heading\":\"exact original heading\",\"markdown\":\"complete replacement section including that same heading\"}}]}}.
@@ -1404,17 +1422,7 @@ Selected sections to patch:
             # Long Markdown bodies are unusually fragile when JSON-escaped.
             # Preserve the same exact section boundaries while requesting one
             # plain-Markdown replacement at a time.
-            plain_patches = {
-                heading: request_plain_study_guide_section_patch(
-                    course_slug,
-                    heading,
-                    sections[heading],
-                    feedback,
-                    maximum_words=maximum_words,
-                    section_word_limit=section_word_budgets.get(heading),
-                )
-                for heading in selected
-            }
+            plain_patches = request_plain_patch_map()
             return apply_study_guide_section_patches(draft, plain_patches)
         raw_patches = patch_response.get("patches")
         if not isinstance(raw_patches, list) or not raw_patches:
@@ -2533,6 +2541,9 @@ DECK_VISUAL_MEDIA = {
 DECK_IMAGE_LAYOUTS = {"intro_image_bullets", "image_bullets"}
 DECK_LAYOUT_MECHANISMS = {
     "card_sequence": "card-sequence",
+    "process_flow": "process-flow",
+    "schedule_bar_chart": "schedule-bar-chart",
+    "activity_network": "activity-network",
     "comparison": "comparison-matrix",
     "planned_actual": "planned-actual",
     "row_list": "paired-record-rows",
@@ -2545,7 +2556,7 @@ def deck_prompt(seed, lesson: dict[str, Any], book: str, visual_plan: dict[str, 
 
 Audience: U.S. residential construction workforce. Use homes, remodels, townhomes, and small multifamily examples. This is a recorded lesson: no time references, activities, quizzes, speaker notes, or next-lesson teaser.
 
-The course book below is the single content authority. The Course Map visual decisions and approved course-book visual plan below are the visual-strategy authority. Produce MECE slides with distinct teaching jobs and visibly different silhouettes. Use these layouts only: cover, intro_image_bullets, image_bullets, card_sequence, comparison, planned_actual, row_list, checklist_rows, takeaway.
+The course book below is the single content authority. The Course Map visual decisions and approved course-book visual plan below are the visual-strategy authority. Produce MECE slides with distinct teaching jobs and visibly different silhouettes. Use these layouts only: cover, intro_image_bullets, image_bullets, card_sequence, process_flow, schedule_bar_chart, activity_network, comparison, planned_actual, row_list, checklist_rows, takeaway.
 
 Plan every body slide in this order:
 1. State one `learning_job`: the specific change in learner understanding or judgment.
@@ -2553,14 +2564,14 @@ Plan every body slide in this order:
 3. Evaluate all three `visual_candidates`: native-diagram, trusted-source-image, and generated-conceptual-image. Give each a concrete fit or rejection reason, mark exactly one selected, and set `visual_medium` to it. Do not begin from a favorite layout.
 4. Choose the renderer layout only after the medium and teaching strategy are resolved. State `text_role`: what the words add that the visual cannot carry alone, such as directing attention, explaining a decision rule, or naming the takeaway.
 
-Consciously adapt the resolved visual strategy to presentation scale. For every body slide, provide `course_map_visual_id` when it implements a mapped insertion, plus `pedagogical_strategy`, `real_example_importance`, `generation_suitability`, `source_strategy`, `evidence_considered`, `alternatives_considered`, and `selection_reason`. Do not conduct a broad inspiration search or invent a new source decision. A native diagram should use the mechanism that matches the content logic: sequence only for ordered movement, comparison only for comparable dimensions, planned-versus-actual only for a consequential variance, paired rows only for records or mappings, and checklist rows only for field verification. Never turn a concept into two generic boxes simply because the layout exists. Use an `intro_image_bullets` or `image_bullets` slide only when the selected medium is a trusted real image or generated conceptual image; an image slide is not mandatory. Its image must teach a specific point, not decorate the slide.
+Consciously adapt the resolved visual strategy to presentation scale. For every body slide, provide `course_map_visual_id` when it implements a mapped insertion, plus `pedagogical_strategy`, `real_example_importance`, `generation_suitability`, `source_strategy`, `evidence_considered`, `alternatives_considered`, and `selection_reason`. Do not conduct a broad inspiration search or invent a new source decision. A native diagram should use the mechanism that matches the content logic: `process_flow` for ordered movement or handoffs; `schedule_bar_chart` for time-scaled timing, overlap, status, or drift; `activity_network` for predecessor/successor logic, parallel paths, or the controlling path; `comparison` only for comparable dimensions; `planned_actual` only for a consequential variance that is not itself a time-scaled schedule; paired rows only for records or mappings; and checklist rows only for field verification. `card_sequence` is only for grouped or equal-priority concepts, never an ordered process. Never turn a concept into two generic boxes simply because the layout exists. Use an `intro_image_bullets` or `image_bullets` slide only when the selected medium is a trusted real image or generated conceptual image; an image slide is not mandatory. Its image must teach a specific point, not decorate the slide.
 
 For every image layout, supply `image_alt` and `image_source_strategy` as `trusted-source` or `generated-conceptual`. A generated image also requires `image_prompt`. A trusted-source image requires `source_id` or a reusable `course_book_visual_id`; never provide an image prompt as a substitute. If `real_example_importance` is `required` or `generation_suitability` is `unsafe`, generation is forbidden. If the required verified asset is unavailable, preserve the request rather than silently substituting a generic scene. Generated conceptual images must depict a realistic U.S. residential construction setting when people or a jobsite appear, represent the workforce respectfully, and contain no visible text, labels, logos, watermarks, or UI.
 
 Across slides 2-9, use at least four distinct layouts, do not place the same layout on adjacent slides, and do not use one body layout more than twice. This is only an anti-repetition floor. Visual variety must come from different learning jobs; never choose a weaker medium or mechanism merely to increase variety. Never highlight a last item merely because it is last.
 
 Required JSON schema:
-{{"slides":[{{"layout":"cover","title":"...","subtitle":"...","topics":["...","...","...","..."]}},{{"layout":"card_sequence|comparison|planned_actual|row_list|checklist_rows","title":"...","subtitle":"...","learning_job":"specific learner change","teaching_strategy":"activate-prior-knowledge|anchor-with-scenario|worked-example|compare-and-contrast|trace-a-process|inspect-evidence|diagnose-and-decide|synthesize-and-recall","visual_medium":"native-diagram","visual_candidates":[{{"medium":"native-diagram","decision":"selected|rejected","reason":"specific fit"}},{{"medium":"trusted-source-image","decision":"selected|rejected","reason":"specific fit"}},{{"medium":"generated-conceptual-image","decision":"selected|rejected","reason":"specific fit"}}],"text_role":"what the words add to the visual","course_map_visual_id":"L01V01 or empty only when not mapped","pedagogical_strategy":"explain-with-diagram","real_example_importance":"required|preferred|not-needed","generation_suitability":"safe|unsafe","source_strategy":"deterministic","evidence_considered":[{{"locator":"filename/page or URL","relevance":"..."}}],"alternatives_considered":["trusted real image because...","generated conceptual image because..."],"selection_reason":"presentation-specific reason","items":[{{"title":"...","body":"..."}}],"bottom_line":"..."}},{{"layout":"intro_image_bullets|image_bullets","title":"...","subtitle":"...","intro":"...","bullets":["...","...","..."],"learning_job":"...","teaching_strategy":"...","visual_medium":"trusted-source-image|generated-conceptual-image","visual_candidates":[{{"medium":"native-diagram","decision":"selected|rejected","reason":"..."}},{{"medium":"trusted-source-image","decision":"selected|rejected","reason":"..."}},{{"medium":"generated-conceptual-image","decision":"selected|rejected","reason":"..."}}],"text_role":"...","course_map_visual_id":"...","course_book_visual_id":"...","pedagogical_strategy":"inspect-real-example|orient-with-conceptual-image","real_example_importance":"preferred|not-needed|required","generation_suitability":"safe|unsafe","source_strategy":"trusted-source|generated-fallback","evidence_considered":[{{"locator":"...","relevance":"..."}}],"alternatives_considered":["..."],"selection_reason":"...","image_source_strategy":"trusted-source|generated-conceptual","source_id":"required for an operator source when applicable","image_side":"left|right","image_alt":"...","image_prompt":"only for generated-conceptual"}},{{"layout":"takeaway","title":"...","body":"...","final_line":"..."}}]}}
+{{"slides":[{{"layout":"cover","title":"...","subtitle":"...","topics":["...","...","...","..."]}},{{"layout":"card_sequence|process_flow|comparison|planned_actual|row_list|checklist_rows","title":"...","subtitle":"...","learning_job":"specific learner change","teaching_strategy":"activate-prior-knowledge|anchor-with-scenario|worked-example|compare-and-contrast|trace-a-process|inspect-evidence|diagnose-and-decide|synthesize-and-recall","visual_medium":"native-diagram","visual_candidates":[{{"medium":"native-diagram","decision":"selected|rejected","reason":"specific fit"}},{{"medium":"trusted-source-image","decision":"selected|rejected","reason":"specific fit"}},{{"medium":"generated-conceptual-image","decision":"selected|rejected","reason":"specific fit"}}],"text_role":"what the words add to the visual","course_map_visual_id":"L01V01 or empty only when not mapped","pedagogical_strategy":"explain-with-diagram","real_example_importance":"required|preferred|not-needed","generation_suitability":"safe|unsafe","source_strategy":"deterministic","evidence_considered":[{{"locator":"filename/page or URL","relevance":"..."}}],"alternatives_considered":["trusted real image because...","generated conceptual image because..."],"selection_reason":"presentation-specific reason","items":[{{"title":"...","body":"..."}}],"bottom_line":"..."}},{{"layout":"schedule_bar_chart","title":"...","subtitle":"...","schedule_rows":[{{"activity":"...","start":0,"duration":3,"status":"planned|complete|in-progress|delayed"}}],"bottom_line":"...","learning_job":"...","teaching_strategy":"trace-a-process","visual_medium":"native-diagram","visual_candidates":[{{"medium":"native-diagram","decision":"selected","reason":"Time-scaled bars reveal timing and overlap directly."}},{{"medium":"trusted-source-image","decision":"rejected","reason":"A source screenshot would add irrelevant project detail."}},{{"medium":"generated-conceptual-image","decision":"rejected","reason":"A scene cannot show time-scaled schedule logic."}}],"text_role":"...","pedagogical_strategy":"explain-with-diagram","real_example_importance":"not-needed","generation_suitability":"safe","source_strategy":"deterministic","evidence_considered":[{{"locator":"...","relevance":"..."}}],"alternatives_considered":["...","..."],"selection_reason":"..."}},{{"layout":"activity_network","title":"...","subtitle":"...","network_paths":[{{"label":"...","critical":true,"activities":[{{"title":"...","duration":"3d"}}]}}],"bottom_line":"...","learning_job":"...","teaching_strategy":"trace-a-process","visual_medium":"native-diagram","visual_candidates":[{{"medium":"native-diagram","decision":"selected","reason":"Connected nodes expose predecessor and path logic directly."}},{{"medium":"trusted-source-image","decision":"rejected","reason":"A source screenshot would obscure the target relationship."}},{{"medium":"generated-conceptual-image","decision":"rejected","reason":"A scene cannot show controlling path logic."}}],"text_role":"...","pedagogical_strategy":"explain-with-diagram","real_example_importance":"not-needed","generation_suitability":"safe","source_strategy":"deterministic","evidence_considered":[{{"locator":"...","relevance":"..."}}],"alternatives_considered":["...","..."],"selection_reason":"..."}},{{"layout":"intro_image_bullets|image_bullets","title":"...","subtitle":"...","intro":"...","bullets":["...","...","..."],"learning_job":"...","teaching_strategy":"...","visual_medium":"trusted-source-image|generated-conceptual-image","visual_candidates":[{{"medium":"native-diagram","decision":"selected|rejected","reason":"..."}},{{"medium":"trusted-source-image","decision":"selected|rejected","reason":"..."}},{{"medium":"generated-conceptual-image","decision":"selected|rejected","reason":"..."}}],"text_role":"...","course_map_visual_id":"...","course_book_visual_id":"...","pedagogical_strategy":"inspect-real-example|orient-with-conceptual-image","real_example_importance":"preferred|not-needed|required","generation_suitability":"safe|unsafe","source_strategy":"trusted-source|generated-fallback","evidence_considered":[{{"locator":"...","relevance":"..."}}],"alternatives_considered":["..."],"selection_reason":"...","image_source_strategy":"trusted-source|generated-conceptual","source_id":"required for an operator source when applicable","image_side":"left|right","image_alt":"...","image_prompt":"only for generated-conceptual"}},{{"layout":"takeaway","title":"...","body":"...","final_line":"..."}}]}}
 Return exactly 10 slides; the first is cover and the final is takeaway. Keep text concise enough to fit the renderer.
 
 Resolved Course Map visual decisions:
@@ -2577,6 +2588,8 @@ def deck_revision_prompt(slides: list[dict[str, Any]], feedback: str) -> str:
 
 Apply only the requested changes. Preserve every unmentioned slide, layout, slide order, image path, and student-visible value exactly. Do not rebuild the presentation, add or remove slides, or alter an unrelated diagram or image. The returned `slides` array must contain all 10 slides so the renderer can produce a separate review candidate.
 
+Supported layouts are: cover, intro_image_bullets, image_bullets, card_sequence, process_flow, schedule_bar_chart, activity_network, comparison, planned_actual, row_list, checklist_rows, and takeaway. When QA requires `process-flow`, use layout `process_flow` with 2-6 ordered `items`. When it requires `schedule-bar-chart`, use `schedule_bar_chart` with 3-7 `schedule_rows`. When it requires `activity-network`, use `activity_network` with 1-2 `network_paths`, each containing 2-4 connected activities. Never spell a layout with hyphens.
+
 For every body slide, preserve or add the internal visual-decision fields required by the current worker: `learning_job`, `teaching_strategy`, `visual_medium`, all three `visual_candidates` with exactly one selected and concrete reasons, `text_role`, `pedagogical_strategy`, `real_example_importance`, `generation_suitability`, `source_strategy`, `evidence_considered`, `alternatives_considered`, and `selection_reason`. Adding missing internal planning metadata is not a student-visible change. The selected medium must match the preserved layout and asset: non-image layouts use `native-diagram`; trusted image assets use `trusted-source-image`; generated assets use `generated-conceptual-image`.
 
 Requested changes:
@@ -2588,7 +2601,7 @@ Existing slides:
 
 def normalize_deck_slides(data: dict[str, Any], lesson: dict[str, Any]) -> list[dict[str, Any]]:
     slides = data.get("slides") if isinstance(data.get("slides"), list) else []
-    allowed = {"cover", "intro_image_bullets", "image_bullets", "card_sequence", "comparison", "planned_actual", "row_list", "checklist_rows", "takeaway"}
+    allowed = {"cover", "intro_image_bullets", "image_bullets", "card_sequence", "process_flow", "schedule_bar_chart", "activity_network", "comparison", "planned_actual", "row_list", "checklist_rows", "takeaway"}
     if len(slides) != 10 or any(not isinstance(item, dict) or item.get("layout") not in allowed for item in slides):
         raise RuntimeError("Presentation model returned an invalid deck structure.")
     if slides[0].get("layout") != "cover" or slides[-1].get("layout") != "takeaway":
@@ -2660,6 +2673,26 @@ def normalize_deck_slides(data: dict[str, Any], lesson: dict[str, Any]) -> list[
         slide["pedagogical_strategy"] = expected_strategy
         if slide.get("real_example_importance") == "required" and medium != "trusted-source-image":
             raise RuntimeError("A required real example must use a verified trusted-source image.")
+        layout = str(slide.get("layout") or "")
+        if layout == "process_flow" and not 2 <= len(slide.get("items") or []) <= 6:
+            raise RuntimeError("A process-flow slide needs 2-6 visible ordered items.")
+        if layout == "schedule_bar_chart":
+            rows = slide.get("schedule_rows") or []
+            if not 3 <= len(rows) <= 7:
+                raise RuntimeError("A schedule-bar slide needs 3-7 visible activity rows.")
+            if any(
+                not str(row.get("activity") or "").strip()
+                or not isinstance(row.get("start"), int)
+                or not isinstance(row.get("duration"), int)
+                or row.get("start", -1) < 0
+                or row.get("duration", 0) <= 0
+                for row in rows
+            ):
+                raise RuntimeError("Schedule-bar rows need an activity, nonnegative integer start, and positive integer duration.")
+        if layout == "activity_network":
+            paths = slide.get("network_paths") or []
+            if not 1 <= len(paths) <= 2 or any(not 2 <= len(path.get("activities") or []) <= 4 for path in paths):
+                raise RuntimeError("An activity-network slide needs 1-2 paths with 2-4 connected activities each.")
     for index, slide in enumerate(image_slides, start=1):
         strategy = str(slide.get("image_source_strategy") or "")
         if strategy not in {"trusted-source", "generated-conceptual"} or not str(slide.get("image_alt") or "").strip():
@@ -2686,6 +2719,37 @@ def normalize_deck_slides(data: dict[str, Any], lesson: dict[str, Any]) -> list[
         slide["image_alt"] = str(slide["image_alt"]).strip()[:300]
         slide["image_name"] = f"teaching-image-{index}"
     return slides
+
+
+def request_normalized_deck_revision(
+    course_slug: str,
+    lesson: dict[str, Any],
+    slides: list[dict[str, Any]],
+    feedback: str,
+) -> list[dict[str, Any]]:
+    """Require revision calls to preserve a complete renderer-compatible deck."""
+    last_error = ""
+    for attempt in range(1, 4):
+        retry_feedback = feedback
+        if last_error:
+            retry_feedback += (
+                "\n\nYour previous revision response was invalid: "
+                f"{last_error} Return exactly all 10 slides, beginning with cover and ending with takeaway, "
+                "using only the supported layouts and including every required internal visual-decision field."
+            )
+        revised = request_json_with_retry(
+            course_slug,
+            "technical_content",
+            deck_revision_prompt(slides, retry_feedback),
+            max_tokens=12000,
+        )
+        try:
+            return normalize_deck_slides(revised, lesson)
+        except RuntimeError as error:
+            last_error = str(error)
+            if attempt == 3:
+                raise RuntimeError(f"Presentation revision remained invalid after three attempts: {last_error}") from error
+    raise RuntimeError("Presentation revision could not be normalized.")
 
 
 def deck_visual_plan_from_slides(slides: list[dict[str, Any]], lesson: dict[str, Any]) -> dict[str, Any]:
@@ -2726,6 +2790,8 @@ def deck_visual_plan_from_slides(slides: list[dict[str, Any]], lesson: dict[str,
             "selection_reason": slide["selection_reason"],
             "diagram_type": DECK_LAYOUT_MECHANISMS.get(str(slide.get("layout") or ""), ""),
             "diagram_rationale": slide["selection_reason"] if medium == "native-diagram" else "",
+            "schedule_rows": slide.get("schedule_rows") or [],
+            "network_paths": slide.get("network_paths") or [],
             "context_focus": "U.S. residential construction",
             "depicts_people": bool(slide.get("depicts_people")),
             "workforce_representation": slide.get("workforce_representation") or "",
@@ -2817,21 +2883,17 @@ def produce_deck(course_slug: str, lesson_number: int) -> list[str]:
             try:
                 slides = normalize_deck_slides({"slides": saved.get("slides")}, lesson)
             except RuntimeError:
-                upgraded = request_json_with_retry(
+                slides = request_normalized_deck_revision(
                     seed.slug,
-                    "technical_content",
-                    deck_revision_prompt(
-                        saved.get("slides") or [],
-                        "Do not change any student-visible content. Add only the current pedagogy-first visual-decision metadata required for a resumable presentation spec.",
-                    ),
-                    max_tokens=12000,
+                    lesson,
+                    saved.get("slides") or [],
+                    "Do not change any student-visible content. Add only the current pedagogy-first visual-decision metadata required for a resumable presentation spec.",
                 )
-                slides = normalize_deck_slides(upgraded, lesson)
         else:
             prior_spec = latest_matching_path(run / "deck", f"{lesson_tag}_deck_spec_r*.json") if revision_feedback else None
             if prior_spec:
                 prior_slides = json.loads(prior_spec.read_text(encoding="utf-8")).get("slides") or []
-                plan = request_json_with_retry(seed.slug, "technical_content", deck_revision_prompt(prior_slides, revision_feedback), max_tokens=12000)
+                slides = request_normalized_deck_revision(seed.slug, lesson, prior_slides, revision_feedback)
             else:
                 plan = request_json_with_retry(
                     seed.slug,
@@ -2846,7 +2908,7 @@ def produce_deck(course_slug: str, lesson_number: int) -> list[str]:
                     ),
                     max_tokens=12000,
                 )
-            slides = normalize_deck_slides(plan, lesson)
+                slides = normalize_deck_slides(plan, lesson)
         deck_visual_plan_path = run / "deck" / f"{lesson_tag}_visual_plan.json"
         visual_checker = load_module("greg_visual_plan_check", "tools/greg_visual_plan_check.py")
         for visual_attempt in range(1, 4):
@@ -2861,19 +2923,15 @@ def produce_deck(course_slug: str, lesson_number: int) -> list[str]:
             )
             if visual_attempt == 3:
                 raise RuntimeError(f"Presentation visual-strategy QA failed after three attempts: {failures}")
-            corrected = request_json_with_retry(
+            slides = request_normalized_deck_revision(
                 seed.slug,
-                "technical_content",
-                deck_revision_prompt(
-                    slides,
-                    "Correct only the visual-strategy QA failures below. Preserve the 10-slide narrative, factual content, and every compliant slide. "
-                    "For each named slide, choose a renderer-supported layout whose mechanism matches the stated learning job, then update its internal visual-decision metadata consistently. "
-                    "Do not weaken or bypass the QA rule.\n\n"
-                    f"Visual-strategy QA failures:\n{failures}",
-                ),
-                max_tokens=12000,
+                lesson,
+                slides,
+                "Correct only the visual-strategy QA failures below. Preserve the 10-slide narrative, factual content, and every compliant slide. "
+                "For each named slide, choose a renderer-supported layout whose mechanism matches the stated learning job, then update its internal visual-decision metadata consistently. "
+                "Do not weaken or bypass the QA rule.\n\n"
+                f"Visual-strategy QA failures:\n{failures}",
             )
-            slides = normalize_deck_slides(corrected, lesson)
         create_deck_visual_assets(seed, lesson, slides, run, lesson_tag)
     except ModelRequestError as error:
         block(run, "deck", f"Configured technical-content model could not produce Lesson {lesson_number} presentation.\n\nReason: {error}")
