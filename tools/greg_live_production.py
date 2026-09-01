@@ -1228,6 +1228,59 @@ def apply_study_guide_section_patches(draft: str, patches: dict[str, str]) -> st
     return revised
 
 
+def request_plain_study_guide_section_patch(
+    course_slug: str,
+    heading: str,
+    section: str,
+    feedback: str,
+    *,
+    maximum_words: int,
+) -> str:
+    """Recover a long section patch without embedding Markdown inside JSON."""
+    last_error = ""
+    fence = chr(96) * 3
+    for attempt in range(2):
+        retry_note = "" if attempt == 0 else (
+            f"\n\nThe previous response was rejected: {last_error}. "
+            f"Return only the complete replacement section beginning exactly with: {heading}"
+        )
+        value = request_text(
+            course_slug,
+            "technical_content",
+            f"""Revise only the supplied course-book section.
+Return the complete replacement section as plain Markdown, with no JSON, no Markdown fence, and no commentary.
+The first line must be exactly: {heading}
+Do not add any other level-one or level-two heading.
+Keep the student-facing tone, apply only the relevant revision requests, and preserve facts that do not require correction.
+The complete chapter must remain below {maximum_words:,} words.
+
+Revision request:
+{feedback}
+
+Section:
+{section}
+{retry_note}""",
+            max_tokens=8000,
+        ).strip()
+        if value.startswith(fence):
+            value = re.sub(r"^\x60{3}(?:markdown)?\s*", "", value, count=1, flags=re.IGNORECASE)
+            value = re.sub(r"\s*\x60{3}$", "", value, count=1)
+            value = value.strip()
+        if not value.startswith(heading + "\n"):
+            last_error = "the required heading was not preserved"
+            continue
+        other_headings = [
+            line.strip()
+            for line in value.splitlines()[1:]
+            if re.fullmatch(r"#{1,2}\s+.+", line.strip())
+        ]
+        if other_headings:
+            last_error = f"unexpected additional headings were returned: {other_headings}"
+            continue
+        return value.rstrip() + "\n"
+    raise RuntimeError(f"The revision agent could not return a safe plain-Markdown patch for {heading}: {last_error}")
+
+
 def targeted_study_guide_revision(
     course_slug: str,
     draft: str,
@@ -1292,12 +1345,28 @@ Selected sections to patch:
                 f"of these headings and no others: {json.dumps(selected, ensure_ascii=False)}. "
                 f"Validation error: {last_patch_error}"
             )
-        patch_response = request_json_with_retry(
-            course_slug,
-            "technical_content",
-            active_prompt,
-            max_tokens=10000,
-        )
+        try:
+            patch_response = request_json_with_retry(
+                course_slug,
+                "technical_content",
+                active_prompt,
+                max_tokens=10000,
+            )
+        except ModelRequestError:
+            # Long Markdown bodies are unusually fragile when JSON-escaped.
+            # Preserve the same exact section boundaries while requesting one
+            # plain-Markdown replacement at a time.
+            plain_patches = {
+                heading: request_plain_study_guide_section_patch(
+                    course_slug,
+                    heading,
+                    sections[heading],
+                    feedback,
+                    maximum_words=maximum_words,
+                )
+                for heading in selected
+            }
+            return apply_study_guide_section_patches(draft, plain_patches)
         raw_patches = patch_response.get("patches")
         if not isinstance(raw_patches, list) or not raw_patches:
             last_patch_error = "The response did not contain a non-empty patches array."

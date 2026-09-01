@@ -115,6 +115,24 @@ Original summary.
         self.assertIn("A short orientation.", revised)
         self.assertIn("Intro stays fixed.", revised)
 
+    def test_targeted_revision_falls_back_to_plain_markdown_for_large_invalid_json(self) -> None:
+        responses = [
+            {"headings": ["# Section 01 - Communicate"]},
+            production.ModelRequestError("The model returned invalid JSON after recovery"),
+        ]
+        replacement = "# Section 01 - Communicate\n\nA concise corrected section."
+        with (
+            patch.object(production, "request_json_with_retry", side_effect=responses),
+            patch.object(production, "request_text", return_value=replacement) as request,
+        ):
+            revised = production.targeted_study_guide_revision(
+                "course", self.DRAFT, "Make the section concise.", "", level="intermediate"
+            )
+
+        self.assertEqual(1, request.call_count)
+        self.assertIn("A concise corrected section.", revised)
+        self.assertIn("Intro stays fixed.", revised)
+
 
 if __name__ == "__main__":
     unittest.main()
