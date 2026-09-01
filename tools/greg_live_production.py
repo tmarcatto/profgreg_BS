@@ -2230,7 +2230,6 @@ def create_visual_assets(seed, lesson: dict[str, Any], draft: str, run: Path, le
         and "Visual plan QA passed: yes" in prior_visual_qa.read_text(encoding="utf-8", errors="replace")
     )
     revision_feedback = feedback_for(run, lesson_tag, "study_guide")
-    operator_revision_request = revision_feedback
     if revision_feedback and prior_plan.exists():
         existing_plan = json.loads(prior_plan.read_text(encoding="utf-8"))
         revision_prompt = visual_plan_prompt(seed, lesson, draft, read_uploads(seed.slug)) + (
@@ -2574,6 +2573,7 @@ def produce_study_guide(course_slug: str, lesson_number: int) -> list[str]:
         raise RuntimeError(str(error)) from error
 
     revision_feedback = feedback_for(run, lesson_tag, "study_guide")
+    operator_revision_request = revision_feedback
     working_path = run / "lesson_draft" / f"{lesson_tag}_working.md"
     draft = working_path.read_text(encoding="utf-8", errors="replace") if working_path.exists() else ""
     reusable_drafts = sorted((run / "lesson_draft").glob(f"{lesson_tag}_draft_r*.md"), key=lambda path: path.stat().st_mtime)
