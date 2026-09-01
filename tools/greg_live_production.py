@@ -545,7 +545,7 @@ Required JSON schema:
   "lessons": [{{"lesson_number":1,"title":"...","learning_goal":"...","sections":["..."],"glossary_terms":["..."],"visual_learning_goal":"...","visual_insertions":[{{"placement_hint":"after the section that teaches the claim","learning_job":"what the learner must understand by seeing it","pedagogical_strategy":"inspect-real-example|explain-with-diagram|orient-with-conceptual-image","real_example_importance":"required|preferred|not-needed","generation_suitability":"safe|unsafe","recommended_form":"process-flow|relationship-map|comparison-matrix|card-sequence|cost-stack|schedule-bar-chart|activity-network|trusted-source-image|generated-conceptual-image","must_show":["specific visible item"],"direct_demonstration":true,"source_strategy":"deterministic|trusted-source|generated-fallback","technical_fidelity_required":false,"operator_request_if_unavailable":false,"targeted_search_query":"narrow query derived from this conclusion","evidence_considered":[{{"source_type":"attached-pdf","locator":"filename and page","observed_visual":"what the candidate actually shows","relevance":"how it supports or challenges the learning job","use_decision":"adapt-principle|use-with-attribution|reject"}}],"alternatives_considered":["specific alternative form"],"selection_reason":"provisional reason pending targeted source research"}}],"bridge_from_previous":"...","bridge_to_next":"..."}}]
 }}
 
-For every lesson, analyze where visual explanation materially improves learning and provide 2-4 concrete `visual_insertions`. Do not merely name a broad visual goal. First decide the pedagogical strategy and explicitly map whether a real example is required, merely preferred, or unnecessary, and whether generation would be safe. Use attached-PDF candidates as provisional evidence and produce one narrow `targeted_search_query` derived from the conclusion. Do not conduct or simulate a broad web search in this step. A second worker phase will search only these conclusions and finalize the source strategy. When the prose teaches a visual object such as a bar chart, network view, plan, schedule, drawing, symbol set, or record, at least one insertion must directly show that object; a comparison table describing it is not a substitute. Prefer deterministic diagrams and charts when they can faithfully demonstrate the concept. Use a trusted source image for fidelity-sensitive real artifacts. Set `operator_request_if_unavailable` when a required trusted image cannot safely be created or sourced by the worker.
+For every lesson, analyze where visual explanation materially improves learning and provide 2-4 concrete `visual_insertions`. Use two insertions by default; add a third or fourth only when it serves a genuinely distinct learning job. Do not merely name a broad visual goal. First decide the pedagogical strategy and explicitly map whether a real example is required, merely preferred, or unnecessary, and whether generation would be safe. Use attached-PDF candidates as provisional evidence and produce one narrow `targeted_search_query` derived from the conclusion. Do not conduct or simulate a broad web search in this step. A second worker phase will search only these conclusions and finalize the source strategy. When the prose teaches a visual object such as a bar chart, network view, plan, schedule, drawing, symbol set, or record, at least one insertion must directly show that object; a comparison table describing it is not a substitute. Prefer deterministic diagrams and charts when they can faithfully demonstrate the concept. Use a trusted source image for fidelity-sensitive real artifacts. Set `operator_request_if_unavailable` when a required trusted image cannot safely be created or sourced by the worker.
 """
 
 
@@ -581,6 +581,30 @@ Return complete finalized insertion lists only:
 {{"lessons":[{{"lesson_number":1,"visual_insertions":[{{"placement_hint":"...","learning_job":"...","pedagogical_strategy":"inspect-real-example|explain-with-diagram|orient-with-conceptual-image","real_example_importance":"required|preferred|not-needed","generation_suitability":"safe|unsafe","recommended_form":"...","must_show":["..."],"direct_demonstration":true,"source_strategy":"deterministic|trusted-source|generated-fallback","technical_fidelity_required":false,"operator_request_if_unavailable":false,"targeted_search_query":"...","evidence_considered":[{{"source_type":"attached-pdf|authoritative-web","locator":"filename and page or direct URL","observed_visual":"...","relevance":"...","rights_or_use":"reference-only|attribution-required|reuse-permitted|unknown","use_decision":"adapt-principle|use-with-attribution|reject"}}],"alternatives_considered":["..."],"selection_reason":"final evidence-based reason"}}]}}]}}"""
 
 
+def visual_research_batches(lessons: list[dict[str, Any]], batch_size: int = 5) -> list[list[dict[str, Any]]]:
+    """Bound visual research output so 15-lesson maps cannot truncate silently."""
+    if batch_size < 1:
+        raise ValueError("Visual research batch size must be positive.")
+    return [lessons[index:index + batch_size] for index in range(0, len(lessons), batch_size)]
+
+
+def validate_visual_research_batch(batch: list[dict[str, Any]], research: dict[str, Any]) -> None:
+    expected = {
+        int(lesson.get("lesson_number") or lesson.get("number"))
+        for lesson in batch
+        if lesson.get("lesson_number") or lesson.get("number")
+    }
+    received = {
+        int(lesson.get("lesson_number"))
+        for lesson in (research.get("lessons") or [])
+        if lesson.get("lesson_number")
+    }
+    if received != expected:
+        raise RuntimeError(
+            f"Targeted visual research returned lessons {sorted(received)}; expected {sorted(expected)}."
+        )
+
+
 def apply_course_visual_research(course_map: dict[str, Any], research: dict[str, Any]) -> dict[str, Any]:
     finalized = {}
     for item in research.get("lessons") or []:
@@ -613,13 +637,18 @@ def produce_course_map(course_slug: str) -> list[str]:
             course_map_prompt(seed, uploads, visual_candidates),
             max_tokens=16000,
         )
-        visual_research = request_json_with_retry(
-            seed.slug,
-            "source_research",
-            course_visual_research_prompt(seed, data, visual_candidates),
-            max_tokens=16000,
-            web_search=True,
-        )
+        researched_lessons: list[dict[str, Any]] = []
+        for batch in visual_research_batches(data.get("lessons") or []):
+            visual_research_batch = request_json_with_retry(
+                seed.slug,
+                "source_research",
+                course_visual_research_prompt(seed, {"lessons": batch}, visual_candidates),
+                max_tokens=10000,
+                web_search=True,
+            )
+            validate_visual_research_batch(batch, visual_research_batch)
+            researched_lessons.extend(visual_research_batch.get("lessons") or [])
+        visual_research = {"lessons": researched_lessons}
         write_json(run / "course_map" / "targeted_visual_source_research.json", visual_research)
         data = apply_course_visual_research(data, visual_research)
     except ModelRequestError as error:
