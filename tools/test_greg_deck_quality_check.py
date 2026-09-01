@@ -91,6 +91,56 @@ class DeckQualityCheckTests(unittest.TestCase):
         )
         self.assertIsNotNone(warning)
 
+    def test_rendered_line_fit_flags_actual_wrapping_beyond_box_height(self) -> None:
+        warning = deck_qa.rendered_line_fit_warning(
+            {
+                "slide": 8,
+                "name": "bullet-1",
+                "text": "Texto traduzido que ocupa três linhas.",
+                "bbox": [106, 338, 524, 58],
+                "textLayout": {"lineCount": 3},
+                "paragraphs": [{"resolvedTextStyle": {"fontSize": 21}}],
+            }
+        )
+        self.assertIsNotNone(warning)
+
+    def test_rendered_line_fit_allows_two_lines_in_expanded_row(self) -> None:
+        row = {
+            "slide": 5,
+            "name": "row-1-body",
+            "text": "Texto legível em duas linhas.",
+            "bbox": [432, 234, 704, 48],
+            "textLayout": {"lineCount": 2},
+            "paragraphs": [{"resolvedTextStyle": {"fontSize": 17}}],
+        }
+        warning = deck_qa.rendered_line_fit_warning(
+            row,
+            [row, {"slide": 5, "name": "row-1-bar", "bbox": [104, 224, 1068, 68]}],
+        )
+        self.assertIsNone(warning)
+
+    def test_rendered_line_fit_flags_text_beyond_visible_row_container(self) -> None:
+        row = {
+            "slide": 5,
+            "name": "row-1-body",
+            "text": "Texto que se divide en dos líneas.",
+            "bbox": [432, 248, 704, 26],
+            "textLayout": {"lineCount": 2},
+            "paragraphs": [{"resolvedTextStyle": {"fontSize": 19}}],
+        }
+        warning = deck_qa.rendered_line_fit_warning(
+            row,
+            [row, {"slide": 5, "name": "row-1-bar", "bbox": [104, 236, 1068, 52]}],
+        )
+        self.assertIsNotNone(warning)
+
+    def test_revisioned_render_directory_is_selected(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            deck = Path(tmp) / "lesson_04_deck_es_r02.pptx"
+            rendered = Path(tmp) / "rendered_slides_lesson_04_r02"
+            rendered.mkdir()
+            self.assertEqual(rendered, deck_qa.rendered_slide_dir_for(deck))
+
     def test_missing_fit_metadata_fails_a_rendered_deck(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             deck = Path(tmp) / "lesson_03_deck_r01.pptx"

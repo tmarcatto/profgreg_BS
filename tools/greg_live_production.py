@@ -2549,7 +2549,9 @@ def localized_slide_visible_items(slide: dict[str, Any]) -> list[str]:
     return items or [str(slide.get("title") or "Slide content").strip()]
 
 
-def localized_deck_slides(source_slides: list[dict[str, Any]], translated_slides: Any) -> list[dict[str, Any]]:
+def localized_deck_slides(
+    source_slides: list[dict[str, Any]], translated_slides: Any, *, preserve_layout_on_drift: bool = False,
+) -> list[dict[str, Any]]:
     """Apply translated student copy while retaining the approved deck structure.
 
     A localized deck is not a newly authored deck.  In particular, its image
@@ -2566,7 +2568,11 @@ def localized_deck_slides(source_slides: list[dict[str, Any]], translated_slides
     for index, (source_slide, translated_slide) in enumerate(zip(source_slides, translated_slides), start=1):
         if not isinstance(source_slide, dict) or not isinstance(translated_slide, dict):
             raise RuntimeError(f"Localized presentation slide {index} is invalid.")
-        if translated_slide.get("layout") and translated_slide.get("layout") != source_slide.get("layout"):
+        if (
+            translated_slide.get("layout")
+            and translated_slide.get("layout") != source_slide.get("layout")
+            and not preserve_layout_on_drift
+        ):
             raise RuntimeError(f"Localized presentation slide {index} changed its approved layout.")
         localized = copy.deepcopy(source_slide)
         for field in scalar_fields:
@@ -2651,23 +2657,53 @@ def localize_deck(course_slug: str, lesson_number: int, locale: str) -> list[str
     if revision_feedback and prior_spec:
         prior_slides = json.loads(prior_spec.read_text(encoding="utf-8")).get("slides") or []
         prompt = deck_revision_prompt(prior_slides, revision_feedback)
+        merge_baseline = prior_slides
     else:
         prompt = f"""Translate every student-visible text value in this Prof Greg deck JSON into {language}. Return JSON only in the form {{"slides": [...]}}. Preserve all keys, layout names, numbers, filenames, asset paths, and slide count exactly. Do not add slides or speaker notes. Preserve U.S. construction terms, units, and facts. If localized copy would overflow its approved layout, use a shorter equivalent that preserves the central message; do not add emphasis Markdown or bold markers.\n\n{json.dumps(source['slides'], ensure_ascii=False)}"""
+        merge_baseline = source["slides"]
     try:
         data = request_json_with_retry(seed.slug, "localization", prompt, max_tokens=12000)
     except ModelRequestError as error:
         raise RuntimeError(str(error)) from error
-    slides = localized_deck_slides(source["slides"], data.get("slides"))
+    slides = localized_deck_slides(
+        merge_baseline,
+        data.get("slides"),
+        preserve_layout_on_drift=bool(revision_feedback),
+    )
     slides = normalize_localized_dash_punctuation(slides)
     revision, filename = revisioned(run, f"localization/{folder}", f"{lesson_tag}_deck_{locale}", ".pptx")
     localized_course_title = {
         "pt_br": "O Gerente Completo de Projetos de Construção: da Pré-Construção ao Encerramento",
         "es": "El Gerente Completo de Proyectos de Construcción: de la Preconstrucción al Cierre",
     }[locale]
-    spec = {**source, "created": date.today().isoformat(), "production_mode": "initial", "revision": f"r{revision:02d}", "locale": locale, "course_title": localized_course_title, "output": {"pptx": f"localization/{folder}/{filename}", "qa": f"localization/{folder}/{lesson_tag}_{locale}_deck_qa_r{revision:02d}.md", "rendered_dir": f"localization/{folder}/rendered_slides_{lesson_tag}_r{revision:02d}"}, "slides": slides}
+    spec = {**source, "created": date.today().isoformat(), "production_mode": "revision" if revision_feedback else "initial", "revision": f"r{revision:02d}", "locale": locale, "course_title": localized_course_title, "output": {"pptx": f"localization/{folder}/{filename}", "qa": f"localization/{folder}/{lesson_tag}_{locale}_deck_qa_r{revision:02d}.md", "rendered_dir": f"localization/{folder}/rendered_slides_{lesson_tag}_r{revision:02d}"}, "slides": slides}
+    if revision_feedback:
+        spec["revision_reason"] = [revision_feedback]
     spec_path = run / "localization" / folder / f"{lesson_tag}_deck_{locale}_spec_r{revision:02d}.json"
-    write_json(spec_path, spec)
-    subprocess.run([sys.executable, str(ROOT / "tools" / "greg_render_deck_from_spec.py"), str(spec_path)], cwd=ROOT, check=True)
+    for fit_attempt in range(1, 4):
+        spec["slides"] = slides
+        write_json(spec_path, spec)
+        try:
+            subprocess.run([sys.executable, str(ROOT / "tools" / "greg_render_deck_from_spec.py"), str(spec_path)], cwd=ROOT, check=True)
+            break
+        except subprocess.CalledProcessError:
+            qa_text = (run / spec["output"]["qa"]).read_text(encoding="utf-8", errors="replace") if (run / spec["output"]["qa"]).exists() else ""
+            fit_failures = [line for line in qa_text.splitlines() if "FAIL text_box_density" in line]
+            if not fit_failures or fit_attempt == 3:
+                raise
+            fit_feedback = (
+                "Automatic rendered-layout QA found text outside its assigned box. Shorten only the text fields "
+                "identified below. Preserve every slide, layout, item count, fact, number, image, and unmentioned "
+                "text exactly. Return all slides.\n- " + "\n- ".join(fit_failures)
+            )
+            fit_data = request_json_with_retry(
+                seed.slug,
+                "localization",
+                deck_revision_prompt(slides, fit_feedback),
+                max_tokens=12000,
+            )
+            slides = localized_deck_slides(slides, fit_data.get("slides"), preserve_layout_on_drift=True)
+            slides = normalize_localized_dash_punctuation(slides)
     require_video_compatible_deck(run / spec["output"]["pptx"])
     qa = run / spec["output"]["qa"]
     if not qa.exists():

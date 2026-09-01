@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import math
 import re
 from collections import Counter, defaultdict
 from dataclasses import asdict, dataclass
@@ -96,9 +97,14 @@ def rendered_slide_dir_for(deck_path: Path) -> Path | None:
     lesson = lesson_number_from_name(deck_path)
     if not lesson:
         return None
-    candidate = deck_path.parent / f"rendered_slides_lesson_{lesson}"
-    if candidate.exists():
-        return candidate
+    revision_match = re.search(r"_r(\d+)\.pptx$", deck_path.name)
+    candidates = []
+    if revision_match:
+        candidates.append(deck_path.parent / f"rendered_slides_lesson_{lesson}_r{int(revision_match.group(1)):02d}")
+    candidates.append(deck_path.parent / f"rendered_slides_lesson_{lesson}")
+    for candidate in candidates:
+        if candidate.exists():
+            return candidate
     legacy = deck_path.parent / "rendered_slides"
     return legacy if legacy.exists() else None
 
@@ -215,6 +221,94 @@ def text_capacity_warning(row: dict) -> str | None:
     capacity = chars_per_line * usable_lines * 1.10
     if len(text) > capacity:
         return f"slide {row.get('slide')} `{row.get('name')}` may be too dense for its text box"
+    return None
+
+
+def rendered_text_container_name(name: str) -> str | None:
+    if re.match(r"^row-\d+-(title|body)$", name):
+        return name.rsplit("-", 1)[0] + "-bar"
+    if re.match(r"^check-\d+-(title|body)$", name):
+        return name.rsplit("-", 1)[0] + "-row"
+    if name.startswith("planned-"):
+        return "planned-lane"
+    if name.startswith("actual-"):
+        return "actual-lane"
+    if name == "takeaway-copy":
+        return "takeaway-box"
+    if name.endswith("-title") or name.endswith("-body"):
+        return name.rsplit("-", 1)[0] + "-card"
+    return None
+
+
+def rendered_line_fit_warning(row: dict, layout_rows: list[dict] | None = None) -> str | None:
+    """Use the renderer's actual wrapping result to reject clipped text.
+
+    Character-count estimates cannot account for language-specific word
+    lengths, text-box insets, or the actual font selected by PowerPoint.  The
+    layout export already records the final line count, so this is the
+    authoritative fit gate whenever that metadata is available.
+    """
+    name = str(row.get("name") or "")
+    open_canvas_text = {
+        "course", "lesson", "topics", "slide-title", "title", "subtitle", "slide-subtitle",
+        "intro", "bottom-line", "takeaway", "takeaway-title", "final-line", "lesson-label", "variance-label",
+    }
+    if name in open_canvas_text or is_brand_or_background(row) or name.startswith("bullet-dot"):
+        return None
+    layout = row.get("textLayout")
+    if not isinstance(layout, dict):
+        return None
+    try:
+        line_count = int(layout.get("lineCount") or 0)
+    except (TypeError, ValueError):
+        return None
+    box = bbox(row)
+    if not box or line_count <= 0:
+        return None
+    paragraphs = row.get("paragraphs") or []
+    font_size = None
+    for paragraph in paragraphs:
+        if not isinstance(paragraph, dict):
+            continue
+        style = paragraph.get("resolvedTextStyle") or {}
+        if style.get("fontSize"):
+            font_size = style.get("fontSize")
+            break
+    font_size = font_size or row.get("resolvedFontSize")
+    try:
+        font = float(font_size)
+    except (TypeError, ValueError):
+        return None
+    height = box[3]
+    if height <= 0 or font <= 0:
+        return None
+    container_name = rendered_text_container_name(name)
+    container = next(
+        (
+            candidate
+            for candidate in (layout_rows or [])
+            if container_name
+            and candidate.get("slide") == row.get("slide")
+            and candidate.get("name") == container_name
+        ),
+        None,
+    )
+    container_box = bbox(container) if container else None
+    if container_box:
+        rendered_bottom = box[1] + line_count * font * 1.10
+        container_bottom = container_box[1] + container_box[3]
+        if rendered_bottom > container_bottom - 2:
+            return (
+                f"slide {row.get('slide')} `{name}` renders {line_count} lines beyond "
+                f"its `{container_name}` container"
+            )
+        return None
+    safe_lines = max(1, math.floor(height / font))
+    if line_count > safe_lines:
+        return (
+            f"slide {row.get('slide')} `{row.get('name')}` renders {line_count} lines "
+            f"in a box that safely fits {safe_lines}"
+        )
     return None
 
 
@@ -387,7 +481,17 @@ def run_checks(deck_path: Path, qa_path: Path | None = None) -> dict:
     # Revisioned render folders may be retained separately, so their absence
     # must never disable fit validation for an otherwise inspectable deck.
     if any(row.get("kind") == "textbox" for row in rows):
-        dense = [warning for row in rows if row.get("kind") == "textbox" and (warning := text_capacity_warning(row))]
+        rendered_text_rows = [
+            row
+            for row in layout_rows
+            if str(row.get("text") or "").strip() and isinstance(row.get("textLayout"), dict)
+        ]
+        rendered_dense = [
+            warning
+            for row in rendered_text_rows
+            if (warning := rendered_line_fit_warning(row, layout_rows))
+        ]
+        dense = rendered_dense if rendered_text_rows else [warning for row in rows if row.get("kind") == "textbox" and (warning := text_capacity_warning(row))]
         missing_font_metadata = [
             f"slide {row.get('slide')} `{row.get('name')}`"
             for row in rows
