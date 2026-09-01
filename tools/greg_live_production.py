@@ -950,6 +950,7 @@ Pedagogical requirements:
 - Explain concepts in paragraphs before bullets. Bullets are allowed, but they must not replace teaching.
 - Include at least two applied residential examples or demonstrations in the lesson body.
 - Use exactly 2-4 callouts. Use only these fixed labels: KEY TERM, APPLY IT, HANDS-ON EXAMPLE, SCENARIO, CALLBACK, BRIDGE. Never invent a callout label. Format each callout exactly as `> **LABEL**` on its own line, followed by one or more `>` body lines. Never write `LABEL: body` as ordinary prose.
+- A HANDS-ON EXAMPLE must be something the learner does, not a box of explanatory course-book prose. Supply the figures or information, ask for one concrete calculation, classification, comparison, or decision, and include a brief answer/check after the task. Keep explanatory teaching in the normal body text.
 - Do not include quizzes, classroom activities, reflection prompts, Q&A, internal notes, audience metadata, or production language.
 - Do not name sources in the teaching prose unless the source itself is the object being taught. Keep student-facing references in the References section.
 - References may list the formal sources materially consulted for the lesson; they do not all need decorative in-text mentions. Use an inline citation only when it strengthens a high-stakes factual learning moment.
@@ -957,7 +958,7 @@ Pedagogical requirements:
 - Open directly with the course and lesson problem. Do not use welcome language, audience descriptions, or a preview of the entire course.
 - Callouts are allowed only inside the teaching body and only when they add a distinct practical insight; never place them in objectives, summary, glossary, or references.
 - The Introduction and Learning Objectives are structural opening sections and must never contain a callout or render as a box. Keep all opening content as normal prose and bullets.
-- Never include "Try this," "Your turn," exercises, practice tasks, reflection questions, discussion prompts, or assignments. Demonstrate the reasoning yourself in the teaching prose.
+- Never include classroom/group exercises, quizzes, reflection questions, discussion prompts, or assignments. Short individual practice is allowed only inside a HANDS-ON EXAMPLE and must include supplied inputs plus an answer/check.
 - Avoid parenthetical source shorthand and decorative in-text citations. If a governing document is itself being taught, identify it in plain language and ensure the exact publication appears in References.
 - Do not use em dashes, en dashes, or spaced hyphens as punctuation in prose. Rewrite with commas, colons, semicolons, or separate sentences. Normal compound terms such as pre-construction remain allowed. The required `Section NN - Name` heading separator is the only spaced-hyphen exception.
 - Do not use Markdown H3 or deeper headings. Use normal paragraphs with a bold lead-in when a subsection needs emphasis.
@@ -1482,7 +1483,7 @@ def merge_lesson_sources(run: Path, ledger: dict[str, Any], refresh: dict[str, A
 
 def reviewer_prompt(kind: str, seed, lesson: dict[str, Any], draft: str, ledger: dict[str, Any]) -> str:
     criteria = {
-        "pedagogy_review": "Check only learning progression, depth for level, MECE sections, residential examples, explanations before bullets, no activities, and no audience boilerplate. The Summary and Key Takeaways section is a strict exception: it must contain only 4-6 bullets, with no framing sentence or prose. Require a readable Markdown table only for one uninterrupted list of seven or more comparable items that repeatedly state category, quantity or amount, and the same condition or comment. Do not demand tables for conceptual lists, short examples, WBS vocabulary, or distinct decision steps. After a table, require prose to add a decision, exception, or interpretation rather than restating its rows. Citation style and reference formatting belong to the citation reviewer; do not fail this review merely because ordinary claims lack inline citations. Figures are planned and inserted by a separate visual pipeline after this review. Do not request ASCII diagrams, Markdown tables used as figures, fenced visual source, or final figure rendering inside the chapter Markdown.",
+        "pedagogy_review": "Check only learning progression, depth for level, MECE sections, residential examples, explanations before bullets, no classroom/group activities or quizzes, and no audience boilerplate. A HANDS-ON EXAMPLE is a deliberate exception: it must give the individual learner supplied inputs, a concrete action to perform, and an answer or result check; reject a HANDS-ON box that merely contains explanatory course-book prose. The Summary and Key Takeaways section is a strict exception: it must contain only 4-6 bullets, with no framing sentence or prose. Require a readable Markdown table only for one uninterrupted list of seven or more comparable items that repeatedly state category, quantity or amount, and the same condition or comment. Do not demand tables for conceptual lists, short examples, WBS vocabulary, or distinct decision steps. After a table, require prose to add a decision, exception, or interpretation rather than restating its rows. Citation style and reference formatting belong to the citation reviewer; do not fail this review merely because ordinary claims lack inline citations. Figures are planned and inserted by a separate visual pipeline after this review. Do not request ASCII diagrams, Markdown tables used as figures, fenced visual source, or final figure rendering inside the chapter Markdown.",
         "citation_review": "Check factual support against the ledger, current applicability, clean student references, no invented claims, and no internal/local source language. Internal/local source language means file paths, ledger mechanics, reviewer rationale, or private production notes; neutral student-facing references to documented authority, organizational procedures, or project procedures are allowed. Do not demand inline citations for every source or every ordinary claim. References may include materially consulted sources even when they are not named decoratively in the teaching prose. List each work only once, even when multiple chapters or claims used it; omit chapter, section, and page details from the final References section. Evaluate that bibliography rule only against the text after the final `# References` heading. A chapter, section, or direct-content hyperlink discussed in the teaching prose is not a bibliography defect and must not be reported as one. Never request or add accessed/retrieved dates. Books must be cited as books without abstract, catalog, preview, or search-result links; webpage references may include only the direct content URL actually used. The Summary and Key Takeaways section must be only 4-6 bullets, with no introductory prose; never request a summary opener.",
         "design_review": "Check only the draft's approved structural and presentation contract: Introduction followed by Learning Objectives with no Lesson Roadmap; continuous lesson body; separate summary, glossary, and references; only the six approved callout labels; no callouts in structural sections; no H3 or deeper headings; no dash punctuation in prose; no one-line section openers. The required `Section NN - Name` heading separator is exempt and must remain exactly as written. Useful callouts inside the teaching body are allowed. Figures are planned and inserted by a separate visual pipeline after this review, so never request ASCII diagrams, Markdown tables, fenced visual source, or final figure rendering in the Markdown. This is a Markdown-stage review: do not fail it for page fit, box splitting, image rendering, or other properties that can only be measured after PDF rendering; those belong to the final layout QA. Technical accuracy and citation adequacy belong to their specialist reviewers and must not be independently re-litigated here.",
     }[kind]
@@ -1776,6 +1777,26 @@ def normalize_visual_strategy(visual: dict[str, Any]) -> dict[str, Any]:
     return normalized
 
 
+def visual_plan_has_decision_evidence(plan: dict[str, Any]) -> bool:
+    """Return whether every planned visual records the current decision protocol."""
+    visuals = plan.get("visuals") or []
+    if not visuals:
+        return False
+    for visual in visuals:
+        if not isinstance(visual, dict):
+            return False
+        if (
+            visual.get("pedagogical_strategy") not in {"inspect-real-example", "explain-with-diagram", "orient-with-conceptual-image"}
+            or visual.get("real_example_importance") not in {"required", "preferred", "not-needed"}
+            or visual.get("generation_suitability") not in {"safe", "unsafe"}
+            or not (visual.get("evidence_considered") or [])
+            or not (visual.get("alternatives_considered") or [])
+            or len(str(visual.get("selection_reason") or "").split()) < 6
+        ):
+            return False
+    return True
+
+
 def visual_request_document(seed, lesson: dict[str, Any], visuals: list[dict[str, Any]]) -> str:
     lines = [
         f"# Lesson {lesson['lesson_number']} Image Requests",
@@ -1822,6 +1843,21 @@ def create_visual_assets(seed, lesson: dict[str, Any], draft: str, run: Path, le
         plan = request_json_with_retry(seed.slug, "visual_planning", revision_prompt, max_tokens=12000)
     elif prior_plan_passed or (prior_request.exists() and prior_plan.exists()):
         plan = json.loads(prior_plan.read_text(encoding="utf-8"))
+        if not visual_plan_has_decision_evidence(plan):
+            # Plans approved before the evidence-backed visual protocol must be
+            # consciously re-audited. Silently inserting generic defaults would
+            # recreate the exact problem the protocol is designed to prevent.
+            revision_prompt = visual_plan_prompt(seed, lesson, draft, read_uploads(seed.slug)) + (
+                "\n\nThe saved plan below passed an older visual QA protocol but does not record the current "
+                "pedagogical and source decision evidence. Re-audit every visual against the completed lesson, "
+                "the attached-source candidates, and the Course Map. Preserve a visual only when it remains the "
+                "best teaching mechanism. Return the complete replacement plan and populate pedagogical_strategy, "
+                "real_example_importance, generation_suitability, evidence_considered, alternatives_considered, "
+                "selection_reason, and strategy_change_reason for every visual. Do not invent evidence or replace "
+                "a required real example with a generated image.\n"
+                f"Saved plan:\n{json.dumps(plan, ensure_ascii=False)[:24000]}"
+            )
+            plan = request_json_with_retry(seed.slug, "visual_planning", revision_prompt, max_tokens=12000)
     elif attempted_plans:
         # A rejected plan already has focused reviewer feedback. Resume it
         # instead of regenerating the whole book and rediscovering the same

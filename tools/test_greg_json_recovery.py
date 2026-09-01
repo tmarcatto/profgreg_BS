@@ -41,5 +41,23 @@ class JsonRecoveryTests(unittest.TestCase):
         self.assertIn("Regenerate the complete result", request.call_args_list[2].args[2])
 
 
+class VisualDecisionEvidenceTests(unittest.TestCase):
+    def test_old_visual_plan_requires_conscious_reaudit(self) -> None:
+        old_plan = {"visuals": [{"visual_id": "L07V01", "visual_type": "deterministic-diagram"}]}
+        self.assertFalse(production.visual_plan_has_decision_evidence(old_plan))
+
+    def test_complete_visual_decision_record_is_reusable(self) -> None:
+        current_plan = {"visuals": [{
+            "visual_id": "L07V01",
+            "pedagogical_strategy": "explain-with-diagram",
+            "real_example_importance": "not-needed",
+            "generation_suitability": "safe",
+            "evidence_considered": [{"locator": "course map", "relevance": "Shows the dependency."}],
+            "alternatives_considered": ["comparison matrix"],
+            "selection_reason": "A process diagram makes the required dependency visible to learners.",
+        }]}
+        self.assertTrue(production.visual_plan_has_decision_evidence(current_plan))
+
+
 if __name__ == "__main__":
     unittest.main()
