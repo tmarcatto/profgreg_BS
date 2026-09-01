@@ -1441,6 +1441,41 @@ def lesson_sources_are_adequate(data: dict[str, Any]) -> bool:
     return len(sources) >= 3 and bool(technical) and not (data.get("source_gaps") or [])
 
 
+def merge_lesson_source_research(
+    earlier: dict[str, Any],
+    later: dict[str, Any],
+    lesson_number: int,
+) -> dict[str, Any]:
+    """Retain distinct authorities discovered across focused research passes."""
+    merged = dict(later)
+    sources: list[dict[str, Any]] = []
+    seen: set[str] = set()
+    for source in [*(earlier.get("sources") or []), *(later.get("sources") or [])]:
+        if not isinstance(source, dict):
+            continue
+        key = re.sub(
+            r"\W+",
+            "",
+            str(source.get("url") or source.get("formal_reference") or source.get("title") or "").lower(),
+        )
+        if not key or key in seen:
+            continue
+        seen.add(key)
+        item = dict(source)
+        item["source_id"] = f"L{lesson_number:02d}S{len(sources) + 1:02d}"
+        sources.append(item)
+    merged["sources"] = sources[:8]
+    merged["research_log"] = list(dict.fromkeys([
+        *[str(value) for value in (earlier.get("research_log") or []) if str(value).strip()],
+        *[str(value) for value in (later.get("research_log") or []) if str(value).strip()],
+    ]))
+    # The later pass was explicitly asked to close earlier gaps, so its gap
+    # assessment supersedes the provisional first-pass list.
+    merged["source_gaps"] = later.get("source_gaps") or []
+    merged["lesson_number"] = lesson_number
+    return merged
+
+
 def lesson_source_refresh(seed, lesson: dict[str, Any], ledger: dict[str, Any]) -> dict[str, Any]:
     lesson_number = int(lesson["lesson_number"])
     prompt = f"""Return JSON only. Perform a fresh lesson-level source applicability review for Lesson {lesson_number}: {lesson['title']} in {seed.title}.
@@ -1454,6 +1489,7 @@ Source-quality contract:
 - Use a direct content URL only when that exact webpage contains the material used. Books and standards are formal bibliographic references without preview, abstract, catalog, or storefront links.
 - Published operator uploads may be used as books or formal publications when their identity is verifiable and their reference policy permits citation. Validate applicability online when they are more than three years old.
 - If a necessary technical claim cannot be supported, report it in source_gaps instead of inventing or broadening a weak source.
+- Keep the complete JSON response under 7,000 characters. Return 3-5 sources, one concise supported claim per source, an applicability review under 100 words, and at most five short research-log entries.
 
 Existing ledger:
 {json.dumps(ledger, ensure_ascii=False)[:24000]}
@@ -1467,17 +1503,29 @@ Operator material inventory and bounded excerpts:
 Return:
 {{"lesson_number":{lesson_number},"applicability_review":"...","research_log":["..."],"source_gaps":[],"sources":[{{"source_id":"L{lesson_number:02d}S01","title":"...","author_or_organization":"...","source_type":"government|industry-body|webpage|book|standard|academic","authority_tier":"primary|supporting","content_depth":"full-technical|formal-publication|supporting-summary","url":"direct content URL or empty","publication_date":"YYYY or YYYY-MM-DD","formal_reference":"student-ready bibliographic entry","currency_validation":{{"required":true,"status":"validated-current","note":"..."}},"claims_supported":[{{"claim":"...","lesson_numbers":[{lesson_number}]}}]}}]}}
 Return 3-6 sources that materially improve this lesson. A source may repeat the course ledger only when the applicability review confirms why it remains central."""
-    data = request_json_with_retry(seed.slug, "source_research", prompt, max_tokens=12000, web_search=True)
+    data = request_json_with_retry(seed.slug, "source_research", prompt, max_tokens=5000, web_search=True)
     if not lesson_sources_are_adequate(data):
+        earlier = data
         follow_up = (
             prompt
             + "\n\nThe previous research pass was insufficient because it lacked a validated full technical authority or left source gaps. "
             "Search again, replace course-description and summary pages with substantive technical sources, and close every source gap before returning the complete JSON object.\n\nPrevious result:\n"
             + json.dumps(data, ensure_ascii=False)[:18000]
         )
-        data = request_json_with_retry(seed.slug, "source_research", follow_up, max_tokens=12000, web_search=True)
+        follow_up_data = request_json_with_retry(seed.slug, "source_research", follow_up, max_tokens=5000, web_search=True)
+        data = merge_lesson_source_research(earlier, follow_up_data, lesson_number)
     if not lesson_sources_are_adequate(data):
-        raise ModelRequestError("Lesson research did not establish adequate technical authority after two passes.")
+        final_prompt = (
+            prompt
+            + "\n\nThe combined research still lacks adequate technical authority. Return exactly three new substantive "
+            "sources and no source gaps. At least one must have content_depth full-technical or formal-publication, "
+            "a validated-current currency status, and a direct claim supporting this lesson. Do not repeat the sources below.\n\n"
+            + json.dumps(data.get("sources") or [], ensure_ascii=False)[:12000]
+        )
+        final_data = request_json_with_retry(seed.slug, "source_research", final_prompt, max_tokens=5000, web_search=True)
+        data = merge_lesson_source_research(data, final_data, lesson_number)
+    if not lesson_sources_are_adequate(data):
+        raise ModelRequestError("Lesson research did not establish adequate technical authority after three focused passes.")
     data.setdefault("lesson_number", lesson_number)
     data.setdefault("sources", [])
     data.setdefault("research_log", [])

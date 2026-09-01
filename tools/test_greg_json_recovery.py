@@ -134,5 +134,31 @@ Original summary.
         self.assertIn("Intro stays fixed.", revised)
 
 
+class LessonSourceMergeTests(unittest.TestCase):
+    def test_research_passes_merge_distinct_authorities_and_use_later_gap_state(self) -> None:
+        earlier = {
+            "sources": [
+                {"source_id": "L09S01", "title": "Government Guide", "url": "https://example.gov/guide"},
+                {"source_id": "L09S02", "title": "Industry Practice", "url": "https://example.org/practice"},
+            ],
+            "research_log": ["First search"],
+            "source_gaps": ["Need a formal technical authority"],
+        }
+        later = {
+            "sources": [
+                {"source_id": "L09S01", "title": "Formal Standard", "formal_reference": "Formal Standard 2026"},
+            ],
+            "research_log": ["Focused authority search"],
+            "source_gaps": [],
+        }
+
+        merged = production.merge_lesson_source_research(earlier, later, 9)
+
+        self.assertEqual(3, len(merged["sources"]))
+        self.assertEqual(["L09S01", "L09S02", "L09S03"], [source["source_id"] for source in merged["sources"]])
+        self.assertEqual([], merged["source_gaps"])
+        self.assertEqual(["First search", "Focused authority search"], merged["research_log"])
+
+
 if __name__ == "__main__":
     unittest.main()
