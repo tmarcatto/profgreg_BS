@@ -342,11 +342,13 @@ def request_text(course_slug: str, role: str, prompt: str, *, max_tokens: int = 
                     reasoning=reasoning,
                 )
             except ModelRequestError as error:
-                # Maximum reasoning can occasionally consume the entire output
-                # budget without emitting an answer. Recover with the same
-                # approved model at high effort instead of failing the job.
-                if reasoning != "max" or "max_output_tokens" not in str(error) or "no text content" not in str(error):
+                # High reasoning can occasionally consume the response without
+                # emitting an answer, including after successful web-search
+                # calls. Recover with the same approved model at one lower
+                # effort instead of repeating the empty configuration.
+                if reasoning not in {"max", "high"} or "no text content" not in str(error):
                     raise
+                fallback_reasoning = "high" if reasoning == "max" else "medium"
                 text, usage = openai_text(
                     base_url,
                     api_key,
@@ -355,9 +357,9 @@ def request_text(course_slug: str, role: str, prompt: str, *, max_tokens: int = 
                     max_tokens,
                     web_search,
                     return_usage=True,
-                    reasoning="high",
+                    reasoning=fallback_reasoning,
                 )
-                usage = {**usage, "reasoning_fallback": "high_after_empty_max"}
+                usage = {**usage, "reasoning_fallback": f"{fallback_reasoning}_after_empty_{reasoning}"}
         else:
             raise ModelRequestError(f"Provider `{provider_name}` is not implemented by the production router yet.")
     except ModelRequestError as error:

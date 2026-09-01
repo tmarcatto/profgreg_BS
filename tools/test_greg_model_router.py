@@ -99,6 +99,28 @@ class ModelRouterRetryTests(unittest.TestCase):
         self.assertEqual("high", openai_text.call_args_list[1].kwargs["reasoning"])
         self.assertEqual("high_after_empty_max", append_usage.call_args.kwargs["usage"]["reasoning_fallback"])
 
+    @patch("greg_model_router.openai_text")
+    @patch("greg_model_router.append_usage")
+    @patch("greg_model_router.binding_for")
+    def test_empty_high_reasoning_retries_same_model_at_medium(self, binding_for, append_usage, openai_text):
+        binding_for.return_value = (
+            {"provider": "openai", "model": "gpt-5.6-luna", "reasoning": "high"},
+            {"api_key_env": "TEST_OPENAI_KEY", "base_url_env": ""},
+        )
+        openai_text.side_effect = [
+            greg_model_router.ModelRequestError(
+                "OpenAI returned no text content (status='completed', reason='no completion detail')."
+            ),
+            ("completed", {"input_tokens": 1, "output_tokens": 2}),
+        ]
+        with patch.dict("os.environ", {"TEST_OPENAI_KEY": "key"}):
+            result = greg_model_router.request_text("course", "source_research", "prompt", web_search=True)
+
+        self.assertEqual("completed", result)
+        self.assertEqual("high", openai_text.call_args_list[0].kwargs["reasoning"])
+        self.assertEqual("medium", openai_text.call_args_list[1].kwargs["reasoning"])
+        self.assertEqual("medium_after_empty_high", append_usage.call_args.kwargs["usage"]["reasoning_fallback"])
+
     @patch("greg_model_router.time.sleep")
     @patch("greg_model_router.urllib.request.urlopen")
     def test_remote_disconnect_is_normalized_after_last_attempt(self, urlopen, sleep):
