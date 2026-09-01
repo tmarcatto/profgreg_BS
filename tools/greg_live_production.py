@@ -1057,16 +1057,62 @@ def force_student_references(draft: str, references: str, locale: str = "en") ->
     return f"{body}\n\n# {references_heading}\n\n{validated_references}\n"
 
 
+def normalize_ordered_step_tables(draft: str) -> str:
+    """Restore ordered procedures that a revision model formatted as tables."""
+    lines = draft.splitlines()
+    normalized: list[str] = []
+    index = 0
+
+    def cells(line: str) -> list[str]:
+        return [cell.strip() for cell in line.strip().strip("|").split("|")]
+
+    while index < len(lines):
+        header = cells(lines[index]) if lines[index].lstrip().startswith("|") else []
+        if (
+            len(header) == 2
+            and header[0].lower() == "step"
+            and index + 1 < len(lines)
+            and re.fullmatch(r"\s*\|?\s*:?-{3,}:?\s*\|\s*:?-{3,}:?\s*\|?\s*", lines[index + 1])
+        ):
+            table_end = index + 2
+            steps: list[tuple[str, str]] = []
+            while table_end < len(lines) and lines[table_end].lstrip().startswith("|"):
+                row = cells(lines[table_end])
+                if len(row) != 2 or not row[0].isdigit() or not row[1]:
+                    break
+                steps.append((row[0], row[1]))
+                table_end += 1
+            if len(steps) >= 2:
+                normalized.extend(f"{number}. {text}" for number, text in steps)
+                index = table_end
+                continue
+        normalized.append(lines[index])
+        index += 1
+    return "\n".join(normalized).rstrip() + "\n"
+
+
+def normalize_prose_dashes(draft: str) -> str:
+    """Remove prohibited Unicode dash punctuation without altering section separators."""
+    lines: list[str] = []
+    for line in draft.splitlines():
+        if not re.match(r"^#\s+Section\s+\d{2}\s+-\s+", line):
+            line = re.sub(r"(?<=\d)\s*[\u2013\u2014]\s*(?=\d)", " to ", line)
+            line = re.sub(r"\s*[\u2013\u2014]\s*", ", ", line)
+        lines.append(line)
+    return "\n".join(lines).rstrip() + "\n"
+
+
 def normalize_reviewed_factual_language(draft: str) -> str:
     """Apply reviewer-approved factual corrections that require no new content."""
     corrected = draft.replace(
         "After award, these decisions become enforceable responsibilities, payment terms, and procurement commitments, the focus of the next lesson.",
         "An estimate is not itself a binding project obligation. The applicable proposal, contract, subcontract, purchase order, and governing law control the parties' commitments as procurement and execution begin.",
     )
-    return corrected.replace(
+    corrected = corrected.replace(
         "After award, estimate decisions become contractual or procurement obligations only when they are incorporated into executed contract and purchasing documents. The next lesson carries those documented obligations into procurement and execution.",
         "An estimate is not itself a binding project obligation. The applicable proposal, contract, subcontract, purchase order, and governing law control the parties' commitments as procurement and execution begin.",
     )
+    return normalize_prose_dashes(normalize_ordered_step_tables(corrected))
 
 
 def preserves_complete_study_guide_structure(candidate: str, previous: str) -> bool:
