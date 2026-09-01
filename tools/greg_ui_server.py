@@ -64,6 +64,29 @@ def operator_visible_jobs(jobs: list[dict[str, object]], *, limit: int = 30) -> 
     return visible[-limit:]
 
 
+def enqueue_production_lesson_jobs(
+    *,
+    job_root: Path,
+    course: str,
+    stage: str,
+    lessons: list[int],
+) -> list[dict[str, object]]:
+    """Queue each selected lesson independently so one completion cannot consume a batch."""
+    jobs: list[dict[str, object]] = []
+    for lesson in lessons:
+        result = enqueue_job(
+            job_root=job_root,
+            request_type="production_stage",
+            course_slug=course,
+            lesson=lesson,
+            summary=f"operator requested {stage} for lesson {lesson}",
+            payload={"stage": stage, "lessons": [lesson]},
+        )
+        if result.job:
+            jobs.append(result.job)
+    return jobs
+
+
 def json_bytes(data: object) -> bytes:
     return json.dumps(data, indent=2, ensure_ascii=False).encode("utf-8")
 
@@ -2434,14 +2457,21 @@ class GregUiHandler(BaseHTTPRequestHandler):
                 if stage not in {"study_guide", "deck", "translations_book", "translations_deck", "pt_br_book", "pt_br_deck", "es_book", "es_deck"} or not lessons:
                     self.send_json(HTTPStatus.BAD_REQUEST, {"error": "Choose at least one lesson and a supported production type."})
                     return
-                result = enqueue_job(
+                jobs = enqueue_production_lesson_jobs(
                     job_root=job_root,
-                    request_type="production_stage",
-                    course_slug=course,
-                    summary=f"operator requested {stage} for lessons {lessons}",
-                    payload={"stage": stage, "lessons": lessons},
+                    course=course,
+                    stage=stage,
+                    lessons=lessons,
                 )
-                self.send_json(HTTPStatus.OK, {"message": result.message, "job": result.job})
+                noun = "job" if len(jobs) == 1 else "jobs"
+                self.send_json(
+                    HTTPStatus.OK,
+                    {
+                        "message": f"{len(jobs)} production {noun} queued. Each lesson will remain in the queue until it is processed.",
+                        "job": jobs[0] if jobs else None,
+                        "jobs": jobs,
+                    },
+                )
                 return
             if parsed.path == "/api/video-generate":
                 course = str(body.get("course") or getattr(self.server, "default_course", DEFAULT_COURSE))

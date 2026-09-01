@@ -203,6 +203,22 @@ def produce_course_map(course_slug: str) -> list[str]:
                 "sections": lesson.bullets[:4],
                 "bridge_from_previous": "Use prior lesson vocabulary without repeating glossary terms." if lesson.number > 1 else "Set the course foundation.",
                 "bridge_to_next": "Prepare the next lesson with one distinct concept boundary.",
+                "visual_insertions": [
+                    {
+                        "placement_hint": "after the opening concept section",
+                        "learning_job": "Show how the lesson concept becomes residential field action",
+                        "recommended_form": "process-flow",
+                        "must_show": ["lesson concept", "field decision", "result"],
+                        "source_strategy": "deterministic",
+                    },
+                    {
+                        "placement_hint": "before the final practical guidance section",
+                        "learning_job": "Clarify the people and information involved in the decision",
+                        "recommended_form": "relationship-map",
+                        "must_show": ["responsible person", "required information", "coordination point"],
+                        "source_strategy": "deterministic",
+                    },
+                ],
             }
             for lesson in seed.lessons
         ],

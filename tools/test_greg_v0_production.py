@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import importlib.util
+import json
 import shutil
 import sys
 import unittest
@@ -53,6 +54,8 @@ class GregV0ProductionTests(unittest.TestCase):
         course_map = producer.produce_course_map(self.slug)
         self.assertTrue((self.run / "course_map" / "course_map.json").exists())
         self.assertTrue((self.run / "course_map" / "course_map_qa.md").exists())
+        data = json.loads((self.run / "course_map" / "course_map.json").read_text(encoding="utf-8"))
+        self.assertEqual(len(data["lessons"][0]["visual_insertions"]), 2)
         self.assertTrue(any("Course Map" in item for item in course_map))
 
     def test_source_ledger_blocks_placeholder_references(self) -> None:

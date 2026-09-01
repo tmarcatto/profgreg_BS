@@ -19,6 +19,8 @@ sys.modules["greg_ui_server"] = ui
 assert spec and spec.loader
 spec.loader.exec_module(ui)
 
+from greg_server_status import transition_job
+
 
 class GregUiServerTests(unittest.TestCase):
     def test_ui_shell_contains_operator_controls(self) -> None:
@@ -458,6 +460,25 @@ class GregUiServerTests(unittest.TestCase):
         ]
         visible = ui.operator_visible_jobs(jobs)
         self.assertEqual([job["job_id"] for job in visible], ["job_new_success", "job_current_failed"])
+
+    def test_selected_lessons_remain_independently_queued(self) -> None:
+        (ROOT / "tmp" / "jobs").mkdir(parents=True, exist_ok=True)
+        with tempfile.TemporaryDirectory(dir=ROOT / "tmp" / "jobs") as tmp:
+            job_root = Path(tmp)
+            jobs = ui.enqueue_production_lesson_jobs(
+                job_root=job_root,
+                course="demo-course",
+                stage="study_guide",
+                lessons=[5, 6, 7, 8, 9],
+            )
+
+            self.assertEqual([job["lesson"] for job in jobs], [5, 6, 7, 8, 9])
+            self.assertEqual([job["payload"]["lessons"] for job in jobs], [[5], [6], [7], [8], [9]])
+
+            transition_job(job_root, jobs[0]["job_id"], "running")
+            transition_job(job_root, jobs[0]["job_id"], "completed")
+            remaining = [job for job in ui.list_jobs(job_root) if job["state"] == "queued"]
+            self.assertEqual([job["lesson"] for job in remaining], [6, 7, 8, 9])
 
     def test_rejects_unsupported_upload_extension(self) -> None:
         with self.assertRaises(ValueError):
