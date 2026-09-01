@@ -54,7 +54,10 @@ def find_page(pages: list[str], pattern: str, min_page: int = 1, heading_only: b
             continue
         if heading_only:
             lines = [line.strip() for line in text.splitlines() if line.strip()]
-            if any(compiled.fullmatch(line) or compiled.match(line) for line in lines):
+            # Structural headings must occupy the complete extracted line.
+            # Prefix matching misclassified ordinary prose such as
+            # `References are most useful...` as the final References section.
+            if any(compiled.fullmatch(line) for line in lines):
                 return index
             continue
         if compiled.search(text):

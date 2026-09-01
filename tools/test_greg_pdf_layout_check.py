@@ -27,6 +27,15 @@ class PdfLayoutCheckUnitTests(unittest.TestCase):
         self.assertEqual(pdf_qa.find_page(pages, r"Lesson Roadmap"), 2)
         self.assertEqual(pdf_qa.find_page(pages, r"Section\s+01\s+-"), 4)
 
+    def test_heading_only_does_not_match_prose_that_starts_with_heading_word(self) -> None:
+        pages = [
+            "Cover",
+            "Introduction",
+            "References are most useful when they concern comparable work.",
+            "References",
+        ]
+        self.assertEqual(pdf_qa.find_page(pages, r"References", min_page=3, heading_only=True), 4)
+
     def test_forbidden_patterns(self) -> None:
         self.assertTrue(pdf_qa.contains("References Accessed August 9, 2026", r"\bAccessed\s+August\b"))
         self.assertTrue(pdf_qa.contains("/Users/name/file.pdf", r"/Users/"))

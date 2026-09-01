@@ -215,25 +215,48 @@ def strip_json_fence(value: str) -> dict[str, Any]:
     return json_from_text(value)
 
 
+def malformed_json_repair_prompt(value: str, error: Exception) -> str:
+    return f"""Repair the malformed JSON object below.
+Preserve every field and value already present. Correct JSON syntax only.
+Return one complete JSON object, with double-quoted keys and strings, no Markdown fence, no commentary, and no trailing commas.
+Before returning it, verify that it parses as strict JSON.
+
+Parser error:
+{error}
+
+Malformed JSON:
+{value}
+"""
+
+
 def request_json_with_retry(course_slug: str, role: str, prompt: str, *, max_tokens: int, web_search: bool = False) -> dict[str, Any]:
-    """Request a complete JSON object and recover once from malformed model output."""
+    """Request JSON and alternate targeted repair with strict regeneration."""
     last_error: Exception | None = None
-    for attempt in range(2):
-        retry_note = ""
-        if attempt:
-            retry_note = (
-                "\n\nYour previous response was not valid JSON. Return a complete replacement now: "
-                "JSON only, with double-quoted keys and strings, no Markdown fence, no commentary, and no trailing commas."
+    malformed_output = ""
+    attempts = 4
+    for attempt in range(attempts):
+        if attempt and attempt % 2 == 1 and malformed_output:
+            active_prompt = malformed_json_repair_prompt(malformed_output, last_error or "invalid JSON")
+        else:
+            retry_note = "" if attempt == 0 else (
+                "\n\nA prior response could not be repaired. Regenerate the complete result from the instructions above. "
+                "Return strict JSON only. Before responding, verify every delimiter, quote, comma, array, and object."
             )
+            active_prompt = prompt + retry_note
         try:
-            return strip_json_fence(
-                request_text(course_slug, role, prompt + retry_note, max_tokens=max_tokens, web_search=web_search)
+            malformed_output = request_text(
+                course_slug,
+                role,
+                active_prompt,
+                max_tokens=max_tokens,
+                web_search=web_search if attempt == 0 else False,
             )
+            return strip_json_fence(malformed_output)
         except ModelRequestError as error:
             if "returned invalid JSON" not in str(error):
                 raise
             last_error = error
-    raise ModelRequestError(f"The model returned invalid JSON after one automatic retry: {last_error}")
+    raise ModelRequestError(f"The model returned invalid JSON after {attempts - 1} automatic recovery attempts: {last_error}")
 
 
 def render_spec_fingerprint(spec: dict[str, Any]) -> str:
