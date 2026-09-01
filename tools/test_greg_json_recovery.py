@@ -49,6 +49,20 @@ class JsonRecoveryTests(unittest.TestCase):
         self.assertEqual(2, request.call_count)
         self.assertIn("Repair the malformed JSON object", request.call_args_list[1].args[2])
 
+    def test_provider_response_without_final_text_regenerates_without_web_search(self) -> None:
+        responses = [
+            production.ModelRequestError("OpenAI returned no text content (status='completed')."),
+            '{"sources":[]}',
+        ]
+        with patch.object(production, "request_text", side_effect=responses) as request:
+            result = production.request_json_with_retry(
+                "course", "source_research", "Research sources", max_tokens=2000, web_search=True
+            )
+
+        self.assertEqual({"sources": []}, result)
+        self.assertEqual(2, request.call_count)
+        self.assertFalse(request.call_args_list[1].kwargs["web_search"])
+
 
 class VisualDecisionEvidenceTests(unittest.TestCase):
     def test_old_visual_plan_requires_conscious_reaudit(self) -> None:

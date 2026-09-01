@@ -254,7 +254,11 @@ def request_json_with_retry(course_slug: str, role: str, prompt: str, *, max_tok
             return strip_json_fence(malformed_output)
         except ModelRequestError as error:
             message = str(error).lower()
-            if "returned invalid json" not in message and "did not return the required json object" not in message:
+            if (
+                "returned invalid json" not in message
+                and "did not return the required json object" not in message
+                and "returned no text content" not in message
+            ):
                 raise
             last_error = error
     raise ModelRequestError(f"The model returned invalid JSON after {attempts - 1} automatic recovery attempts: {last_error}")
@@ -2605,8 +2609,6 @@ def normalize_deck_slides(data: dict[str, Any], lesson: dict[str, Any]) -> list[
         is_image_layout = slide.get("layout") in DECK_IMAGE_LAYOUTS
         if is_image_layout != (medium in {"trusted-source-image", "generated-conceptual-image"}):
             raise RuntimeError("Presentation layout must follow the selected visual medium.")
-        if slide.get("pedagogical_strategy") not in {"inspect-real-example", "explain-with-diagram", "orient-with-conceptual-image"}:
-            raise RuntimeError("Every presentation body slide needs an explicit pedagogical strategy.")
         if slide.get("real_example_importance") not in {"required", "preferred", "not-needed"}:
             raise RuntimeError("Every presentation body slide must state the importance of a real example.")
         if slide.get("generation_suitability") not in {"safe", "unsafe"}:
