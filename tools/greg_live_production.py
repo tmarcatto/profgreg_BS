@@ -903,7 +903,8 @@ def student_reference_for_source(source: dict[str, Any]) -> str:
         "professional-standard", "professional-guide", "government-publication",
         "industry-publication", "manual", "report",
     }
-    if source_type in formal_types or document_url:
+    formal_title = bool(re.search(r"\b(?:manual|standard|code|handbook)\b", text, flags=re.I))
+    if source_type in formal_types or document_url or formal_title:
         text = re.sub(r"\s+https?://\S+", "", text).rstrip(" .") + "."
     elif url and url not in text:
         text = text.rstrip(" .") + f". {url}"
@@ -1241,6 +1242,7 @@ def request_plain_study_guide_section_patch(
     feedback: str,
     *,
     maximum_words: int,
+    section_word_limit: int | None = None,
 ) -> str:
     """Recover a long section patch without embedding Markdown inside JSON."""
     last_error = ""
@@ -1259,6 +1261,7 @@ The first line must be exactly: {heading}
 Do not add any other level-one or level-two heading.
 Keep the student-facing tone, apply only the relevant revision requests, and preserve facts that do not require correction.
 The complete chapter must remain below {maximum_words:,} words.
+{f"The complete replacement section must not exceed {section_word_limit:,} words." if section_word_limit else ""}
 
 Revision request:
 {feedback}
@@ -1282,6 +1285,9 @@ Section:
         ]
         if other_headings:
             last_error = f"unexpected additional headings were returned: {other_headings}"
+            continue
+        if section_word_limit and len(value.split()) > section_word_limit:
+            last_error = f"the replacement exceeded its {section_word_limit:,}-word section budget"
             continue
         return value.rstrip() + "\n"
     raise RuntimeError(f"The revision agent could not return a safe plain-Markdown patch for {heading}: {last_error}")
@@ -1321,8 +1327,28 @@ Available headings:
     selected = list(dict.fromkeys(selected))
     if not set(selected).issubset(sections):
         raise RuntimeError("The revision agent selected a section that does not exist in the saved course book.")
+    chapter_limit_match = re.search(r"must not exceed\s+([\d,]+)\s+words", feedback, flags=re.I)
+    chapter_limit = int(chapter_limit_match.group(1).replace(",", "")) if chapter_limit_match else None
+    if chapter_limit and len(draft.split()) > chapter_limit:
+        # Word-count corrections require enough scope to remove the excess.
+        # Select every teaching section (at most five by contract) instead of
+        # asking one or two sections to absorb an unrealistic cut.
+        selected = [
+            heading for heading in sections
+            if heading.startswith("# Section ")
+        ][:5]
     source = "\n\n".join(sections[heading] for heading in selected)
     maximum_words = {"basic": 4000, "intermediate": 5400, "advanced": 6200}.get(level.lower(), 5400)
+    section_word_budgets: dict[str, int] = {}
+    if chapter_limit and selected:
+        selected_words = {heading: max(1, len(sections[heading].split())) for heading in selected}
+        fixed_words = max(0, len(draft.split()) - sum(selected_words.values()))
+        available_words = max(1000, chapter_limit - fixed_words - 100)
+        total_selected_words = sum(selected_words.values())
+        section_word_budgets = {
+            heading: max(180, int(available_words * words / total_selected_words))
+            for heading, words in selected_words.items()
+        }
     if len(source) > 12000:
         # Large multi-section Markdown is predictably fragile when escaped
         # inside one JSON string. Use bounded plain replacements immediately
@@ -1334,6 +1360,7 @@ Available headings:
                 sections[heading],
                 feedback,
                 maximum_words=maximum_words,
+                section_word_limit=section_word_budgets.get(heading),
             )
             for heading in selected
         }
@@ -1384,6 +1411,7 @@ Selected sections to patch:
                     sections[heading],
                     feedback,
                     maximum_words=maximum_words,
+                    section_word_limit=section_word_budgets.get(heading),
                 )
                 for heading in selected
             }
@@ -2819,18 +2847,34 @@ def produce_deck(course_slug: str, lesson_number: int) -> list[str]:
                     max_tokens=12000,
                 )
             slides = normalize_deck_slides(plan, lesson)
-        create_deck_visual_assets(seed, lesson, slides, run, lesson_tag)
         deck_visual_plan_path = run / "deck" / f"{lesson_tag}_visual_plan.json"
-        write_json(deck_visual_plan_path, deck_visual_plan_from_slides(slides, lesson))
         visual_checker = load_module("greg_visual_plan_check", "tools/greg_visual_plan_check.py")
-        visual_result = visual_checker.run_checks(deck_visual_plan_path)
-        if not visual_result.get("passed"):
+        for visual_attempt in range(1, 4):
+            write_json(deck_visual_plan_path, deck_visual_plan_from_slides(slides, lesson))
+            visual_result = visual_checker.run_checks(deck_visual_plan_path)
+            if visual_result.get("passed"):
+                break
             failures = "; ".join(
                 str(item.get("note") or item.get("check"))
                 for item in visual_result.get("findings") or []
                 if item.get("status") == "fail"
             )
-            raise RuntimeError(f"Presentation visual-strategy QA failed: {failures}")
+            if visual_attempt == 3:
+                raise RuntimeError(f"Presentation visual-strategy QA failed after three attempts: {failures}")
+            corrected = request_json_with_retry(
+                seed.slug,
+                "technical_content",
+                deck_revision_prompt(
+                    slides,
+                    "Correct only the visual-strategy QA failures below. Preserve the 10-slide narrative, factual content, and every compliant slide. "
+                    "For each named slide, choose a renderer-supported layout whose mechanism matches the stated learning job, then update its internal visual-decision metadata consistently. "
+                    "Do not weaken or bypass the QA rule.\n\n"
+                    f"Visual-strategy QA failures:\n{failures}",
+                ),
+                max_tokens=12000,
+            )
+            slides = normalize_deck_slides(corrected, lesson)
+        create_deck_visual_assets(seed, lesson, slides, run, lesson_tag)
     except ModelRequestError as error:
         block(run, "deck", f"Configured technical-content model could not produce Lesson {lesson_number} presentation.\n\nReason: {error}")
         raise RuntimeError(str(error)) from error

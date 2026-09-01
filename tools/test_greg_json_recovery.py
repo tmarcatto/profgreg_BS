@@ -193,5 +193,18 @@ class LessonSourceMergeTests(unittest.TestCase):
         self.assertEqual(["First search", "Focused authority search"], merged["research_log"])
 
 
+class StudentReferenceNormalizationTests(unittest.TestCase):
+    def test_manual_reference_omits_locator_like_direct_url(self) -> None:
+        source = {
+            "source_type": "webpage",
+            "formal_reference": "City of Los Angeles Bureau of Engineering. (2018). Project Delivery Manual.",
+            "url": "https://example.gov/chapter-16/167-meeting-minutes",
+        }
+        self.assertEqual(
+            "City of Los Angeles Bureau of Engineering. (2018). Project Delivery Manual.",
+            production.student_reference_for_source(source),
+        )
+
+
 if __name__ == "__main__":
     unittest.main()
