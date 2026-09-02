@@ -1786,6 +1786,17 @@ def revision_evidence_context(requests: list[dict[str, Any]], slides: list[dict[
             "request": str(request.get("note") or "").strip(),
             "target_slide_number": best_slide,
             "evidence_files_checked_locally": evidence_files,
+            "compatible_layouts_if_the_diagram_changes": [
+                layout
+                for layout in ("card_sequence", "process_flow", "schedule_bar_chart", "activity_network", "comparison", "planned_actual", "row_list", "checklist_rows")
+                if best_slide
+                and layout not in {
+                    str(slides[best_slide - 2].get("layout") or "") if best_slide > 1 else "",
+                    str(slides[best_slide].get("layout") or "") if best_slide < len(slides) else "",
+                }
+                and sum(1 for slide in slides[1:-1] if slide.get("layout") == layout)
+                - (1 if slides[best_slide - 1].get("layout") == layout else 0) < 2
+            ],
         })
     return context
 
@@ -3279,7 +3290,7 @@ def deck_revision_prompt(
     if revision_context:
         request_contract = f"""
 
-Every request is mandatory and independent. The worker inspected each private screenshot locally and mapped it to `target_slide_number`; the screenshot itself and its extracted text are not being sent. Correct that exact slide. Return one `revision_resolutions` entry per request using its exact `request_id`; each entry must contain `request_id`, `slide_number`, `problem`, and a concrete `change`. A request is unresolved if you merely rename a layout, change internal planning metadata, or claim a correction without changing the student-visible content of the target slide.
+Every request is mandatory and independent. The worker inspected each private screenshot locally and mapped it to `target_slide_number`; the screenshot itself and its extracted text are not being sent. Correct that exact slide. If the diagram must change, choose from that request's `compatible_layouts_if_the_diagram_changes` so the revision cannot create an adjacent duplicate or exceed the two-use layout limit. Return one `revision_resolutions` entry per request using its exact `request_id`; each entry must contain `request_id`, `slide_number`, `problem`, and a concrete `change`. A request is unresolved if you merely rename a layout, change internal planning metadata, or claim a correction without changing the student-visible content of the target slide.
 
 Request-to-slide map:
 {json.dumps(revision_context, ensure_ascii=False)}
