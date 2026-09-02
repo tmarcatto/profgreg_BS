@@ -526,16 +526,17 @@ async function renderRowList(deck, slideSpec) {
   const slide = addSlide(deck);
   await addChrome(slide, currentSlide);
   addTitle(slide, slideSpec.title, slideSpec.subtitle);
-  slideSpec.items.forEach((item, i) => {
-    // Row copy regularly needs two lines.  The former 26px text boxes
-    // clipped the second line while the surrounding bar remained only 52px.
-    const yy = 224 + i * 80;
-    addShape(slide, `row-${i + 1}-bar`, "roundRect", 104, yy, 1068, 68, i % 2 === 0 ? C.light : C.white, C.line, 1);
-    addText(slide, `row-${i + 1}-title`, item.title, 128, yy + 12, 260, 44, { fontSize: 18, bold: true, color: C.navy });
-    addText(slide, `row-${i + 1}-body`, item.body, 432, yy + 10, 704, 48, { fontSize: 17, color: C.gray });
+  const items = (slideSpec.items || []).slice(0, 6);
+  const dense = items.length > 5;
+  items.forEach((item, i) => {
+    const yy = (dense ? 210 : 224) + i * (dense ? 60 : 76);
+    const rowHeight = dense ? 54 : 68;
+    addShape(slide, `row-${i + 1}-bar`, "roundRect", 104, yy, 1068, rowHeight, i % 2 === 0 ? C.light : C.white, C.line, 1);
+    addText(slide, `row-${i + 1}-title`, item.title, 128, yy + (dense ? 9 : 12), 260, dense ? 36 : 44, { fontSize: dense ? 15 : 18, bold: true, color: C.navy });
+    addText(slide, `row-${i + 1}-body`, item.body, 432, yy + (dense ? 7 : 10), 704, dense ? 40 : 48, { fontSize: dense ? 14 : 17, color: C.gray });
   });
-  addText(slide, "bottom-line", slideSpec.bottom_line, 164, 580, 952, 40, {
-    fontSize: 21,
+  addText(slide, "bottom-line", slideSpec.bottom_line || "", 164, dense ? 580 : 602, 952, 34, {
+    fontSize: dense ? 16 : 17,
     bold: true,
     color: C.navy,
     alignment: "center",
@@ -546,16 +547,20 @@ async function renderChecklistRows(deck, slideSpec) {
   const slide = addSlide(deck);
   await addChrome(slide, currentSlide);
   addTitle(slide, slideSpec.title, slideSpec.subtitle);
-  slideSpec.items.forEach((item, i) => {
-    const y = 220 + i * 80;
-    addShape(slide, `check-${i + 1}-row`, "roundRect", 132, y, 1012, 68, i % 2 === 0 ? C.light : C.white, C.line, 1);
-    addShape(slide, `check-${i + 1}-circle`, "ellipse", 86, y + 14, 40, 40, C.orange, C.orange, 0);
-    addText(slide, `check-${i + 1}-num`, String(i + 1), 96, y + 21, 20, 24, { fontSize: 18, bold: true, color: C.white, alignment: "center" });
-    addText(slide, `check-${i + 1}-title`, item.title, 160, y + 12, 240, 44, { fontSize: 18, bold: true, color: C.navy });
-    addText(slide, `check-${i + 1}-body`, item.body, 430, y + 10, 680, 48, { fontSize: 17, color: C.gray });
+  const items = (slideSpec.items || []).slice(0, 6);
+  const dense = items.length > 5;
+  items.forEach((item, i) => {
+    const y = (dense ? 208 : 220) + i * (dense ? 60 : 76);
+    const rowHeight = dense ? 54 : 68;
+    const circleSize = dense ? 34 : 40;
+    addShape(slide, `check-${i + 1}-row`, "roundRect", 132, y, 1012, rowHeight, i % 2 === 0 ? C.light : C.white, C.line, 1);
+    addShape(slide, `check-${i + 1}-circle`, "ellipse", 90, y + (dense ? 10 : 14), circleSize, circleSize, C.orange, C.orange, 0);
+    addText(slide, `check-${i + 1}-num`, String(i + 1), 98, y + (dense ? 15 : 21), 18, 22, { fontSize: dense ? 15 : 18, bold: true, color: C.white, alignment: "center" });
+    addText(slide, `check-${i + 1}-title`, item.title, 160, y + (dense ? 8 : 12), 240, dense ? 38 : 44, { fontSize: dense ? 15 : 18, bold: true, color: C.navy });
+    addText(slide, `check-${i + 1}-body`, item.body, 430, y + (dense ? 7 : 10), 680, dense ? 40 : 48, { fontSize: dense ? 14 : 17, color: C.gray });
   });
-  addText(slide, "bottom-line", slideSpec.bottom_line, 166, 578, 948, 40, {
-    fontSize: 20,
+  addText(slide, "bottom-line", slideSpec.bottom_line || "", 166, dense ? 580 : 598, 948, 34, {
+    fontSize: dense ? 16 : 17,
     bold: true,
     color: C.navy,
     alignment: "center",
