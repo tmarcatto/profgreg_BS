@@ -992,6 +992,21 @@ Use these terms to distinguish roles.
         sections = production.editable_study_guide_sections(draft, include_introduction=True)
         self.assertIn("# Introduction", sections)
 
+    def test_automatic_patch_can_replace_introduction(self) -> None:
+        draft = "\n".join([
+            "# Introduction", "", "Old canonical case.", "", "## Learning Objectives", "", "- Learn.", "",
+            "# Section 01 - Work", "", "Body.", "", "# Section 02 - Check", "", "Body.", "",
+            "# Section 03 - Decide", "", "Body.", "", "# Section 04 - Close", "", "Body.", "",
+            "# Summary and Key Takeaways", "", "- One", "- Two", "- Three", "- Four", "",
+            "# Glossary", "", "- **Term:** Definition.", "", "# References", "", "- Authority.", "",
+        ])
+        revised = production.apply_study_guide_section_patches(
+            draft,
+            {"# Introduction": "# Introduction\n\nOne canonical case.\n"},
+        )
+        self.assertIn("One canonical case.", revised)
+        self.assertNotIn("Old canonical case.", revised)
+
     def test_render_spec_fingerprint_changes_with_visuals(self) -> None:
         base = {"source_markdown": "lesson.md", "visuals": [{"title": "One"}]}
         changed = {"source_markdown": "lesson.md", "visuals": [{"title": "Two"}]}

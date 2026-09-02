@@ -1478,7 +1478,11 @@ def require_targeted_study_guide_scope(baseline: str, candidate: str, allowed_he
 
 def apply_study_guide_section_patches(draft: str, patches: dict[str, str]) -> str:
     """Replace only complete named sections and reject malformed patches."""
-    available = editable_study_guide_sections(draft)
+    # Automatic QA may legitimately select the Introduction (for example to
+    # reconcile the canonical case introduced there with later sections).
+    # Human/operator selection still controls its own allow-list upstream, so
+    # making it patchable here does not broaden a targeted operator revision.
+    available = editable_study_guide_sections(draft, include_introduction=True)
     if not patches:
         raise RuntimeError("The revision agent did not return any section patches.")
     if not set(patches).issubset(available):
