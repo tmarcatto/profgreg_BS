@@ -1009,6 +1009,46 @@ Use these terms to distinguish roles.
         )
         self.assertTrue(production.revision_requires_chapter_context(feedback))
 
+    def test_complete_project_review_schema_uses_chapter_context(self) -> None:
+        feedback = (
+            "Automatic reviewer changes required:\n"
+            "- Add the complete project-review schema and ensure every referenced field is defined."
+        )
+        self.assertTrue(production.revision_requires_chapter_context(feedback))
+
+    def test_design_reviewer_cannot_reject_approved_bridge_label(self) -> None:
+        response = production.normalize_reviewer_response(
+            "design_review",
+            {
+                "passed": False,
+                "findings": ["BRIDGE must be replaced with an approved label."],
+                "required_changes": ["Replace the BRIDGE callout label."],
+            },
+        )
+        self.assertTrue(response["passed"])
+        self.assertEqual([], response["required_changes"])
+
+    def test_reviewer_ledger_uses_normalized_student_reference(self) -> None:
+        ledger = {
+            "course_slug": "course",
+            "sources": [{
+                "source_id": "L15S06",
+                "title": "After-Move-In Service Matrix",
+                "author_or_organization": "National Association of Home Builders, BuilderBooks",
+                "formal_reference": (
+                    "National Association of Home Builders. After-Move-In Service Matrix. "
+                    "In Beyond Warranty. Accessed September 2, 2026."
+                ),
+                "source_type": "webpage",
+                "url": "https://example.org/matrix.pdf",
+                "claims_supported": [{"lesson_numbers": [15], "claim": "Service model."}],
+            }],
+        }
+        compact = production.compact_reviewer_ledger(ledger, 15)
+        reference = compact["sources"][0]["formal_reference"]
+        self.assertNotIn("Accessed", reference)
+        self.assertNotIn("Beyond Warranty", reference)
+
     def test_introduction_is_available_to_automatic_section_revision(self) -> None:
         draft = "# Introduction\n\nRevise me.\n\n## Learning Objectives\n\n- Learn.\n\n# Section 01 - Work\n\nBody.\n"
         sections = production.editable_study_guide_sections(draft, include_introduction=True)

@@ -1452,6 +1452,7 @@ def revision_requires_chapter_context(feedback: str) -> bool:
     return bool(re.search(
         r"\b(?:throughout the lesson|entire lesson|across (?:the )?(?:lesson|sections)|"
         r"reorganize the (?:lesson|chapter)|each section owns|"
+        r"complete project-review schema|canonical project-review schema|"
         r"one (?:canonical|cumulative|common) (?:case|schema|template|record)|"
         r"single (?:canonical|cumulative|common) (?:case|schema|template|record)|"
         r"keep (?:its )?field names.*consistent|reconcile every amount)\b",
@@ -2198,8 +2199,8 @@ def reviewer_prompt(
 ) -> str:
     criteria = {
         "pedagogy_review": "Check only learning progression, depth for level, MECE sections, residential examples, explanations before bullets, no classroom/group activities or quizzes, and no audience boilerplate. Learning Objectives and Summary and Key Takeaways are structural bullet-only exceptions and must not receive an orienting or framing paragraph. A HANDS-ON EXAMPLE is a deliberate exception: it must give the individual learner supplied inputs, a concrete action to perform, and an answer or result check; reject a HANDS-ON box that merely contains explanatory course-book prose. Any ordered procedure must use a real numbered Markdown list with exactly one step per source line; reject `1. ... 2. ... 3. ...` embedded in one paragraph because it hides the sequence from the learner and renderer. The Summary and Key Takeaways section must contain only 4-6 bullets, with no framing sentence or prose. Require a readable Markdown table only for one uninterrupted list of seven or more comparable items that repeatedly state category, quantity or amount, and the same condition or comment. Do not demand tables for conceptual lists, short examples, WBS vocabulary, or distinct decision steps. After a table, require prose to add a decision, exception, or interpretation rather than restating its rows. Citation style and reference formatting belong to the citation reviewer; do not fail this review merely because ordinary claims lack inline citations. Figures are planned and inserted by a separate visual pipeline after this review. Do not request ASCII diagrams, Markdown tables used as figures, fenced visual source, or final figure rendering inside the chapter Markdown.",
-        "citation_review": "Check factual support against the ledger, current applicability, clean student references, no invented claims, and no internal/local source language. Internal/local source language means file paths, ledger mechanics, reviewer rationale, or private production notes; neutral student-facing references to documented authority, organizational procedures, or project procedures are allowed. Do not demand inline citations for every source or every ordinary claim. References may include materially consulted sources even when they are not named decoratively in the teaching prose. List each work only once, even when multiple chapters or claims used it; omit chapter, section, and page details from the final References section. Evaluate that bibliography rule only against the text after the final `# References` heading. A chapter, section, or direct-content hyperlink discussed in the teaching prose is not a bibliography defect and must not be reported as one. Never request or add accessed/retrieved dates. Books, codes, standards, regulations, reports, manuals, and paginated formal publications must remain bibliographic references without URLs even when the research ledger records an official online location; do not demand URLs for those formal works. Only sources actually classified as webpages may retain the direct content URL used. The Summary and Key Takeaways section must be only 4-6 bullets, with no introductory prose; never request a summary opener.",
-        "design_review": "Check only the draft's approved structural and presentation contract: Introduction followed by Learning Objectives with no Lesson Roadmap; continuous lesson body; separate summary, glossary, and references; only the six approved callout labels; no callouts in structural sections; no H3 or deeper headings; no dash punctuation in prose; no one-line section openers; and every ordered procedure formatted as a real numbered Markdown list with one step per source line rather than several numbered markers embedded in a paragraph. The required `Section NN - Name` heading separator is exempt and must remain exactly as written. Bold lead-ins used to introduce a teaching paragraph or list are explicitly allowed; they are not headings and must not be reported as one-line section openers. A one-line section opener means a numbered Section heading whose entire section body contains only one line before the next numbered Section heading. Useful callouts inside the teaching body are allowed. Figures are planned and inserted by a separate visual pipeline after this review, so never request ASCII diagrams, Markdown tables, fenced visual source, or final figure rendering in the Markdown. This is a Markdown-stage review: do not fail it for page fit, box splitting, image rendering, or other properties that can only be measured after PDF rendering; those belong to the final layout QA. Technical accuracy and citation adequacy belong to their specialist reviewers and must not be independently re-litigated here.",
+        "citation_review": "Check factual support against the ledger, current applicability, clean student references, no invented claims, and no internal/local source language. Internal/local source language means file paths, ledger mechanics, reviewer rationale, or private production notes; neutral student-facing references to documented authority, organizational procedures, or project procedures are allowed. Do not demand inline citations for every source or every ordinary claim. References may include materially consulted sources even when they are not named decoratively in the teaching prose. List each work only once, even when multiple chapters or claims used it; omit chapter, section, and page details from the final References section. Evaluate that bibliography rule only against the text after the final `# References` heading. A chapter, section, or direct-content hyperlink discussed in the teaching prose is not a bibliography defect and must not be reported as one. Never request or add accessed/retrieved dates. Books, codes, standards, regulations, reports, manuals, and paginated formal publications must remain bibliographic references without URLs even when the research ledger records an official online location; do not demand URLs for those formal works. Only sources actually classified as webpages may retain the direct content URL used. A direct standalone PDF is cited by its normalized corporate author and document title; do not demand that a parent marketing collection be restored when the normalized ledger entry omits it. The Summary and Key Takeaways section must be only 4-6 bullets, with no introductory prose; never request a summary opener.",
+        "design_review": "Check only the draft's approved structural and presentation contract: Introduction followed by Learning Objectives with no Lesson Roadmap; continuous lesson body; separate summary, glossary, and references; only these six approved callout labels: KEY TERM, APPLY IT, HANDS-ON EXAMPLE, SCENARIO, CALLBACK, and BRIDGE; no callouts in structural sections; no H3 or deeper headings; no dash punctuation in prose; no one-line section openers; and every ordered procedure formatted as a real numbered Markdown list with one step per source line rather than several numbered markers embedded in a paragraph. BRIDGE is explicitly approved and must never be reported as an invalid label. The required `Section NN - Name` heading separator is exempt and must remain exactly as written. Bold lead-ins used to introduce a teaching paragraph or list are explicitly allowed; they are not headings and must not be reported as one-line section openers. A one-line section opener means a numbered Section heading whose entire section body contains only one line before the next numbered Section heading. Useful callouts inside the teaching body are allowed. Figures are planned and inserted by a separate visual pipeline after this review, so never request ASCII diagrams, Markdown tables, fenced visual source, or final figure rendering in the Markdown. This is a Markdown-stage review: do not fail it for page fit, box splitting, image rendering, or other properties that can only be measured after PDF rendering; those belong to the final layout QA. Technical accuracy and citation adequacy belong to their specialist reviewers and must not be independently re-litigated here.",
     }[kind]
     revision_scope = ""
     if approved_baseline and operator_revision_request:
@@ -2257,7 +2258,7 @@ def compact_reviewer_ledger(ledger: dict[str, Any], lesson_number: int) -> dict[
             "source_id": source.get("source_id"),
             "title": source.get("title"),
             "author_or_organization": source.get("author_or_organization"),
-            "formal_reference": source.get("formal_reference"),
+            "formal_reference": student_reference_for_source(source),
             "publication_date": source.get("publication_date"),
             "url": source.get("url"),
             "currency_validation": source.get("currency_validation"),
@@ -2334,6 +2335,33 @@ def archive_review_report(run: Path, lesson_tag: str, suffix: str, revision: int
         write_text(run / "review" / f"{lesson_tag}_{suffix}_r{revision:02d}.md", source.read_text(encoding="utf-8", errors="replace"))
 
 
+def normalize_reviewer_response(role: str, data: dict[str, Any]) -> dict[str, Any]:
+    """Remove reviewer requests that directly contradict deterministic policy."""
+    normalized = dict(data)
+
+    def valid(item: Any) -> bool:
+        text = str(item)
+        if role == "design_review" and re.search(
+            r"\bBRIDGE\b.*\b(?:replace|remove|invalid|not approved|approved label)\b|"
+            r"\b(?:replace|remove)\b.*\bBRIDGE\b",
+            text,
+            flags=re.I,
+        ):
+            return False
+        return True
+
+    normalized["findings"] = [item for item in data.get("findings") or [] if valid(item)]
+    normalized["required_changes"] = [item for item in data.get("required_changes") or [] if valid(item)]
+    if data.get("passed") is not True and not (normalized["findings"] or normalized["required_changes"]):
+        normalized.update({
+            "passed": True,
+            "verdict": "PASS",
+            "findings": ["No blocking issue remains after deterministic contract validation."],
+            "required_changes": [],
+        })
+    return normalized
+
+
 def run_content_reviewers(
     seed,
     lesson: dict[str, Any],
@@ -2384,6 +2412,7 @@ def run_content_reviewers(
         ]
         results = [future.result() for future in futures]
     for _role, title, suffix, data in results:
+        data = normalize_reviewer_response(_role, data)
         if approved_baseline and operator_revision_request:
             allowed_numbers = {
                 int(match.group(1))
