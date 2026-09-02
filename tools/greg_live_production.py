@@ -972,7 +972,18 @@ def student_reference_for_source(source: dict[str, Any]) -> str:
         "professional-standard", "professional-guide", "government-publication",
         "industry-publication", "manual", "report",
     }
-    formal_title = bool(re.search(r"\b(?:manual|standard|code|handbook|verification requirements)\b", text, flags=re.I))
+    # Source-research providers commonly classify government PDFs and formal
+    # guidance as the broad `government` type.  Their download URLs do not
+    # always end in `.pdf` (NIST's `get_pdf.cfm` is one example), so title
+    # semantics must also keep these works bibliographic.  Without this gate a
+    # reviewer removes the URL and the next deterministic references rebuild
+    # silently adds it again, creating a revision loop.
+    formal_title = bool(re.search(
+        r"\b(?:manual|standard|code|handbook|guidance document|quick start guide|"
+        r"verification requirements)\b",
+        text,
+        flags=re.I,
+    ))
     if source_type in formal_types or document_url or formal_title:
         text = re.sub(r"\s+https?://\S+", "", text).rstrip(" .") + "."
     elif url and url not in text:
@@ -2486,6 +2497,23 @@ def normalize_visual_strategy(visual: dict[str, Any]) -> dict[str, Any]:
     return normalized
 
 
+def restore_structured_visual_type(visual: dict[str, Any]) -> dict[str, Any]:
+    """Recover a dropped type when learner-visible diagram structure is explicit."""
+    normalized = dict(visual)
+    if normalized.get("visual_type"):
+        return normalized
+    if (
+        normalized.get("diagram_type")
+        or normalized.get("diagram_nodes")
+        or normalized.get("diagram_columns")
+        or normalized.get("diagram_rows")
+        or normalized.get("schedule_rows")
+        or normalized.get("network_paths")
+    ):
+        normalized["visual_type"] = "deterministic-diagram"
+    return normalized
+
+
 def visual_plan_has_decision_evidence(plan: dict[str, Any]) -> bool:
     """Return whether every planned visual records the current decision protocol."""
     visuals = plan.get("visuals") or []
@@ -2640,7 +2668,7 @@ def create_visual_assets(seed, lesson: dict[str, Any], draft: str, run: Path, le
     section_headings = re.findall(r"(?im)^#\s+(Section\s+\d{2}\s+-\s+[^\n]+)$", draft)
 
     def prepare_visuals(items: list[dict[str, Any]]) -> list[dict[str, Any]]:
-        prepared = [normalize_visual_strategy(visual) for visual in items]
+        prepared = [normalize_visual_strategy(restore_structured_visual_type(visual)) for visual in items]
         generated_seen = 0
         for index, visual in enumerate(prepared):
             placement = str(visual.get("placement") or "")
@@ -2664,18 +2692,26 @@ def create_visual_assets(seed, lesson: dict[str, Any], draft: str, run: Path, le
         # Allow several focused corrections before blocking, rather than
         # discarding a validated course-book draft over successive diagram
         # factual refinements.
-        for review_attempt in range(1, 5):
+        max_visual_review_attempts = 6
+        for review_attempt in range(1, max_visual_review_attempts + 1):
             plan["visuals"] = visuals
             semantic_review = request_visual_semantic_review(seed, lesson, draft, plan)
             write_json(run / "review" / f"{lesson_tag}_visual_plan_attempt_{review_attempt:02d}.json", plan)
             write_json(run / "review" / f"{lesson_tag}_visual_semantic_review_attempt_{review_attempt:02d}.json", semantic_review)
             if semantic_review.get("passed") is True:
                 break
-            if review_attempt == 4:
+            if review_attempt == max_visual_review_attempts:
                 changes = semantic_review.get("required_changes") or semantic_review.get("findings") or []
-                raise RuntimeError(f"Independent visual QA still requires changes after two review passes: {changes}")
+                raise RuntimeError(
+                    "Independent visual QA still requires changes after "
+                    f"{max_visual_review_attempts} focused review passes: {changes}"
+                )
             revision_prompt = visual_plan_prompt(seed, lesson, draft, read_uploads(seed.slug)) + (
                 "\n\nRevise the complete plan to fix every independent QA finding. Return the complete JSON object, not a patch.\n"
+                "When the reviewer supplies quoted replacement labels or cell text, copy those replacements exactly; "
+                "do not paraphrase, lengthen, or reinterpret them. Change only visuals named by the reviewer and "
+                "preserve every unmentioned visual verbatim. Apply changes to learner-visible fields, not only to "
+                "rationales, captions, or metadata.\n"
                 f"Previous plan:\n{json.dumps(plan, ensure_ascii=False)[:24000]}\n"
                 f"Required changes:\n{json.dumps(semantic_review.get('required_changes') or semantic_review.get('findings') or [], ensure_ascii=False)}"
             )
@@ -3002,10 +3038,11 @@ def produce_study_guide(course_slug: str, lesson_number: int) -> list[str]:
         write_text(working_path, draft)
     prior_revision_was_noop = False
     deterministic_checker = load_module("greg_study_guide_content_check_loop", "tools/greg_study_guide_content_check.py")
-    # Allow three complete correction passes, followed by one confirmation
-    # review. The former three-review loop produced feedback on its last round
-    # but stopped before applying that final requested correction.
-    for attempt in range(1, 5):
+    # Complex capstone lessons can expose a new, narrower finding only after a
+    # prior correction becomes visible. Keep the saved complete draft and
+    # allow focused convergence without restarting research or generation.
+    max_content_review_attempts = 6
+    for attempt in range(1, max_content_review_attempts + 1):
         if not draft:
             try:
                 draft = request_text(seed.slug, "technical_content", study_guide_prompt(seed, lesson, references, active_ledger, revision_feedback), max_tokens=24000)
@@ -3059,7 +3096,7 @@ def produce_study_guide(course_slug: str, lesson_number: int) -> list[str]:
                 "and verify each required change against the final wording."
             )
         write_text(run / "review" / f"{lesson_tag}_automatic_revision_{attempt:02d}.md", revision_feedback)
-        if attempt < 4:
+        if attempt < max_content_review_attempts:
             try:
                 prior_draft = draft
                 revised_draft = targeted_study_guide_revision(
@@ -3085,7 +3122,10 @@ def produce_study_guide(course_slug: str, lesson_number: int) -> list[str]:
             prior_revision_was_noop = draft.strip() == force_student_references(prior_draft, references).strip()
             write_text(working_path, draft)
     else:
-        raise RuntimeError("Independent study-guide reviewers still require changes after three automatic correction passes and a final confirmation review.")
+        raise RuntimeError(
+            "Independent study-guide reviewers still require changes after "
+            f"{max_content_review_attempts - 1} automatic correction passes and a final confirmation review."
+        )
 
     if operator_revision_request:
         require_targeted_study_guide_scope(revision_scope_baseline, draft, operator_allowed_headings)
