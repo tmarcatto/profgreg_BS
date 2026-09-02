@@ -3379,6 +3379,24 @@ def require_video_compatible_deck(path: Path, *, maximum_bytes: int = VIDEO_SOUR
         )
 
 
+def ready_rendered_deck_spec(run: Path, lesson_tag: str) -> tuple[dict[str, Any], Path, Path] | None:
+    """Return the latest fully rendered, QA-passing unapproved deck revision."""
+    if (run / "approval" / f"{lesson_tag}_deck_approval.md").exists():
+        return None
+    spec_path = latest_matching_path(run / "deck", f"{lesson_tag}_deck_spec_r*.json")
+    if not spec_path:
+        return None
+    spec = json.loads(spec_path.read_text(encoding="utf-8"))
+    output = run / str((spec.get("output") or {}).get("pptx") or "")
+    qa_path = run / str((spec.get("output") or {}).get("qa") or "")
+    if not output.is_file() or not qa_path.is_file():
+        return None
+    quality = load_module("greg_deck_quality_check_resume", "tools/greg_deck_quality_check.py")
+    if not quality.run_checks(output, qa_path).get("passed"):
+        return None
+    return spec, output, qa_path
+
+
 def produce_deck(course_slug: str, lesson_number: int) -> list[str]:
     seed = parse_intake(course_slug)
     run = RUNS / seed.slug
@@ -3387,6 +3405,17 @@ def produce_deck(course_slug: str, lesson_number: int) -> list[str]:
     lesson_tag = lid(lesson_number)
     approved = latest_approved_book(run, lesson_tag)
     revision_feedback = feedback_for(run, lesson_tag, "deck")
+    if not revision_feedback:
+        rendered = ready_rendered_deck_spec(run, lesson_tag)
+        if rendered:
+            existing_spec, existing_output, _ = rendered
+            require_video_compatible_deck(existing_output)
+            complete_revision_request(run, lesson_tag, "deck", existing_output)
+            update_canonical_manifest(seed.slug)
+            return [
+                f"Presentation revision {existing_spec.get('revision') or ''} resumed after rendering: {rel(existing_output)}",
+                "Presentation renderer QA passed.",
+            ]
     revision, filename = revisioned(run, "deck", f"{lesson_tag}_deck", ".pptx")
     spec_path = run / "deck" / f"{lesson_tag}_deck_spec_r{revision:02d}.json"
     resumable_spec = spec_path.exists() and not (run / "deck" / filename).exists()

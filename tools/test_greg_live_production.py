@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import importlib.util
+import json
 import sys
 import tempfile
 import unittest
@@ -108,6 +109,24 @@ class GregLiveProductionTests(unittest.TestCase):
             spec = deck / "lesson_02_deck_spec_r03.json"
             spec.write_text('{"slides": []}', encoding="utf-8")
             self.assertTrue(spec.exists() and not (deck / "lesson_02_deck_r03.pptx").exists())
+
+    def test_rendered_unapproved_deck_can_resume_without_new_model_call(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            run = Path(directory)
+            deck_dir = run / "deck"
+            deck_dir.mkdir()
+            output = deck_dir / "lesson_02_deck_r03.pptx"
+            qa = deck_dir / "lesson_02_deck_qa_r03.md"
+            output.write_bytes(b"pptx")
+            qa.write_text("QA", encoding="utf-8")
+            (deck_dir / "lesson_02_deck_spec_r03.json").write_text(
+                json.dumps({"revision": "r03", "output": {"pptx": "deck/lesson_02_deck_r03.pptx", "qa": "deck/lesson_02_deck_qa_r03.md"}}),
+                encoding="utf-8",
+            )
+            with patch.object(production, "load_module", return_value=SimpleNamespace(run_checks=lambda *_: {"passed": True})):
+                result = production.ready_rendered_deck_spec(run, "lesson_02")
+            self.assertIsNotNone(result)
+            self.assertEqual(output, result[1])
 
     def test_deck_plan_validates_visual_decisions_and_layout_diversity(self) -> None:
         decision = deck_decision()
