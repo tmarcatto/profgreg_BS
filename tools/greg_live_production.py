@@ -1327,7 +1327,32 @@ def restore_truncated_revision(candidate: str, baseline: str) -> str:
 
 def normalize_callout_density(draft: str, maximum: int = 4) -> str:
     """Keep useful body callouts; structural sections are always unboxed prose."""
-    lines = draft.splitlines()
+    raw_lines = draft.splitlines()
+    approved_labels = {"KEY TERM", "APPLY IT", "HANDS-ON EXAMPLE", "SCENARIO", "CALLBACK", "BRIDGE"}
+    # Revisions sometimes invent Markdown boxes such as NOTE, WARNING, or a
+    # free-form checkpoint title. Preserve their teaching text as ordinary
+    # prose while removing the unapproved box semantics before QA.
+    lines: list[str] = []
+    raw_index = 0
+    any_label = re.compile(r"^>\s*\*\*([^*]+?)\*\*\s*(?:[:,]\s*)?(.*)$")
+    while raw_index < len(raw_lines):
+        match = any_label.match(raw_lines[raw_index].strip())
+        if not match or match.group(1).strip().upper() in approved_labels:
+            lines.append(raw_lines[raw_index])
+            raw_index += 1
+            continue
+        end = raw_index + 1
+        while end < len(raw_lines) and raw_lines[end].lstrip().startswith(">"):
+            end += 1
+        label = match.group(1).strip().rstrip(":.,")
+        body = [match.group(2).strip()] if match.group(2).strip() else []
+        body.extend(
+            line.lstrip()[1:].strip()
+            for line in raw_lines[raw_index + 1 : end]
+            if line.lstrip()[1:].strip()
+        )
+        lines.append(f"**{label}.**" + (" " + " ".join(body) if body else ""))
+        raw_index = end
     pattern = re.compile(
         r"^>\s*(?:\*\*)?(KEY TERM|APPLY IT|HANDS-ON EXAMPLE|SCENARIO|CALLBACK|BRIDGE)(?:\*\*)?\s*(?:[:,]\s*(.*))?$",
         flags=re.IGNORECASE,

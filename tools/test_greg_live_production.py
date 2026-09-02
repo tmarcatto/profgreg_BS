@@ -988,6 +988,19 @@ Use these terms to distinguish roles.
         self.assertIn("> **HANDS-ON EXAMPLE**\n> Apply the rule and check the result.", normalized)
         self.assertNotIn("EXAMPLE**,", normalized)
 
+    def test_callout_normalizer_unboxes_unapproved_labels(self) -> None:
+        draft = (
+            "# Section 01 - Work\n\n"
+            "> **WARNING**\n"
+            "> Verify the contract before assigning authority.\n\n"
+            "> **BRIDGE**\n"
+            "> Carry the verified record forward.\n"
+        )
+        normalized = production.normalize_callout_density(draft)
+        self.assertIn("**WARNING.** Verify the contract before assigning authority.", normalized)
+        self.assertNotIn("> **WARNING**", normalized)
+        self.assertIn("> **BRIDGE**", normalized)
+
     def test_content_review_policy_allows_focused_capstone_convergence(self) -> None:
         source = Path(production.__file__).read_text(encoding="utf-8")
         self.assertIn("max_content_review_attempts = 7", source)
