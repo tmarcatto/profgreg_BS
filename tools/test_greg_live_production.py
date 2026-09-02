@@ -197,6 +197,24 @@ class GregLiveProductionTests(unittest.TestCase):
         self.assertIn("invalid presentation structure", revise.call_args.args[3])
         self.assertIn("Presentation model returned an invalid deck structure", revise.call_args.args[3])
 
+    def test_deck_normalizer_accepts_matrix_comparison_and_named_planned_actual(self) -> None:
+        slides = [{"layout": "cover", "title": "A", "subtitle": "B", "topics": ["One", "Two", "Three"]}]
+        body = [
+            {"layout": "comparison", "comparison_columns": ["Variable", "A", "B"], "comparison_rows": [{"variable": "Owner", "a": "PM", "b": "Super"}, {"variable": "Record", "a": "Log", "b": "Report"}]},
+            {"layout": "planned_actual", "planned": {"label": "Planned", "body": "Start"}, "actual": {"label": "Actual", "body": "Delayed"}},
+            {"layout": "card_sequence", "items": [{"title": "A", "body": "a"}, {"title": "B", "body": "b"}]},
+            {"layout": "row_list", "items": [{"title": "A", "body": "a"}, {"title": "B", "body": "b"}]},
+            {"layout": "checklist_rows", "items": [{"title": "A", "body": "a"}, {"title": "B", "body": "b"}]},
+            {"layout": "comparison", "left": {"title": "A", "body": "a"}, "right": {"title": "B", "body": "b"}},
+            {"layout": "card_sequence", "items": [{"title": "A", "body": "a"}, {"title": "B", "body": "b"}]},
+            {"layout": "row_list", "items": [{"title": "A", "body": "a"}, {"title": "B", "body": "b"}]},
+        ]
+        slides.extend({**item, **deck_decision()} for item in body)
+        slides.append({"layout": "takeaway"})
+        normalized = production.normalize_deck_slides({"slides": slides}, {"title": "Test"})
+        self.assertEqual("Planned", normalized[2]["left"]["title"])
+        self.assertEqual("Actual", normalized[2]["right"]["title"])
+
     def test_deck_plan_rejects_layout_selected_before_visual_medium(self) -> None:
         slides = [{"layout": "cover", "title": "A", "subtitle": "B", "topics": ["One", "Two", "Three"]}]
         layouts = ["card_sequence", "comparison", "planned_actual", "row_list", "checklist_rows", "card_sequence", "comparison", "row_list"]

@@ -3164,6 +3164,17 @@ def normalize_deck_slides(data: dict[str, Any], lesson: dict[str, Any]) -> list[
         layout = str(slide.get("layout") or "")
         if layout == "process_flow" and not 2 <= len(slide.get("items") or []) <= 6:
             raise RuntimeError("A process-flow slide needs 2-6 visible ordered items.")
+        if layout == "planned_actual":
+            if not isinstance(slide.get("left"), dict) and isinstance(slide.get("planned"), dict):
+                slide["left"] = {
+                    "title": slide["planned"].get("title") or slide["planned"].get("label") or "Planned",
+                    "body": slide["planned"].get("body") or "",
+                }
+            if not isinstance(slide.get("right"), dict) and isinstance(slide.get("actual"), dict):
+                slide["right"] = {
+                    "title": slide["actual"].get("title") or slide["actual"].get("label") or "Actual",
+                    "body": slide["actual"].get("body") or "",
+                }
         if layout == "schedule_bar_chart":
             rows = slide.get("schedule_rows") or []
             if not 3 <= len(rows) <= 7:
@@ -3285,6 +3296,12 @@ def deck_visual_plan_from_slides(slides: list[dict[str, Any]], lesson: dict[str,
                 }
                 for item in (slide.get("items") or [])
                 if isinstance(item, dict)
+            ],
+            "diagram_columns": slide.get("comparison_columns") or [],
+            "diagram_rows": [
+                {"cells": list(row.values())}
+                for row in (slide.get("comparison_rows") or [])
+                if isinstance(row, dict)
             ],
             "schedule_rows": slide.get("schedule_rows") or [],
             "network_paths": slide.get("network_paths") or [],

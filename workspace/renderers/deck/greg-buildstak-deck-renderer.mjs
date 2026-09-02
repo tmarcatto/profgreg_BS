@@ -456,10 +456,36 @@ async function renderComparison(deck, slideSpec) {
   const slide = addSlide(deck);
   await addChrome(slide, currentSlide);
   addTitle(slide, slideSpec.title, slideSpec.subtitle);
-  card(slide, "weak", slideSpec.left.title, slideSpec.left.body, 122, 270, 430, 210, C.gray, C.light);
-  card(slide, "strong", slideSpec.right.title, slideSpec.right.body, 728, 270, 430, 210, C.navy, C.softBlue);
-  addLine(slide, "compare-arrow", 574, 376, 706, 376, C.orange, 4);
-  addText(slide, "bottom-line", slideSpec.bottom_line, 154, 540, 972, 42, {
+  if (slideSpec.left && slideSpec.right) {
+    card(slide, "weak", slideSpec.left.title, slideSpec.left.body, 122, 270, 430, 210, C.gray, C.light);
+    card(slide, "strong", slideSpec.right.title, slideSpec.right.body, 728, 270, 430, 210, C.navy, C.softBlue);
+    addLine(slide, "compare-arrow", 574, 376, 706, 376, C.orange, 4);
+  } else {
+    const columns = (slideSpec.comparison_columns || []).slice(0, 4);
+    const rows = (slideSpec.comparison_rows || []).slice(0, 5);
+    const x0 = 70;
+    const tableW = 1140;
+    const firstW = 190;
+    const otherW = (tableW - firstW) / Math.max(columns.length - 1, 1);
+    const widths = columns.map((_, i) => i === 0 ? firstW : otherW);
+    let x = x0;
+    columns.forEach((column, i) => {
+      addShape(slide, `comparison-header-${i + 1}`, "rect", x, 216, widths[i], 48, i === 0 ? C.slate : C.navy, C.white, 1);
+      addText(slide, `comparison-header-text-${i + 1}`, column, x + 8, 226, widths[i] - 16, 28, { fontSize: 14, bold: true, color: C.white, alignment: "center" });
+      x += widths[i];
+    });
+    rows.forEach((row, rowIndex) => {
+      const cells = Array.isArray(row.cells) ? row.cells : Object.values(row);
+      let cellX = x0;
+      widths.forEach((width, columnIndex) => {
+        const y = 264 + rowIndex * 58;
+        addShape(slide, `comparison-${rowIndex + 1}-${columnIndex + 1}`, "rect", cellX, y, width, 58, rowIndex % 2 ? C.white : C.light, C.line, 1);
+        addText(slide, `comparison-text-${rowIndex + 1}-${columnIndex + 1}`, cells[columnIndex] || "", cellX + 8, y + 9, width - 16, 40, { fontSize: columnIndex === 0 ? 13 : 12, bold: columnIndex === 0, color: columnIndex === 0 ? C.navy : C.gray, alignment: "center" });
+        cellX += width;
+      });
+    });
+  }
+  addText(slide, "bottom-line", slideSpec.bottom_line || "", 154, 568, 972, 42, {
     fontSize: 24,
     bold: true,
     color: C.navy,
@@ -474,16 +500,22 @@ async function renderPlannedActual(deck, slideSpec) {
   // Comparison copy varies substantially by lesson.  Allocate enough room
   // for a normal four-line explanation instead of relying on a short model
   // response to stay inside the lane.
-  addShape(slide, "planned-lane", "roundRect", 106, 258, 458, 200, C.light, C.line, 1.4);
-  addShape(slide, "actual-lane", "roundRect", 716, 258, 458, 200, C.light, C.line, 1.4);
-  addText(slide, "planned-title", slideSpec.left.title, 138, 282, 386, 38, { fontSize: 22, bold: true, color: C.navy, alignment: "center" });
-  addText(slide, "planned-body", slideSpec.left.body, 146, 332, 370, 96, { fontSize: 16, color: C.gray, alignment: "center" });
-  addText(slide, "actual-title", slideSpec.right.title, 748, 282, 386, 38, { fontSize: 22, bold: true, color: C.navy, alignment: "center" });
-  addText(slide, "actual-body", slideSpec.right.body, 756, 332, 370, 96, { fontSize: 16, color: C.gray, alignment: "center" });
-  addLine(slide, "variance-arrow", 586, 362, 694, 362, C.orange, 4);
-  addText(slide, "variance-label", slideSpec.bridge_label || "Variance", 576, 294, 128, 44, { fontSize: 14, bold: true, color: C.orange, alignment: "center" });
-  addText(slide, "bottom-line", slideSpec.bottom_line, 168, 532, 944, 54, {
-    fontSize: 24,
+  const planned = slideSpec.left || slideSpec.planned || {};
+  const actual = slideSpec.right || slideSpec.actual || {};
+  addShape(slide, "planned-lane", "roundRect", 106, 232, 458, 154, C.light, C.line, 1.4);
+  addShape(slide, "actual-lane", "roundRect", 716, 232, 458, 154, C.light, C.line, 1.4);
+  addText(slide, "planned-title", planned.title || planned.label || "Planned", 138, 252, 386, 34, { fontSize: 21, bold: true, color: C.navy, alignment: "center" });
+  addText(slide, "planned-body", planned.body || "", 146, 298, 370, 70, { fontSize: 16, color: C.gray, alignment: "center" });
+  addText(slide, "actual-title", actual.title || actual.label || "Actual", 748, 252, 386, 34, { fontSize: 21, bold: true, color: C.navy, alignment: "center" });
+  addText(slide, "actual-body", actual.body || "", 756, 298, 370, 70, { fontSize: 16, color: C.gray, alignment: "center" });
+  addLine(slide, "variance-arrow", 586, 312, 694, 312, C.orange, 4);
+  addText(slide, "variance-label", slideSpec.bridge_label || "Variance", 576, 266, 128, 34, { fontSize: 14, bold: true, color: C.orange, alignment: "center" });
+  if (slideSpec.decision_ready_update) {
+    const update = slideSpec.decision_ready_update;
+    card(slide, "decision-ready", update.title || update.label || "Decision-ready update", update.body || "", 238, 410, 804, 112, C.orange, C.paleOrange);
+  }
+  addText(slide, "bottom-line", slideSpec.bottom_line || "", 168, 548, 944, 42, {
+    fontSize: 20,
     bold: true,
     color: C.navy,
     alignment: "center",
