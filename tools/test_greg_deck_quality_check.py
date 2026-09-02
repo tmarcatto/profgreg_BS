@@ -38,6 +38,19 @@ class DeckQualityCheckTests(unittest.TestCase):
         ]
         self.assertEqual([2], deck_qa.sparse_body_slides(rows, 4))
 
+    def test_empty_or_placeholder_diagram_detection(self) -> None:
+        rows = [
+            {"kind": "textbox", "slide": 2, "name": "process-1-title", "text": "Verify"},
+            {"kind": "textbox", "slide": 2, "name": "process-1-body", "text": ""},
+            {"kind": "textbox", "slide": 2, "name": "process-2-title", "text": "Authorize"},
+            {"kind": "textbox", "slide": 2, "name": "process-2-body", "text": ""},
+            {"kind": "textbox", "slide": 3, "name": "row-1-title", "text": "Record"},
+            {"kind": "textbox", "slide": 3, "name": "row-1-body", "text": "Owner approval closes the hold point."},
+            {"kind": "textbox", "slide": 3, "name": "row-2-title", "text": "Record"},
+            {"kind": "textbox", "slide": 3, "name": "row-2-body", "text": "Inspector evidence releases concealed work."},
+        ]
+        self.assertEqual([2, 3], deck_qa.empty_or_placeholder_diagram_slides(rows, 4))
+
     def test_function_classifier_distinguishes_sequence_and_trigger(self) -> None:
         sequence = deck_qa.classify_slide_function("A contract-aware PM builds five preventive habits. Read. Translate. Document.")
         trigger = deck_qa.classify_slide_function("Escalate when the issue leaves normal project control.")

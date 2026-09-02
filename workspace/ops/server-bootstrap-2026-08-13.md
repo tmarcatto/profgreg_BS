@@ -34,6 +34,7 @@
 - LibreOffice 26.2.4.2
 - Poppler `pdftoppm` 26.01.0
 - Fontconfig
+- Tesseract OCR 5.5.0 with English language data (local-only mapping of operator revision screenshots to presentation slides)
 
 ## Storage Layout
 

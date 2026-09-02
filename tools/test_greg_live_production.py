@@ -706,15 +706,45 @@ class GregLiveProductionTests(unittest.TestCase):
         self.assertIn("must not exceed 5,400 words", prompt)
 
     def test_deck_revision_prompt_preserves_unmentioned_slides(self) -> None:
-        prompt = production.deck_revision_prompt([{"layout": "cover", "title": "Existing"}], "Fix one diagram.")
+        prompt = production.deck_revision_prompt(
+            [{"layout": "cover", "title": "Existing"}],
+            "Fix one diagram.",
+            [{"request_id": "7", "request": "Fix one diagram.", "target_slide_number": 1}],
+        )
         self.assertIn("Apply only the requested changes", prompt)
         self.assertIn("Do not rebuild the presentation", prompt)
         self.assertIn("Fix one diagram.", prompt)
+        self.assertIn("revision_resolutions", prompt)
+        self.assertIn("target_slide_number", prompt)
 
         advanced = production.study_guide_revision_prompt(
             "# Existing", "Complete the ending.", "# References", attempt=1, level="Advanced"
         )
         self.assertIn("must not exceed 6,200 words", advanced)
+
+    def test_deck_revision_resolution_rejects_wrong_slide_and_empty_regions(self) -> None:
+        baseline = [
+            {"layout": "cover", "title": "Cover"},
+            {"layout": "process_flow", "title": "Flow", "items": [{"title": "A", "body": ""}, {"title": "B", "body": ""}]},
+        ]
+        candidate = [
+            baseline[0],
+            {"layout": "process_flow", "title": "Flow", "items": [{"title": "A1", "body": ""}, {"title": "B", "body": ""}]},
+        ]
+        requests = [{"id": "1", "note": "What is the blank space?"}]
+        response = {"revision_resolutions": [{"request_id": "1", "slide_number": 2, "problem": "The boxes were empty.", "change": "Changed the first visible label only."}]}
+        context = [{"request_id": "1", "target_slide_number": 2}]
+        with self.assertRaisesRegex(RuntimeError, "empty diagram regions remain"):
+            production.validate_deck_revision_resolutions(baseline, candidate, requests, response, context)
+
+        with self.assertRaisesRegex(RuntimeError, "belongs to slide 2"):
+            production.validate_deck_revision_resolutions(
+                baseline,
+                candidate,
+                requests,
+                {"revision_resolutions": [{"request_id": "1", "slide_number": 1, "problem": "Wrong slide selected.", "change": "Changed an unrelated cover slide."}]},
+                context,
+            )
 
     def test_lesson_source_refresh_requires_full_technical_authority(self) -> None:
         weak = {

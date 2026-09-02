@@ -181,6 +181,36 @@ def sparse_body_slides(rows: list[dict], slide_count: int, minimum_words: int = 
     return [slide for slide in range(2, slide_count) if len(words.get(slide, [])) < minimum_words]
 
 
+def empty_or_placeholder_diagram_slides(rows: list[dict], slide_count: int) -> list[int]:
+    """Reject diagrams whose boxes exist but their explanatory content did not render."""
+    by_slide: dict[int, list[dict]] = defaultdict(list)
+    for row in rows:
+        if row.get("kind") == "textbox":
+            by_slide[int(row.get("slide", 0) or 0)].append(row)
+    failures: list[int] = []
+    for slide in range(2, slide_count):
+        entries = by_slide.get(slide, [])
+        title_names = [
+            str(row.get("name") or "") for row in entries
+            if re.match(r"^(process|row|check|card)-\d+-title$", str(row.get("name") or ""))
+        ]
+        missing_bodies = []
+        for title_name in title_names:
+            body_name = title_name.removesuffix("-title") + "-body"
+            body = next((row for row in entries if row.get("name") == body_name), None)
+            if body is None or not str(body.get("text") or "").strip():
+                missing_bodies.append(body_name)
+        planned_actual_empty = any(row.get("name") == "planned-title" for row in entries) and any(
+            not str(next((item.get("text") or "" for item in entries if item.get("name") == name), "")).strip()
+            for name in ("planned-body", "actual-body")
+        )
+        visible_values = [str(row.get("text") or "").strip().casefold() for row in entries if row.get("name") in title_names]
+        repeated_placeholders = len(visible_values) >= 2 and len(set(filter(None, visible_values))) < len(visible_values)
+        if missing_bodies or planned_actual_empty or repeated_placeholders:
+            failures.append(slide)
+    return failures
+
+
 def bbox(row: dict) -> tuple[float, float, float, float] | None:
     value = row.get("bbox")
     if not isinstance(value, list) or len(value) != 4:
@@ -382,6 +412,12 @@ def run_checks(deck_path: Path, qa_path: Path | None = None) -> dict:
         findings.append(Finding("fail", "body_slide_content", f"Rendered body content is missing or too sparse on slides: {sparse}."))
     else:
         findings.append(Finding("pass", "body_slide_content", "Every body slide contains visible layout-specific teaching content."))
+
+    empty_diagrams = empty_or_placeholder_diagram_slides(rows, slide_count)
+    if empty_diagrams:
+        findings.append(Finding("fail", "diagram_content", f"Rendered diagrams contain empty or repeated placeholder regions on slides: {empty_diagrams}."))
+    else:
+        findings.append(Finding("pass", "diagram_content", "Every rendered diagram region contains distinct explanatory content."))
 
     similar_pairs = []
     duplicate_function_pairs = []

@@ -427,6 +427,10 @@ class GregUiServerTests(unittest.TestCase):
             self.assertEqual(2, state["request_count"])
             self.assertIn("First requested change.", text)
             self.assertIn("Second requested change.", text)
+            self.assertTrue(state["requests"][0]["requested_at"])
+            self.assertTrue(state["requests"][1]["requested_at"])
+            self.assertEqual(["request", "request"], [item["type"] for item in state["interactions"]])
+            self.assertEqual("First requested change.", state["interactions"][0]["requests"][0]["note"])
         finally:
             if run.exists():
                 shutil.rmtree(run)
@@ -436,6 +440,8 @@ class GregUiServerTests(unittest.TestCase):
         self.assertIn("Retry requested revision", html)
         self.assertIn("Revision accepted", html)
         self.assertIn("Requested corrections applied", html)
+        self.assertIn("Communication history", html)
+        self.assertIn("Worker problem", html)
         self.assertIn("revision corrected · ready for review", html)
         self.assertIn(".status-pill.approved, .status-pill.active, .status-pill.revision-approved { background: #e7f6ec; color: var(--ok); }", html)
         self.assertIn(".status-pill.ready-for-review, .status-pill.revision-corrected-ready-for-review { background: #fff6e8; color: var(--warn); }", html)

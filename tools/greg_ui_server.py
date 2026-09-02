@@ -20,6 +20,7 @@ from greg_record_approval import record_approval
 from greg_server_status import list_jobs, safe_job_root
 from greg_create_run import create_run, slugify
 from greg_localized_deck_guard import LocalizedDeckIntegrityError, localized_deck_context, validate_localized_deck
+from greg_revision_history import append_interaction, read_state, utc_now
 
 
 DEFAULT_HOST = "127.0.0.1"
@@ -713,6 +714,11 @@ def record_ui_artifact_approval(*, course_slug: str, lesson: int, artifact_type:
                 "approved_at": datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
             })
             state_path.write_text(json.dumps(state, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
+            append_interaction(
+                state_path,
+                "approved",
+                message=note or "Operator approved the corrected artifact.",
+            )
     return result
 
 
@@ -727,19 +733,32 @@ def record_revision_request(
     attachments = attachments or []
     requests = requests or [{"id": "0", "note": note, "attachments": attachments}]
     prior_requests: list[dict] = []
+    prior_state: dict = {}
     state_path = target.with_name(f"{lesson_tag}_{artifact_type}_revision_state.json")
     if state_path.exists():
         try:
-            prior_requests = list(json.loads(state_path.read_text(encoding="utf-8")).get("requests") or [])
+            prior_state = read_state(state_path)
+            prior_requests = list(prior_state.get("requests") or [])
         except json.JSONDecodeError:
             prior_requests = []
     normalized_requests = []
+    requested_at = utc_now()
+    used_ids = {str(item.get("id") or "") for item in prior_requests}
+    next_id = len(prior_requests) + 1
     for item in requests:
+        request_id = str(item.get("id") or "")
+        if not request_id or request_id in used_ids:
+            while str(next_id) in used_ids:
+                next_id += 1
+            request_id = str(next_id)
+            next_id += 1
+        used_ids.add(request_id)
         item_attachments = item.get("attachments") or []
         normalized_requests.append({
-            "id": str(item.get("id") or len(prior_requests) + 1),
+            "id": request_id,
             "note": str(item.get("note") or "").strip(),
             "attachments": item_attachments,
+            "requested_at": requested_at,
         })
     all_requests = [*prior_requests, *normalized_requests]
     lines = [f"# {lesson_tag} {artifact_type} Revision Requests", "", f"- Course slug: {course_slug}", f"- Lesson: {lesson:02d}", f"- Artifact type: {artifact_type}", ""]
@@ -756,6 +775,13 @@ def record_revision_request(
             lines.append("- None.")
         lines.append("")
     target.write_text("\n".join(lines), encoding="utf-8")
+    first_accepted_at = str(prior_state.get("accepted_at") or requested_at)
+    interactions = list(prior_state.get("interactions") or [])
+    interactions.append({
+        "type": "request",
+        "at": requested_at,
+        "requests": [{"id": item["id"], "note": item["note"]} for item in normalized_requests],
+    })
     state_path.write_text(
         json.dumps({
             "state": "revision_requested",
@@ -766,7 +792,9 @@ def record_revision_request(
             "feedback_path": str(target.relative_to(ROOT)),
             "requests": all_requests,
             "request_count": len(all_requests),
-            "accepted_at": datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
+            "accepted_at": first_accepted_at,
+            "latest_requested_at": requested_at,
+            "interactions": interactions,
         }, indent=2, ensure_ascii=False) + "\n",
         encoding="utf-8",
     )
@@ -1676,18 +1704,30 @@ def ui_shell(default_course: str) -> str:
         details.innerHTML = `<div class="notice"><strong>Lesson ${{String(target.lesson).padStart(2, '0')}} technical image batch</strong><ul>${{requestList}}</ul></div><label>Image files</label><input id="operatorImageFiles" type="file" multiple accept=".png,.jpg,.jpeg,.webp"><label>Sources and URLs</label><textarea id="operatorImageSources" placeholder="filename.ext | source or attribution | https://source-url\nOne line per file, in the same order as the requests above."></textarea>`;
       }} else if (target.kind === 'revision') {{
         const requestItems = (target.revision?.requests || []).map((request, index) => `<li><strong>Request ${{index + 1}}:</strong> ${{esc(request.note || 'Revision requested.')}}</li>`).join('');
+        const interactionLabels = {{request:'Request received', retry_requested:'Retry requested', worker_started:'Worker response', worker_failed:'Worker problem', ready_for_review:'Correction ready for review', approved:'Correction approved'}};
+        let interactions = target.revision?.interactions || [];
+        if (!interactions.length && (target.revision?.requests || []).length) {{
+          interactions = [{{type:'request', at:target.revision?.accepted_at, requests:target.revision.requests}}];
+        }}
+        const history = interactions.map((entry) => {{
+          const when = entry.at ? new Date(entry.at).toLocaleString() : 'Time not recorded';
+          const listedRequests = (entry.requests || []).map(item => `<li>${{esc(item.note || 'Revision requested.')}}</li>`).join('');
+          const problems = (entry.problems || []).map(item => `<li>${{esc(item)}}</li>`).join('');
+          const resolutions = (entry.resolutions || []).map(item => `<li><strong>Slide ${{esc(item.slide_number || '—')}}:</strong> ${{esc(item.change || item.problem || 'Correction recorded.')}}</li>`).join('');
+          return `<div class="notice"><strong>${{esc(interactionLabels[entry.type] || entry.type || 'Interaction')}} · ${{esc(when)}}</strong>${{entry.message ? `<div>${{esc(entry.message)}}</div>` : ''}}${{listedRequests ? `<div>Requested:</div><ul>${{listedRequests}}</ul>` : ''}}${{problems ? `<div>Problems:</div><ul>${{problems}}</ul>` : ''}}${{resolutions ? `<div>Responses:</div><ul>${{resolutions}}</ul>` : ''}}</div>`;
+        }}).join('');
         const statusText = target.failed
           ? 'The request was accepted, but production stopped before a corrected file was created. Retry the revision to continue.'
           : target.active
             ? 'The request was accepted and the corrected file is being produced. It will appear here when every automatic check passes.'
             : 'The request was accepted. No active production job is visible, so you can safely retry it.';
         const baselineLink = isDownloadablePath(target.path) ? `<div><a class="download-link" href="/artifact?path=${{encodeURIComponent(target.path)}}" target="_blank" rel="noopener">Open approved baseline</a></div>` : '';
-        details.innerHTML = `<div class="notice"><strong>${{target.failed ? 'Revision needs attention' : target.active ? 'Revision in progress' : 'Revision accepted'}}</strong><div>${{statusText}}</div>${{requestItems ? `<ol>${{requestItems}}</ol>` : ''}}</div>${{baselineLink}}`;
+        details.innerHTML = `<div class="notice"><strong>${{target.failed ? 'Revision needs attention' : target.active ? 'Revision in progress' : 'Revision accepted'}}</strong><div>${{statusText}}</div>${{requestItems ? `<ol>${{requestItems}}</ol>` : ''}}</div><div><strong>Communication history</strong></div>${{history}}${{baselineLink}}`;
         action.disabled = target.active;
       }} else {{
         const group = target.group;
         const filename = downloadFilename(group, target.path, target);
-        const revisionItems = target.revision?.requests?.length ? `<div class="notice"><strong>Requested corrections applied</strong><ol>${{target.revision.requests.map((request, index) => `<li><strong>Request ${{index + 1}}:</strong> ${{esc(request.note || 'Revision requested.')}}</li>`).join('')}}</ol><div>Review the corrected file below, then approve it or request another edit.</div></div>` : '';
+        const revisionItems = target.revision?.requests?.length ? `<div class="notice"><strong>Requested corrections applied</strong><ol>${{target.revision.requests.map((request, index) => `<li><strong>Request ${{index + 1}} · ${{esc(request.requested_at ? new Date(request.requested_at).toLocaleString() : target.revision.accepted_at ? new Date(target.revision.accepted_at).toLocaleString() : 'time not recorded')}}:</strong> ${{esc(request.note || 'Revision requested.')}}</li>`).join('')}}</ol>${{(target.revision.interactions || []).filter(entry => entry.type !== 'request').map(entry => {{ const response = (entry.problems || []).join(' · ') || (entry.resolutions || []).map(item => `Slide ${{item.slide_number}}: ${{item.change || item.problem}}`).join(' · ') || entry.message || 'Worker interaction recorded.'; return `<div><strong>${{esc(entry.at ? new Date(entry.at).toLocaleString() : 'Time not recorded')}}:</strong> ${{esc(response)}}</div>`; }}).join('')}}<div>Review the corrected file below, then approve it or request another edit.</div></div>` : '';
         const supportingFiles = action.value === 'request_edits' ? `<div class="hint">Add every requested change before applying the action. The agent receives them as one revision. Evidence files document an issue only; files marked for use can guide the edit and never become student references automatically.</div><div id="operatorRevisionRequests"></div><button type="button" class="mini" onclick="addRevisionRequest()">+ Add another requested change</button>` : '';
         details.innerHTML = `${{revisionItems}}<div><a class="download-link" href="/artifact?path=${{encodeURIComponent(target.path)}}&filename=${{encodeURIComponent(filename)}}" target="_blank" rel="noopener">Download selected file</a></div>${{action.value === 'request_edits' ? '' : '<textarea id="operatorNote" placeholder="Optional approval note."></textarea>'}}${{supportingFiles}}`;
         if (action.value === 'request_edits') {{ revisionRequestCount = 0; addRevisionRequest(); }}
@@ -2646,6 +2686,22 @@ class GregUiHandler(BaseHTTPRequestHandler):
                 if stage not in {"study_guide", "deck", "translations_book", "translations_deck", "pt_br_book", "pt_br_deck", "es_book", "es_deck"} or not lessons:
                     self.send_json(HTTPStatus.BAD_REQUEST, {"error": "Choose at least one lesson and a supported production type."})
                     return
+                artifact_by_stage = {
+                    "study_guide": "study_guide", "deck": "deck",
+                    "pt_br_book": "pt_br_study_guide", "pt_br_deck": "pt_br_deck",
+                    "es_book": "es_study_guide", "es_deck": "es_deck",
+                }
+                artifact_type = artifact_by_stage.get(stage)
+                if artifact_type:
+                    run = ROOT / "runs" / slugify(course)
+                    for lesson in lessons:
+                        state_path = run / "operator_feedback" / f"lesson_{lesson:02d}_{artifact_type}_revision_state.json"
+                        if read_state(state_path).get("state") == "revision_requested":
+                            append_interaction(
+                                state_path,
+                                "retry_requested",
+                                message="Operator requested another production attempt for the pending revision.",
+                            )
                 jobs = enqueue_production_lesson_jobs(
                     job_root=job_root,
                     course=course,

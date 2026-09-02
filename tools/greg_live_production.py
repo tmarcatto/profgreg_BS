@@ -33,6 +33,7 @@ from greg_localized_deck_guard import (
 )
 
 from greg_model_router import ModelRequestError, json_from_text, request_image as model_request_image, request_text as model_request_text
+from greg_revision_history import append_interaction, read_state
 from greg_security import assert_safe_run_slug
 from greg_v0_production import BRAND_ICON, NEGATIVE_WORDMARK, RUNS, lid, parse_intake, read_uploads, rel, write_json, write_text
 
@@ -1724,7 +1725,156 @@ def feedback_for(run: Path, lesson_tag: str, artifact_type: str) -> str:
     return path.read_text(encoding="utf-8", errors="replace")[-7000:] if path.exists() else ""
 
 
-def complete_revision_request(run: Path, lesson_tag: str, artifact_type: str, candidate: Path) -> None:
+def revision_requests_for(run: Path, lesson_tag: str, artifact_type: str) -> list[dict[str, Any]]:
+    state_path = run / "operator_feedback" / f"{lesson_tag}_{artifact_type}_revision_state.json"
+    state = read_state(state_path)
+    return [item for item in state.get("requests") or [] if isinstance(item, dict) and str(item.get("note") or "").strip()]
+
+
+def _match_evidence_slide(extracted: str, slides: list[dict[str, Any]]) -> tuple[int, float]:
+    stop = {"a", "an", "and", "at", "for", "from", "in", "is", "it", "of", "on", "or", "the", "to", "with"}
+    evidence_tokens = {word for word in re.findall(r"[a-z][a-z0-9'-]{2,}", extracted.lower()) if word not in stop}
+    scored: list[tuple[float, int]] = []
+    for number, slide in enumerate(slides, start=1):
+        visible = json.dumps(visible_deck_slide(slide), ensure_ascii=False)
+        slide_tokens = {word for word in re.findall(r"[a-z][a-z0-9'-]{2,}", visible.lower()) if word not in stop}
+        score = len(evidence_tokens & slide_tokens) / max(1, min(len(evidence_tokens), len(slide_tokens)))
+        scored.append((score, number))
+    score, number = max(scored, default=(0.0, 0))
+    return (number, score) if score >= 0.18 else (0, score)
+
+
+def revision_evidence_context(requests: list[dict[str, Any]], slides: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """Use local OCR only to map private screenshots to their source slide."""
+    context: list[dict[str, Any]] = []
+    for request in requests:
+        best_slide = 0
+        best_score = 0.0
+        evidence_files = 0
+        for attachment in request.get("attachments") or []:
+            path = Path(str(attachment.get("stored_path") or ""))
+            if path.suffix.lower() not in {".png", ".jpg", ".jpeg", ".webp"} or not path.is_file():
+                continue
+            try:
+                result = subprocess.run(
+                    ["tesseract", str(path), "stdout", "--psm", "6"],
+                    capture_output=True,
+                    text=True,
+                    timeout=45,
+                    check=True,
+                )
+            except (FileNotFoundError, subprocess.SubprocessError):
+                continue
+            extracted = " ".join(result.stdout.split())[:2400]
+            evidence_files += 1
+            slide_number, score = _match_evidence_slide(extracted, slides)
+            if score > best_score:
+                best_slide, best_score = slide_number, score
+        context.append({
+            "request_id": str(request.get("id") or ""),
+            "request": str(request.get("note") or "").strip(),
+            "target_slide_number": best_slide,
+            "evidence_files_checked_locally": evidence_files,
+        })
+    return context
+
+
+DECK_INTERNAL_FIELDS = {
+    "learning_job", "teaching_strategy", "visual_medium", "visual_candidates", "text_role",
+    "course_map_visual_id", "course_book_visual_id", "pedagogical_strategy", "real_example_importance",
+    "generation_suitability", "source_strategy", "evidence_considered", "alternatives_considered",
+    "selection_reason", "image_prompt", "image_name",
+}
+
+
+def visible_deck_slide(slide: dict[str, Any]) -> dict[str, Any]:
+    return {key: value for key, value in slide.items() if key not in DECK_INTERNAL_FIELDS}
+
+
+def validate_deck_revision_resolutions(
+    baseline: list[dict[str, Any]],
+    candidate: list[dict[str, Any]],
+    requests: list[dict[str, Any]],
+    response: dict[str, Any],
+    revision_context: list[dict[str, Any]] | None = None,
+) -> list[dict[str, Any]]:
+    resolutions = response.get("revision_resolutions")
+    if not isinstance(resolutions, list):
+        raise RuntimeError("Revision response omitted the per-request resolution report.")
+    expected = [str(item.get("id") or "") for item in requests]
+    actual = [str(item.get("request_id") or "") for item in resolutions if isinstance(item, dict)]
+    if len(actual) != len(expected) or set(actual) != set(expected):
+        raise RuntimeError("Revision response did not resolve every operator request exactly once.")
+    normalized: list[dict[str, Any]] = []
+    target_by_id = {
+        str(item.get("request_id") or ""): int(item.get("target_slide_number") or 0)
+        for item in revision_context or []
+    }
+    request_by_id = {str(item.get("id") or ""): str(item.get("note") or "").lower() for item in requests}
+    for item in resolutions:
+        slide_number = int(item.get("slide_number") or 0)
+        if not 1 <= slide_number <= len(candidate):
+            raise RuntimeError("Every operator request must identify the slide that was corrected.")
+        expected_slide = target_by_id.get(str(item.get("request_id") or ""), 0)
+        if expected_slide and slide_number != expected_slide:
+            raise RuntimeError(
+                f"Request {item.get('request_id')} belongs to slide {expected_slide}, not slide {slide_number}."
+            )
+        if len(str(item.get("problem") or "").split()) < 3 or len(str(item.get("change") or "").split()) < 4:
+            raise RuntimeError("Every operator request needs a concrete problem and correction response.")
+        before = visible_deck_slide(baseline[slide_number - 1])
+        after = visible_deck_slide(candidate[slide_number - 1])
+        if before == after:
+            raise RuntimeError(f"Request {item.get('request_id')} claims slide {slide_number}, but its rendered content did not change.")
+        request_text_value = request_by_id.get(str(item.get("request_id") or ""), "")
+        target = candidate[slide_number - 1]
+        if any(term in request_text_value for term in ("blank", "black", "empty", "blank space")):
+            items = [entry for entry in target.get("items") or [] if isinstance(entry, dict)]
+            empty_items = [entry for entry in items if not str(entry.get("body") or "").strip()]
+            panels = [target.get("left"), target.get("right"), target.get("decision_ready_update")]
+            empty_panels = [
+                panel for panel in panels
+                if isinstance(panel, dict) and not str(panel.get("body") or "").strip()
+            ]
+            if (items and empty_items) or empty_panels:
+                raise RuntimeError(
+                    f"Request {item.get('request_id')} reported blank content on slide {slide_number}, but empty diagram regions remain."
+                )
+        if any(term in request_text_value for term in ("same text", "duplicate", "repeated")):
+            values = []
+            for entry in target.get("items") or []:
+                if isinstance(entry, dict):
+                    values.extend([str(entry.get("title") or "").strip().casefold(), str(entry.get("body") or "").strip().casefold()])
+            values = [value for value in values if value]
+            if len(values) != len(set(values)):
+                raise RuntimeError(
+                    f"Request {item.get('request_id')} reported repeated text on slide {slide_number}, but duplicate visible labels remain."
+                )
+        normalized.append({
+            "request_id": str(item.get("request_id") or ""),
+            "slide_number": slide_number,
+            "problem": str(item.get("problem") or "").strip(),
+            "change": str(item.get("change") or "").strip(),
+        })
+    return normalized
+
+
+class DeckRevisionSlides(list):
+    """List-compatible revision result carrying its itemized QA evidence."""
+
+    def __init__(self, slides: list[dict[str, Any]], resolutions: list[dict[str, Any]]):
+        super().__init__(slides)
+        self.resolutions = resolutions
+
+
+def complete_revision_request(
+    run: Path,
+    lesson_tag: str,
+    artifact_type: str,
+    candidate: Path,
+    *,
+    resolutions: list[dict[str, Any]] | None = None,
+) -> None:
     """Publish a reviewed candidate without replacing the approved baseline."""
     state_path = run / "operator_feedback" / f"{lesson_tag}_{artifact_type}_revision_state.json"
     if not state_path.exists():
@@ -1741,6 +1891,12 @@ def complete_revision_request(run: Path, lesson_tag: str, artifact_type: str, ca
         "completed_at": datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
     })
     write_json(state_path, state)
+    append_interaction(
+        state_path,
+        "ready_for_review",
+        message="Worker completed the corrected artifact and every requested item passed revision QA.",
+        resolutions=resolutions,
+    )
 
 
 def lesson_sources_are_adequate(data: dict[str, Any]) -> bool:
@@ -3074,8 +3230,21 @@ Approved course-book visual plan:
 Approved course book:\n{book[:42000]}\nRevision feedback:\n{feedback or 'None.'}"""
 
 
-def deck_revision_prompt(slides: list[dict[str, Any]], feedback: str) -> str:
-    return f"""Revise this existing Prof Greg presentation JSON. Return JSON only as {{"slides":[...]}}.
+def deck_revision_prompt(
+    slides: list[dict[str, Any]],
+    feedback: str,
+    revision_context: list[dict[str, Any]] | None = None,
+) -> str:
+    request_contract = ""
+    if revision_context:
+        request_contract = f"""
+
+Every request is mandatory and independent. The worker inspected each private screenshot locally and mapped it to `target_slide_number`; the screenshot itself and its extracted text are not being sent. Correct that exact slide. Return one `revision_resolutions` entry per request using its exact `request_id`; each entry must contain `request_id`, `slide_number`, `problem`, and a concrete `change`. A request is unresolved if you merely rename a layout, change internal planning metadata, or claim a correction without changing the student-visible content of the target slide.
+
+Request-to-slide map:
+{json.dumps(revision_context, ensure_ascii=False)}
+"""
+    return f"""Revise this existing Prof Greg presentation JSON. Return JSON only as {{"slides":[...],"revision_resolutions":[{{"request_id":"...","slide_number":2,"problem":"...","change":"..."}}]}}.
 
 Apply only the requested changes. Preserve every unmentioned slide, layout, slide order, image path, and student-visible value exactly. Do not rebuild the presentation, add or remove slides, or alter an unrelated diagram or image. The returned `slides` array must contain all 10 slides so the renderer can produce a separate review candidate.
 
@@ -3084,7 +3253,7 @@ Supported layouts are: cover, intro_image_bullets, image_bullets, card_sequence,
 For every body slide, preserve or add the internal visual-decision fields required by the current worker: `learning_job`, `teaching_strategy`, `visual_medium`, all three `visual_candidates` with exactly one selected and concrete reasons, `text_role`, `pedagogical_strategy`, `real_example_importance`, `generation_suitability`, `source_strategy`, `evidence_considered`, `alternatives_considered`, and `selection_reason`. Adding missing internal planning metadata is not a student-visible change. The selected medium must match the preserved layout and asset: non-image layouts use `native-diagram`; trusted image assets use `trusted-source-image`; generated assets use `generated-conceptual-image`.
 
 Requested changes:
-{feedback}
+{feedback}{request_contract}
 
 Existing slides:
 {json.dumps(slides, ensure_ascii=False)}"""
@@ -3276,9 +3445,11 @@ def request_normalized_deck_revision(
     lesson: dict[str, Any],
     slides: list[dict[str, Any]],
     feedback: str,
+    revision_requests: list[dict[str, Any]] | None = None,
 ) -> list[dict[str, Any]]:
     """Require revision calls to preserve a complete renderer-compatible deck."""
     last_error = ""
+    revision_context = revision_evidence_context(revision_requests, slides) if revision_requests else []
     for attempt in range(1, 4):
         retry_feedback = feedback
         if last_error:
@@ -3290,11 +3461,21 @@ def request_normalized_deck_revision(
         revised = request_json_with_retry(
             course_slug,
             "technical_content",
-            deck_revision_prompt(slides, retry_feedback),
+            deck_revision_prompt(slides, retry_feedback, revision_context),
             max_tokens=12000,
         )
         try:
-            return normalize_deck_slides(revised, lesson)
+            normalized = normalize_deck_slides(revised, lesson)
+            if revision_requests:
+                resolutions = validate_deck_revision_resolutions(
+                    slides,
+                    normalized,
+                    revision_requests,
+                    revised,
+                    revision_context,
+                )
+                return DeckRevisionSlides(normalized, resolutions)
+            return normalized
         except RuntimeError as error:
             last_error = str(error)
             if attempt == 3:
@@ -3448,7 +3629,7 @@ def ready_rendered_deck_spec(run: Path, lesson_tag: str) -> tuple[dict[str, Any]
     return spec, output, qa_path
 
 
-def produce_deck(course_slug: str, lesson_number: int) -> list[str]:
+def _produce_deck_impl(course_slug: str, lesson_number: int) -> list[str]:
     seed = parse_intake(course_slug)
     run = RUNS / seed.slug
     course_map = json.loads((run / "course_map" / "course_map.json").read_text(encoding="utf-8"))
@@ -3456,6 +3637,8 @@ def produce_deck(course_slug: str, lesson_number: int) -> list[str]:
     lesson_tag = lid(lesson_number)
     approved = latest_approved_book(run, lesson_tag)
     revision_feedback = feedback_for(run, lesson_tag, "deck")
+    revision_requests = revision_requests_for(run, lesson_tag, "deck") if revision_feedback else []
+    revision_resolutions: list[dict[str, Any]] = []
     if not revision_feedback:
         rendered = ready_rendered_deck_spec(run, lesson_tag)
         if rendered:
@@ -3483,10 +3666,22 @@ def produce_deck(course_slug: str, lesson_number: int) -> list[str]:
                     "Do not change any student-visible content. Add only the current pedagogy-first visual-decision metadata required for a resumable presentation spec.",
                 )
         else:
-            prior_spec = latest_matching_path(run / "deck", f"{lesson_tag}_deck_spec_r*.json") if revision_feedback else None
+            prior_spec = None
+            if revision_feedback:
+                if (run / "approval" / f"{lesson_tag}_deck_approval.md").exists():
+                    _, prior_spec = approved_deck_source_spec(run, lesson_tag)
+                else:
+                    prior_spec = latest_matching_path(run / "deck", f"{lesson_tag}_deck_spec_r*.json")
             if prior_spec:
                 prior_slides = json.loads(prior_spec.read_text(encoding="utf-8")).get("slides") or []
-                slides = request_normalized_deck_revision(seed.slug, lesson, prior_slides, revision_feedback)
+                slides = request_normalized_deck_revision(
+                    seed.slug,
+                    lesson,
+                    prior_slides,
+                    revision_feedback,
+                    revision_requests=revision_requests,
+                )
+                revision_resolutions = list(getattr(slides, "resolutions", []))
             else:
                 slides = request_normalized_initial_deck(
                     seed.slug,
@@ -3534,6 +3729,7 @@ def produce_deck(course_slug: str, lesson_number: int) -> list[str]:
         "created": date.today().isoformat(),
         "production_mode": "revision" if (run / "approval" / f"{lesson_tag}_deck_approval.md").exists() else "initial",
         "revision": f"r{revision:02d}",
+        "revision_reason": revision_feedback,
         "run_folder": f"runs/{seed.slug}",
         "assets": {"brand_icon": BRAND_ICON, "negative_wordmark": NEGATIVE_WORDMARK},
         "output": {"pptx": f"deck/{filename}", "qa": f"deck/{lesson_tag}_deck_qa_r{revision:02d}.md", "rendered_dir": f"deck/rendered_slides_{lesson_tag}_r{revision:02d}"},
@@ -3544,15 +3740,56 @@ def produce_deck(course_slug: str, lesson_number: int) -> list[str]:
     baseline = approved_deck_baseline(run, lesson_tag) if (run / "approval" / f"{lesson_tag}_deck_approval.md").exists() else None
     if baseline:
         spec["approved_baseline_artifact"] = str(baseline.relative_to(run))
+    if revision_resolutions:
+        spec["revision_resolutions"] = revision_resolutions
     write_json(spec_path, spec)
-    subprocess.run([sys.executable, str(ROOT / "tools" / "greg_render_deck_from_spec.py"), str(spec_path)], cwd=ROOT, check=True)
+    rendered = subprocess.run(
+        [sys.executable, str(ROOT / "tools" / "greg_render_deck_from_spec.py"), str(spec_path)],
+        cwd=ROOT,
+        capture_output=True,
+        text=True,
+    )
+    if rendered.returncode:
+        detail = rendered.stderr.strip() or rendered.stdout.strip() or "Presentation renderer returned no diagnostic output."
+        raise RuntimeError(detail[-4000:])
     require_video_compatible_deck(run / spec["output"]["pptx"])
     qa_path = run / spec["output"]["qa"]
     if not qa_path.exists():
         raise RuntimeError("Presentation automatic QA failed; no deck was released for review.")
-    complete_revision_request(run, lesson_tag, "deck", run / spec["output"]["pptx"])
+    complete_revision_request(
+        run,
+        lesson_tag,
+        "deck",
+        run / spec["output"]["pptx"],
+        resolutions=revision_resolutions,
+    )
     update_canonical_manifest(seed.slug)
     return [f"Presentation revision r{revision:02d} created: {rel(run / spec['output']['pptx'])}", "Presentation renderer QA passed."]
+
+
+def produce_deck(course_slug: str, lesson_number: int) -> list[str]:
+    run = RUNS / assert_safe_run_slug(course_slug)
+    lesson_tag = lid(lesson_number)
+    state_path = run / "operator_feedback" / f"{lesson_tag}_deck_revision_state.json"
+    has_pending_revision = read_state(state_path).get("state") == "revision_requested"
+    if has_pending_revision:
+        append_interaction(
+            state_path,
+            "worker_started",
+            message="Delivery worker started a new attempt and will validate every requested correction separately.",
+        )
+    try:
+        return _produce_deck_impl(course_slug, lesson_number)
+    except Exception as error:
+        if has_pending_revision:
+            detail = str(error).strip() or error.__class__.__name__
+            append_interaction(
+                state_path,
+                "worker_failed",
+                message="Production stopped before a corrected presentation could be released.",
+                problems=[detail[-2000:]],
+            )
+        raise
 
 
 def approved_deck_baseline(run: Path, lesson_tag: str) -> Path:
