@@ -2865,10 +2865,11 @@ def produce_study_guide(course_slug: str, lesson_number: int) -> list[str]:
         write_text(working_path, draft)
     prior_revision_was_noop = False
     deterministic_checker = load_module("greg_study_guide_content_check_loop", "tools/greg_study_guide_content_check.py")
-    # Allow three complete correction passes, followed by one confirmation
-    # review. The former three-review loop produced feedback on its last round
-    # but stopped before applying that final requested correction.
-    for attempt in range(1, 5):
+    # Complex capstone lessons can expose a new, narrower finding only after a
+    # prior correction becomes visible. Keep the saved complete draft and
+    # allow focused convergence without restarting research or generation.
+    max_content_review_attempts = 6
+    for attempt in range(1, max_content_review_attempts + 1):
         if not draft:
             try:
                 draft = request_text(seed.slug, "technical_content", study_guide_prompt(seed, lesson, references, active_ledger, revision_feedback), max_tokens=24000)
@@ -2922,7 +2923,7 @@ def produce_study_guide(course_slug: str, lesson_number: int) -> list[str]:
                 "and verify each required change against the final wording."
             )
         write_text(run / "review" / f"{lesson_tag}_automatic_revision_{attempt:02d}.md", revision_feedback)
-        if attempt < 4:
+        if attempt < max_content_review_attempts:
             try:
                 prior_draft = draft
                 revised_draft = targeted_study_guide_revision(
@@ -2948,7 +2949,10 @@ def produce_study_guide(course_slug: str, lesson_number: int) -> list[str]:
             prior_revision_was_noop = draft.strip() == force_student_references(prior_draft, references).strip()
             write_text(working_path, draft)
     else:
-        raise RuntimeError("Independent study-guide reviewers still require changes after three automatic correction passes and a final confirmation review.")
+        raise RuntimeError(
+            "Independent study-guide reviewers still require changes after "
+            f"{max_content_review_attempts - 1} automatic correction passes and a final confirmation review."
+        )
 
     if operator_revision_request:
         require_targeted_study_guide_scope(revision_scope_baseline, draft, operator_allowed_headings)

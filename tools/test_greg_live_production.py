@@ -912,6 +912,11 @@ Use these terms to distinguish roles.
         self.assertIn("max_visual_review_attempts = 6", source)
         self.assertNotIn("after two review passes", source)
 
+    def test_content_review_policy_allows_focused_capstone_convergence(self) -> None:
+        source = Path(production.__file__).read_text(encoding="utf-8")
+        self.assertIn("max_content_review_attempts = 6", source)
+        self.assertIn("max_content_review_attempts - 1", source)
+
     def test_render_spec_fingerprint_changes_with_visuals(self) -> None:
         base = {"source_markdown": "lesson.md", "visuals": [{"title": "One"}]}
         changed = {"source_markdown": "lesson.md", "visuals": [{"title": "Two"}]}
