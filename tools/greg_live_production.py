@@ -27,6 +27,10 @@ from threading import Lock
 from typing import Any
 
 from greg_localized_book_structure import CALLOUTS, markdown_structure, structure_parity_issues
+from greg_localized_deck_guard import (
+    assert_localized_deck_matches_approved_source,
+    file_sha256 as localized_deck_file_sha256,
+)
 
 from greg_model_router import ModelRequestError, json_from_text, request_image as model_request_image, request_text as model_request_text
 from greg_security import assert_safe_run_slug
@@ -3866,7 +3870,14 @@ def localize_deck(course_slug: str, lesson_number: int, locale: str) -> list[str
         "pt_br": "O Gerente Completo de Projetos de Construção: da Pré-Construção ao Encerramento",
         "es": "El Gerente Completo de Proyectos de Construcción: de la Preconstrucción al Cierre",
     }[locale]
-    spec = {**source, "created": date.today().isoformat(), "production_mode": "revision" if revision_feedback else "initial", "revision": f"r{revision:02d}", "locale": locale, "course_title": localized_course_title, "output": {"pptx": f"localization/{folder}/{filename}", "qa": f"localization/{folder}/{lesson_tag}_{locale}_deck_qa_r{revision:02d}.md", "rendered_dir": f"localization/{folder}/rendered_slides_{lesson_tag}_r{revision:02d}"}, "slides": slides}
+    source_provenance = {
+        "approved_deck_path": str(source_deck.relative_to(run)),
+        "approved_deck_sha256": localized_deck_file_sha256(source_deck),
+        "approved_deck_spec": str(source_spec.relative_to(run)),
+        "approved_deck_spec_sha256": localized_deck_file_sha256(source_spec),
+        "approval_path": f"approval/{lesson_tag}_deck_approval.md",
+    }
+    spec = {**source, "created": date.today().isoformat(), "production_mode": "revision" if revision_feedback else "initial", "revision": f"r{revision:02d}", "locale": locale, "course_title": localized_course_title, "approved_baseline_artifact": str(source_deck.relative_to(run)), "source_provenance": source_provenance, "output": {"pptx": f"localization/{folder}/{filename}", "qa": f"localization/{folder}/{lesson_tag}_{locale}_deck_qa_r{revision:02d}.md", "rendered_dir": f"localization/{folder}/rendered_slides_{lesson_tag}_r{revision:02d}"}, "slides": slides}
     if revision_feedback:
         spec["revision_reason"] = [revision_feedback]
     spec_path = run / "localization" / folder / f"{lesson_tag}_deck_{locale}_spec_r{revision:02d}.json"
@@ -3895,6 +3906,11 @@ def localize_deck(course_slug: str, lesson_number: int, locale: str) -> list[str
             slides = localized_deck_slides(slides, fit_data.get("slides"), preserve_layout_on_drift=True)
             slides = normalize_localized_dash_punctuation(slides)
     require_video_compatible_deck(run / spec["output"]["pptx"])
+    assert_localized_deck_matches_approved_source(
+        run,
+        lesson_tag,
+        run / spec["output"]["pptx"],
+    )
     qa = run / spec["output"]["qa"]
     if not qa.exists():
         raise RuntimeError("Localized presentation QA failed.")

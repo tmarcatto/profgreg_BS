@@ -8,6 +8,8 @@ import re
 from dataclasses import dataclass, asdict
 from pathlib import Path
 
+from greg_localized_deck_guard import LocalizedDeckIntegrityError, validate_localized_deck
+
 
 ROOT = Path(__file__).resolve().parents[1]
 RUNS = ROOT / "runs"
@@ -479,17 +481,33 @@ def summarize_lessons(run: Path, manifest: dict) -> list[dict]:
             if exists:
                 row["pt_br_study_guide_path"] = rel(path)
         elif key.endswith("_deck_pt_br_pptx"):
-            row["pt_br_deck"] = "approved" if (run / "approval" / f"lesson_{str(lesson).zfill(2)}_pt_br_deck_approval.md").exists() else (status if exists else "missing")
             if exists:
-                row["pt_br_deck_path"] = rel(path)
+                try:
+                    validate_localized_deck(run, f"lesson_{str(lesson).zfill(2)}", path)
+                except LocalizedDeckIntegrityError as error:
+                    row["pt_br_deck"] = "blocked"
+                    row["pt_br_deck_quality_blockers"] = [str(error)]
+                else:
+                    row["pt_br_deck"] = "approved" if (run / "approval" / f"lesson_{str(lesson).zfill(2)}_pt_br_deck_approval.md").exists() else status
+                    row["pt_br_deck_path"] = rel(path)
+            else:
+                row["pt_br_deck"] = "missing"
         elif key.endswith("_study_guide_es_pdf"):
             row["es_study_guide"] = "approved" if (run / "approval" / f"lesson_{str(lesson).zfill(2)}_es_study_guide_approval.md").exists() else (status if exists else "missing")
             if exists:
                 row["es_study_guide_path"] = rel(path)
         elif key.endswith("_deck_es_pptx"):
-            row["es_deck"] = "approved" if (run / "approval" / f"lesson_{str(lesson).zfill(2)}_es_deck_approval.md").exists() else (status if exists else "missing")
             if exists:
-                row["es_deck_path"] = rel(path)
+                try:
+                    validate_localized_deck(run, f"lesson_{str(lesson).zfill(2)}", path)
+                except LocalizedDeckIntegrityError as error:
+                    row["es_deck"] = "blocked"
+                    row["es_deck_quality_blockers"] = [str(error)]
+                else:
+                    row["es_deck"] = "approved" if (run / "approval" / f"lesson_{str(lesson).zfill(2)}_es_deck_approval.md").exists() else status
+                    row["es_deck_path"] = rel(path)
+            else:
+                row["es_deck"] = "missing"
         elif key.endswith("_pipeline_qa"):
             row["pipeline_qa"] = "present" if exists else "missing"
             row["pipeline_qa_path"] = rel(path)

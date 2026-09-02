@@ -7,6 +7,7 @@ import sys
 import tempfile
 import unittest
 from pathlib import Path
+from unittest.mock import patch
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -20,6 +21,39 @@ spec.loader.exec_module(status)
 
 
 class CourseStatusTests(unittest.TestCase):
+    def test_invalid_localized_deck_is_blocked_and_not_downloadable(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            run = Path(tmp) / "runs" / "demo"
+            (run / "course_map").mkdir(parents=True)
+            deck = run / "localization" / "pt-br" / "lesson_05_deck_pt_br_r01.pptx"
+            deck.parent.mkdir(parents=True)
+            deck.write_bytes(b"wrong presentation")
+            (run / "course_map" / "course_map.json").write_text(
+                '{"lessons": [{"lesson_number": 5, "title": "Plan the Work"}]}',
+                encoding="utf-8",
+            )
+            manifest = {
+                "artifacts": [
+                    {
+                        "key": "lesson_05_deck_pt_br_pptx",
+                        "path": "localization/pt-br/lesson_05_deck_pt_br_r01.pptx",
+                        "status": "active",
+                        "lesson": "05",
+                    }
+                ]
+            }
+
+            with patch.object(
+                status,
+                "validate_localized_deck",
+                side_effect=status.LocalizedDeckIntegrityError("Localized deck does not match approved source."),
+            ):
+                lesson = status.summarize_lessons(run, manifest)[0]
+
+            self.assertEqual("blocked", lesson["pt_br_deck"])
+            self.assertNotIn("pt_br_deck_path", lesson)
+            self.assertIn("approved source", lesson["pt_br_deck_quality_blockers"][0])
+
     def test_operating_progress_uses_approved_artifacts_only(self) -> None:
         lessons = [
             {

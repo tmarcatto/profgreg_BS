@@ -147,6 +147,9 @@ Block localization production when:
 
 - target locale is unsupported;
 - source artifact is missing;
+- the approved deck record does not resolve to one exact revisioned PPTX and its matching render spec;
+- the localized PPTX does not preserve the approved deck's slide and object structure;
+- the recorded approved-source path or SHA-256 no longer matches;
 - approval file is missing when required;
 - the requested scope is unclear;
 - localization would require unresolved source changes.

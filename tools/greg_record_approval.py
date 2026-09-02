@@ -10,6 +10,7 @@ from datetime import date
 from pathlib import Path
 
 from greg_security import assert_safe_run_slug
+from greg_localized_deck_guard import validate_localized_deck
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -98,6 +99,12 @@ def record_approval(
     artifact_path = normalize_artifact_path(course_slug, artifact)
     if not artifact_path.exists():
         raise FileNotFoundError(f"Approved artifact does not exist: {artifact_path}")
+    if artifact_type in {"pt_br_deck", "es_deck"}:
+        validate_localized_deck(
+            RUNS / course_slug,
+            f"lesson_{lesson:02d}",
+            artifact_path,
+        )
     record = ApprovalRecord(
         course_slug=course_slug,
         lesson=lesson,

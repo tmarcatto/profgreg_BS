@@ -6,6 +6,7 @@ import shutil
 import sys
 import unittest
 from pathlib import Path
+from unittest.mock import patch
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -53,6 +54,21 @@ class GregRecordApprovalTests(unittest.TestCase):
     def test_missing_artifact_fails(self) -> None:
         with self.assertRaises(FileNotFoundError):
             approval.record_approval(self.slug, 1, "deck", "deck/missing.pptx", write_canonical=False)
+
+    def test_localized_deck_cannot_be_approved_without_source_integrity(self) -> None:
+        artifact = self.run / "localization" / "pt-br" / "lesson_01_deck_pt_br_r01.pptx"
+        artifact.parent.mkdir(parents=True)
+        artifact.write_bytes(b"wrong presentation")
+
+        with patch.object(approval, "validate_localized_deck", side_effect=RuntimeError("wrong approved source")):
+            with self.assertRaisesRegex(RuntimeError, "wrong approved source"):
+                approval.record_approval(
+                    self.slug,
+                    1,
+                    "pt_br_deck",
+                    "localization/pt-br/lesson_01_deck_pt_br_r01.pptx",
+                    write_canonical=False,
+                )
 
     def test_existing_approval_requires_force(self) -> None:
         artifact = self.run / "docx_pdf" / "lesson_01_study_guide.pdf"

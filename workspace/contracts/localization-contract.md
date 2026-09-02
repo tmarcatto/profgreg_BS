@@ -29,10 +29,14 @@ For study guide localization:
 
 For deck localization:
 
-- `deck/lesson_[NN]_deck.pptx`;
+- the exact revisioned PPTX named in `approval/lesson_[NN]_deck_approval.md`;
+- the deck spec whose revision and declared output match that approved PPTX;
 - `deck/lesson_[NN]_deck_qa.md`;
 - approved English study guide;
-- `approval/lesson_[NN]_study_guide_approval.md`.
+- `approval/lesson_[NN]_study_guide_approval.md`;
+- `approval/lesson_[NN]_deck_approval.md`.
+
+Never select a deck for localization by newest filename, modification time, cached preview, or latest spec alone.
 
 ## Outputs
 
@@ -56,6 +60,10 @@ Deck localization, when requested:
 localization/[locale]/lesson_[NN]_deck_[locale].pptx
 localization/[locale]/lesson_[NN]_deck_localization_qa.md
 ```
+
+Every localized deck spec must record the approved English deck path, its SHA-256, the matching English deck-spec path, and that spec's SHA-256. After rendering, the localized PPTX must preserve the approved deck's slide count, canvas size, layout sequence, and per-slide object structure.
+
+If provenance or structure validation fails, the localized deck is blocked. It must not appear as ready for review, be approved, be downloaded, or enter video generation.
 
 ## Global Localization Rules
 

@@ -19,6 +19,7 @@ from greg_operator import course_status, default_job_root, enqueue_job, handle_r
 from greg_record_approval import record_approval
 from greg_server_status import list_jobs, safe_job_root
 from greg_create_run import create_run, slugify
+from greg_localized_deck_guard import localized_deck_context, validate_localized_deck
 
 
 DEFAULT_HOST = "127.0.0.1"
@@ -334,6 +335,10 @@ def safe_artifact_path(value: str) -> Path:
         raise ValueError("Artifact download must stay inside the runs folder.")
     if not resolved.exists() or not resolved.is_file():
         raise FileNotFoundError(f"Artifact not found: {raw}")
+    localized_context = localized_deck_context(resolved, runs_root)
+    if localized_context:
+        run, lesson_tag = localized_context
+        validate_localized_deck(run, lesson_tag, resolved)
     return resolved
 
 

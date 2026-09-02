@@ -242,6 +242,19 @@ class GregUiServerTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             ui.safe_artifact_path("../../secrets/.env.local")
 
+    def test_safe_artifact_path_blocks_unverified_localized_deck(self) -> None:
+        target = ROOT / "runs" / "tmp-ui-localized" / "localization" / "pt-br" / "lesson_05_deck_pt_br_r01.pptx"
+        target.parent.mkdir(parents=True, exist_ok=True)
+        target.write_bytes(b"wrong deck")
+        try:
+            with patch.object(ui, "validate_localized_deck", side_effect=RuntimeError("wrong approved source")):
+                with self.assertRaisesRegex(RuntimeError, "wrong approved source"):
+                    ui.safe_artifact_path(
+                        "runs/tmp-ui-localized/localization/pt-br/lesson_05_deck_pt_br_r01.pptx"
+                    )
+        finally:
+            shutil.rmtree(ROOT / "runs" / "tmp-ui-localized")
+
     def test_safe_download_filename_sanitizes_operator_names(self) -> None:
         name = ui.safe_download_filename("Lesson 01: PM / Closeout?.pdf", "fallback.pdf")
         self.assertEqual(name, "Lesson 01- PM - Closeout-.pdf")
