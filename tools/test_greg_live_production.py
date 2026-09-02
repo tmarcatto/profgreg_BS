@@ -250,6 +250,33 @@ class GregLiveProductionTests(unittest.TestCase):
         self.assertEqual("Planned", normalized[2]["left"]["title"])
         self.assertEqual("Actual", normalized[2]["right"]["title"])
 
+    def test_deck_normalizer_accepts_columns_rows_and_planned_actual_row_variants(self) -> None:
+        slides = [{"layout": "cover", "title": "A", "subtitle": "B", "topics": ["One", "Two", "Three"]}]
+        body = [
+            {"layout": "comparison", "columns": ["Question", "Risk", "Issue"], "rows": [
+                {"cells": ["When", "Future", "Now"]}, {"cells": ["Record", "Register", "Log"]},
+            ]},
+            {"layout": "planned_actual", "items": [
+                {"title": "Access", "body": "Planned: Clear drive. Actual: Spoil blocks it. Decision: Clear before dispatch."},
+                {"title": "Storage", "body": "Planned: Dry zone. Actual: Zone occupied. Decision: Reassign it."},
+            ]},
+            {"layout": "card_sequence", "items": [{"title": "A", "body": "a"}, {"title": "B", "body": "b"}]},
+            {"layout": "row_list", "items": [{"title": "A", "body": "a"}, {"title": "B", "body": "b"}]},
+            {"layout": "checklist_rows", "items": [{"title": "A", "body": "a"}, {"title": "B", "body": "b"}]},
+            {"layout": "comparison", "left": {"title": "A", "body": "a"}, "right": {"title": "B", "body": "b"}},
+            {"layout": "card_sequence", "items": [{"title": "A", "body": "a"}, {"title": "B", "body": "b"}]},
+            {"layout": "row_list", "items": [{"title": "A", "body": "a"}, {"title": "B", "body": "b"}]},
+        ]
+        slides.extend({**slide, **deck_decision()} for slide in body)
+        slides.append({"layout": "takeaway"})
+
+        normalized = production.normalize_deck_slides({"slides": slides}, {"title": "Test"})
+
+        self.assertEqual(["Question", "Risk", "Issue"], normalized[1]["comparison_columns"])
+        self.assertEqual(["When", "Future", "Now"], normalized[1]["comparison_rows"][0]["cells"])
+        self.assertEqual("Clear drive", normalized[2]["planned_actual_rows"][0]["planned"])
+        self.assertEqual("Clear before dispatch", normalized[2]["planned_actual_rows"][0]["action"])
+
     def test_deck_plan_rejects_layout_selected_before_visual_medium(self) -> None:
         slides = [{"layout": "cover", "title": "A", "subtitle": "B", "topics": ["One", "Two", "Three"]}]
         layouts = ["card_sequence", "comparison", "planned_actual", "row_list", "checklist_rows", "card_sequence", "comparison", "row_list"]

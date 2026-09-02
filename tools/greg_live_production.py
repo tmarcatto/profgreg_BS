@@ -3167,6 +3167,15 @@ def normalize_deck_slides(data: dict[str, Any], lesson: dict[str, Any]) -> list[
         layout = str(slide.get("layout") or "")
         if layout == "process_flow" and not 2 <= len(slide.get("items") or []) <= 6:
             raise RuntimeError("A process-flow slide needs 2-6 visible ordered items.")
+        if layout == "comparison":
+            if not isinstance(slide.get("comparison_columns"), list) and isinstance(slide.get("columns"), list):
+                slide["comparison_columns"] = slide["columns"]
+            if not isinstance(slide.get("comparison_rows"), list) and isinstance(slide.get("rows"), list):
+                slide["comparison_rows"] = [
+                    {"cells": list(row.get("cells") or row.values())}
+                    for row in slide["rows"]
+                    if isinstance(row, dict)
+                ]
         if layout == "planned_actual":
             if not isinstance(slide.get("left"), dict) and isinstance(slide.get("planned"), dict):
                 slide["left"] = {
@@ -3178,6 +3187,25 @@ def normalize_deck_slides(data: dict[str, Any], lesson: dict[str, Any]) -> list[
                     "title": slide["actual"].get("title") or slide["actual"].get("label") or "Actual",
                     "body": slide["actual"].get("body") or "",
                 }
+            rows = slide.get("planned_actual_rows") if isinstance(slide.get("planned_actual_rows"), list) else []
+            if not rows and isinstance(slide.get("items"), list):
+                for item in slide["items"]:
+                    if not isinstance(item, dict):
+                        continue
+                    parts = re.split(r"\b(Planned|Actual|Decision):\s*", str(item.get("body") or ""), flags=re.I)
+                    values = {
+                        parts[index].lower(): parts[index + 1].strip().rstrip(".")
+                        for index in range(1, len(parts) - 1, 2)
+                    }
+                    if values.get("planned") and values.get("actual"):
+                        rows.append({
+                            "item": item.get("title") or "Condition",
+                            "planned": values["planned"],
+                            "actual": values["actual"],
+                            "action": values.get("decision") or "",
+                        })
+                if rows:
+                    slide["planned_actual_rows"] = rows
         if layout == "schedule_bar_chart":
             rows = slide.get("schedule_rows") or []
             if not 3 <= len(rows) <= 7:

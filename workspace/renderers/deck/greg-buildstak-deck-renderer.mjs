@@ -497,6 +497,39 @@ async function renderPlannedActual(deck, slideSpec) {
   const slide = addSlide(deck);
   await addChrome(slide, currentSlide);
   addTitle(slide, slideSpec.title, slideSpec.subtitle);
+  const rows = (slideSpec.planned_actual_rows || []).slice(0, 5);
+  if (rows.length) {
+    const columns = ["Condition", "Planned", "Actual", "Decision / action"];
+    const x0 = 58;
+    const widths = [160, 286, 286, 432];
+    let x = x0;
+    columns.forEach((column, index) => {
+      addShape(slide, `variance-header-${index + 1}`, "rect", x, 210, widths[index], 46, index === 0 ? C.slate : C.navy, C.white, 1);
+      addText(slide, `variance-header-text-${index + 1}`, column, x + 8, 220, widths[index] - 16, 26, { fontSize: 14, bold: true, color: C.white, alignment: "center" });
+      x += widths[index];
+    });
+    const rowHeight = rows.length > 3 ? 61 : 82;
+    rows.forEach((row, rowIndex) => {
+      const action = [row.variance, row.action].filter(Boolean).join(" — ");
+      const cells = [row.item || row.title || "Condition", row.planned || "", row.actual || "", action];
+      let cellX = x0;
+      widths.forEach((width, columnIndex) => {
+        const y = 256 + rowIndex * rowHeight;
+        addShape(slide, `variance-${rowIndex + 1}-${columnIndex + 1}`, "rect", cellX, y, width, rowHeight, rowIndex % 2 ? C.white : C.light, C.line, 1);
+        addText(slide, `variance-text-${rowIndex + 1}-${columnIndex + 1}`, cells[columnIndex], cellX + 8, y + 7, width - 16, rowHeight - 14, {
+          fontSize: rows.length > 3 ? (columnIndex === 0 ? 12 : 11) : (columnIndex === 0 ? 14 : 13),
+          bold: columnIndex === 0,
+          color: columnIndex === 0 ? C.navy : C.gray,
+          alignment: "center",
+        });
+        cellX += width;
+      });
+    });
+    addText(slide, "bottom-line", slideSpec.bottom_line || "", 168, 576, 944, 38, {
+      fontSize: 17, bold: true, color: C.navy, alignment: "center",
+    });
+    return;
+  }
   // Comparison copy varies substantially by lesson.  Allocate enough room
   // for a normal four-line explanation instead of relying on a short model
   // response to stay inside the lane.
