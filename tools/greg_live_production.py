@@ -1420,7 +1420,22 @@ def normalize_callout_density(draft: str, maximum: int = 4) -> str:
             body.extend(line.lstrip()[1:].strip() for line in lines[block["start"] + 1 : block["end"]] if line.lstrip()[1:].strip())
             output.append(" ".join(body).strip())
         index = block["end"]
-    return "\n".join(output).rstrip() + "\n"
+    normalized = "\n".join(output).rstrip() + "\n"
+    approved_count = len(re.findall(
+        r"(?im)^>\s*\*\*(?:KEY TERM|APPLY IT|HANDS-ON EXAMPLE|SCENARIO|CALLBACK|BRIDGE)\*\*\s*$",
+        normalized,
+    ))
+    if approved_count < 2:
+        body_end = re.search(r"(?im)^#\s+Summary and Key Takeaways\s*$", normalized)
+        searchable = normalized[: body_end.start()] if body_end else normalized
+        candidate = re.search(
+            r"(?im)^\*\*(?:Tip|Important|Note|Warning|Caution)\.\*\*\s+(.+)$",
+            searchable,
+        )
+        if candidate:
+            replacement = "> **APPLY IT**\n> " + candidate.group(1).strip()
+            normalized = normalized[: candidate.start()] + replacement + normalized[candidate.end() :]
+    return normalized
 
 
 def study_guide_revision_prompt(
@@ -2376,7 +2391,7 @@ def archive_review_report(run: Path, lesson_tag: str, suffix: str, revision: int
         write_text(run / "review" / f"{lesson_tag}_{suffix}_r{revision:02d}.md", source.read_text(encoding="utf-8", errors="replace"))
 
 
-def normalize_reviewer_response(role: str, data: dict[str, Any]) -> dict[str, Any]:
+def normalize_reviewer_response(role: str, data: dict[str, Any], draft: str = "") -> dict[str, Any]:
     """Remove reviewer requests that directly contradict deterministic policy."""
     normalized = dict(data)
 
@@ -2389,6 +2404,10 @@ def normalize_reviewer_response(role: str, data: dict[str, Any]) -> dict[str, An
             flags=re.I,
         ):
             return False
+        invented = re.findall(r"\b(TIP|IMPORTANT|NOTE|WARNING|CAUTION)\b", text, flags=re.I)
+        if invented and re.search(r"\b(callout|label)\b", text, flags=re.I):
+            if not any(re.search(rf"(?im)^>\s*(?:\*\*{re.escape(label)}\*\*|\[!{re.escape(label)}\])", draft) for label in invented):
+                return False
         return True
 
     normalized["findings"] = [item for item in data.get("findings") or [] if valid(item)]
@@ -2453,7 +2472,7 @@ def run_content_reviewers(
         ]
         results = [future.result() for future in futures]
     for _role, title, suffix, data in results:
-        data = normalize_reviewer_response(_role, data)
+        data = normalize_reviewer_response(_role, data, draft)
         if approved_baseline and operator_revision_request:
             allowed_numbers = {
                 int(match.group(1))

@@ -997,19 +997,31 @@ Use these terms to distinguish roles.
             "> Carry the verified record forward.\n"
         )
         normalized = production.normalize_callout_density(draft)
-        self.assertIn("**WARNING.** Verify the contract before assigning authority.", normalized)
+        self.assertIn("> **APPLY IT**\n> Verify the contract before assigning authority.", normalized)
         self.assertNotIn("> **WARNING**", normalized)
         self.assertIn("> **BRIDGE**", normalized)
 
     def test_callout_normalizer_unboxes_admonition_syntax(self) -> None:
         draft = (
             "# Section 01 - Work\n\n"
+            "> **BRIDGE**\n> Carry the record forward.\n\n"
             "> [!IMPORTANT]\n"
             "> Verify the governing record.\n"
         )
         normalized = production.normalize_callout_density(draft)
-        self.assertIn("**Important.** Verify the governing record.", normalized)
+        self.assertIn("> **APPLY IT**\n> Verify the governing record.", normalized)
         self.assertNotIn("[!IMPORTANT]", normalized)
+
+    def test_callout_normalizer_promotes_one_instruction_when_below_minimum(self) -> None:
+        draft = (
+            "# Section 01 - Work\n\n"
+            "> **BRIDGE**\n> Carry the record forward.\n\n"
+            "> **WARNING**\n> Verify the governing record before assigning authority.\n\n"
+            "# Summary and Key Takeaways\n\n- One.\n- Two.\n- Three.\n- Four.\n"
+        )
+        normalized = production.normalize_callout_density(draft)
+        self.assertIn("> **BRIDGE**", normalized)
+        self.assertIn("> **APPLY IT**\n> Verify the governing record before assigning authority.", normalized)
 
     def test_content_review_policy_allows_focused_capstone_convergence(self) -> None:
         source = Path(production.__file__).read_text(encoding="utf-8")
@@ -1050,6 +1062,18 @@ Use these terms to distinguish roles.
         )
         self.assertTrue(response["passed"])
         self.assertEqual([], response["required_changes"])
+
+    def test_reviewer_cannot_reject_unboxed_admonition_as_callout(self) -> None:
+        response = production.normalize_reviewer_response(
+            "design_review",
+            {
+                "passed": False,
+                "findings": ["Replace the NOTE callout with an approved label."],
+                "required_changes": ["Replace every NOTE callout label."],
+            },
+            "# Section 01 - Work\n\n**Note.** This is ordinary prose.\n",
+        )
+        self.assertTrue(response["passed"])
 
     def test_reviewer_ledger_uses_normalized_student_reference(self) -> None:
         ledger = {
