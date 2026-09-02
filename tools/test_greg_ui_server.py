@@ -92,11 +92,13 @@ class GregUiServerTests(unittest.TestCase):
         self.assertIn("/api/produce", html)
         self.assertIn("Generate course books", html)
         self.assertIn("Translate course books (PT + ES)", html)
+        self.assertIn("Translate PT-BR books only", html)
+        self.assertIn("Translate ES books only", html)
         self.assertIn("Translate presentations (PT + ES)", html)
         self.assertIn("produceSelected('translations_book')", html)
+        self.assertIn("produceSelected('pt_br_book')", html)
+        self.assertIn("produceSelected('es_book')", html)
         self.assertIn("produceSelected('translations_deck')", html)
-        self.assertNotIn("Generate PT-BR books", html)
-        self.assertNotIn("Generate ES books", html)
         self.assertIn("lesson-table", html)
         self.assertIn("/api/jobs?course=", html)
         self.assertIn("documentCell", html)
@@ -555,6 +557,21 @@ class GregUiServerTests(unittest.TestCase):
             transition_job(job_root, jobs[0]["job_id"], "completed")
             remaining = [job for job in ui.list_jobs(job_root) if job["state"] == "queued"]
             self.assertEqual([job["lesson"] for job in remaining], [6, 7, 8, 9])
+
+    def test_combined_book_translations_queue_each_locale_independently(self) -> None:
+        (ROOT / "tmp" / "jobs").mkdir(parents=True, exist_ok=True)
+        with tempfile.TemporaryDirectory(dir=ROOT / "tmp" / "jobs") as tmp:
+            jobs = ui.enqueue_production_lesson_jobs(
+                job_root=Path(tmp),
+                course="demo-course",
+                stage="translations_book",
+                lessons=[7, 8],
+            )
+
+            self.assertEqual(
+                [(job["lesson"], job["payload"]["stage"]) for job in jobs],
+                [(7, "pt_br_book"), (7, "es_book"), (8, "pt_br_book"), (8, "es_book")],
+            )
 
     def test_rejects_unsupported_upload_extension(self) -> None:
         with self.assertRaises(ValueError):

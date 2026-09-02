@@ -85,19 +85,24 @@ def enqueue_production_lesson_jobs(
     stage: str,
     lessons: list[int],
 ) -> list[dict[str, object]]:
-    """Queue each selected lesson independently so one completion cannot consume a batch."""
+    """Queue each lesson and locale independently so one failure cannot consume a batch."""
     jobs: list[dict[str, object]] = []
+    stages = {
+        "translations_book": ("pt_br_book", "es_book"),
+        "translations_deck": ("pt_br_deck", "es_deck"),
+    }.get(stage, (stage,))
     for lesson in lessons:
-        result = enqueue_job(
-            job_root=job_root,
-            request_type="production_stage",
-            course_slug=course,
-            lesson=lesson,
-            summary=f"operator requested {stage} for lesson {lesson}",
-            payload={"stage": stage, "lessons": [lesson]},
-        )
-        if result.job:
-            jobs.append(result.job)
+        for queued_stage in stages:
+            result = enqueue_job(
+                job_root=job_root,
+                request_type="production_stage",
+                course_slug=course,
+                lesson=lesson,
+                summary=f"operator requested {queued_stage} for lesson {lesson}",
+                payload={"stage": queued_stage, "lessons": [lesson]},
+            )
+            if result.job:
+                jobs.append(result.job)
     return jobs
 
 
@@ -1310,6 +1315,8 @@ def ui_shell(default_course: str) -> str:
               <button class="primary" id="produceBooks">Generate course books</button>
               <button id="produceDecks">Generate presentations</button>
               <button id="produceTranslatedBooks">Translate course books (PT + ES)</button>
+              <button id="producePtBrBooks">Translate PT-BR books only</button>
+              <button id="produceEsBooks">Translate ES books only</button>
               <button id="produceTranslatedDecks">Translate presentations (PT + ES)</button>
             </div>
           </div>
@@ -2351,6 +2358,8 @@ def ui_shell(default_course: str) -> str:
     document.getElementById('produceBooks').onclick = () => produceSelected('study_guide');
     document.getElementById('produceDecks').onclick = () => produceSelected('deck');
     document.getElementById('produceTranslatedBooks').onclick = () => produceSelected('translations_book');
+    document.getElementById('producePtBrBooks').onclick = () => produceSelected('pt_br_book');
+    document.getElementById('produceEsBooks').onclick = () => produceSelected('es_book');
     document.getElementById('produceTranslatedDecks').onclick = () => produceSelected('translations_deck');
     document.getElementById('selectAllLessons').onchange = event => {{
       document.querySelectorAll('[data-lesson-select]').forEach(input => input.checked = event.target.checked);
