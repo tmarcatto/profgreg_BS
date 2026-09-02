@@ -176,6 +176,27 @@ class GregLiveProductionTests(unittest.TestCase):
         self.assertEqual("schedule_bar_chart", normalized[2]["layout"])
         self.assertEqual("activity_network", normalized[3]["layout"])
 
+    def test_initial_deck_structure_failure_uses_bounded_revision_recovery(self) -> None:
+        malformed = {
+            "slides": [
+                {"layout": "cover", "title": "A", "subtitle": "B", "topics": ["One", "Two", "Three"]},
+                {"layout": "process_flow", "items": [], **deck_decision()},
+            ]
+        }
+        repaired = [{"layout": "cover"}, {"layout": "takeaway"}]
+        with (
+            patch.object(production, "request_json_with_retry", return_value=malformed),
+            patch.object(production, "request_normalized_deck_revision", return_value=repaired) as revise,
+        ):
+            result = production.request_normalized_initial_deck(
+                "demo",
+                {"title": "Test", "learning_goal": "Test"},
+                "Create a deck.",
+            )
+        self.assertEqual(repaired, result)
+        self.assertIn("invalid presentation structure", revise.call_args.args[3])
+        self.assertIn("Presentation model returned an invalid deck structure", revise.call_args.args[3])
+
     def test_deck_plan_rejects_layout_selected_before_visual_medium(self) -> None:
         slides = [{"layout": "cover", "title": "A", "subtitle": "B", "topics": ["One", "Two", "Three"]}]
         layouts = ["card_sequence", "comparison", "planned_actual", "row_list", "checklist_rows", "card_sequence", "comparison", "row_list"]
@@ -187,13 +208,26 @@ class GregLiveProductionTests(unittest.TestCase):
 
     def test_deck_visual_plan_records_pedagogy_media_and_text_role(self) -> None:
         slides = [{"layout": "cover"}]
-        slides.extend({"layout": "comparison", "title": f"Decision {index}", **deck_decision()} for index in range(2, 10))
+        slides.extend(
+            {
+                "layout": "card_sequence",
+                "title": f"Decision {index}",
+                "items": [{"title": "Observe", "body": "Check the work"}],
+                **deck_decision(),
+            }
+            for index in range(2, 10)
+        )
         slides.append({"layout": "takeaway"})
         plan = production.deck_visual_plan_from_slides(slides, {"lesson_number": 4})
         self.assertEqual("deck", plan["artifact_type"])
         self.assertEqual("diagnose-and-decide", plan["visuals"][0]["teaching_strategy"])
         self.assertEqual("native-diagram", plan["visuals"][0]["visual_medium"])
         self.assertIn("decision rule", plan["visuals"][0]["text_role"])
+        self.assertEqual("card-sequence", plan["visuals"][0]["diagram_type"])
+        self.assertEqual(
+            [{"title": "Observe", "detail": "Check the work"}],
+            plan["visuals"][0]["diagram_nodes"],
+        )
 
     def test_deck_prompt_chooses_pedagogy_before_comparing_three_media(self) -> None:
         prompt = production.deck_prompt(

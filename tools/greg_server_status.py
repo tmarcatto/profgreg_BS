@@ -738,6 +738,25 @@ def recover_interrupted_jobs(job_root: Path, *, worker_lane: str = "all") -> lis
                     input_summary="resume interrupted AI Studios video generation",
                     payload=payload,
                 )
+        elif job.get("request_type") == "production_stage":
+            payload = dict(job.get("payload") or {})
+            recovery_count = int(payload.get("recoveryCount") or 0)
+            # Course-production stages persist revision specs and other
+            # resumable intermediates. Requeue an interrupted stage so a
+            # deployment or service restart cannot silently discard the
+            # operator's request. The bound prevents an unhealthy host from
+            # retrying forever across repeated restarts.
+            if recovery_count < 3:
+                payload["recoveryCount"] = recovery_count + 1
+                create_job(
+                    job_root=root,
+                    request_type="production_stage",
+                    course_slug=str(job.get("course_slug") or ""),
+                    lesson=int(job.get("lesson") or 0) or None,
+                    requested_by="automatic-production-recovery",
+                    input_summary=f"resume interrupted {payload.get('stage') or 'production'} stage",
+                    payload=payload,
+                )
         recovered.append(job_id)
     return recovered
 

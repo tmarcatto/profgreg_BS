@@ -19,7 +19,11 @@ class Finding:
 GENERATED_TYPES = {"generated-conceptual-image"}
 SOURCE_TYPES = {"trusted-source-image", "real-source-image"}
 DIAGRAM_TYPES = {"deterministic-diagram", "chart", "process-flow", "structured-visual"}
-DIAGRAM_MECHANISMS = {"process-flow", "relationship-map", "comparison-matrix", "card-sequence", "cost-stack", "schedule-bar-chart", "activity-network"}
+DIAGRAM_MECHANISMS = {
+    "process-flow", "relationship-map", "comparison-matrix", "card-sequence", "cost-stack",
+    "schedule-bar-chart", "activity-network", "planned-actual", "paired-record-rows",
+    "verification-checklist",
+}
 BRAND_TYPES = {"brand-mark", "logo"}
 ALLOWED_HIGHLIGHT_REASONS = {
     "exception",

@@ -3006,6 +3006,39 @@ DECK_LAYOUT_MECHANISMS = {
 }
 
 
+def request_normalized_initial_deck(
+    course_slug: str,
+    lesson: dict[str, Any],
+    prompt: str,
+) -> list[dict[str, Any]]:
+    """Recover a malformed first deck response instead of failing the worker job.
+
+    The deck model occasionally chooses a supported mechanism but omits its
+    renderer-specific collection (for example ``items`` or ``network_paths``).
+    Revision requests already know how to correct those shapes, so route the
+    first validation failure through the same bounded recovery path.
+    """
+    plan = request_json_with_retry(
+        course_slug,
+        "technical_content",
+        prompt,
+        max_tokens=12000,
+    )
+    try:
+        return normalize_deck_slides(plan, lesson)
+    except RuntimeError as error:
+        return request_normalized_deck_revision(
+            course_slug,
+            lesson,
+            plan.get("slides") if isinstance(plan.get("slides"), list) else [],
+            (
+                "Correct only the invalid presentation structure reported below. "
+                "Preserve every valid slide and all compliant student-visible content.\n\n"
+                f"Structure failure:\n{error}"
+            ),
+        )
+
+
 def deck_prompt(seed, lesson: dict[str, Any], book: str, visual_plan: dict[str, Any], feedback: str) -> str:
     return f"""Return JSON only for a 10-slide English presentation that teaches Lesson {lesson['lesson_number']}: {lesson['title']} from {seed.title}.
 
@@ -3245,6 +3278,14 @@ def deck_visual_plan_from_slides(slides: list[dict[str, Any]], lesson: dict[str,
             "selection_reason": slide["selection_reason"],
             "diagram_type": DECK_LAYOUT_MECHANISMS.get(str(slide.get("layout") or ""), ""),
             "diagram_rationale": slide["selection_reason"] if medium == "native-diagram" else "",
+            "diagram_nodes": [
+                {
+                    "title": str(item.get("title") or item.get("label") or ""),
+                    "detail": str(item.get("body") or item.get("detail") or ""),
+                }
+                for item in (slide.get("items") or [])
+                if isinstance(item, dict)
+            ],
             "schedule_rows": slide.get("schedule_rows") or [],
             "network_paths": slide.get("network_paths") or [],
             "context_focus": "U.S. residential construction",
@@ -3350,9 +3391,9 @@ def produce_deck(course_slug: str, lesson_number: int) -> list[str]:
                 prior_slides = json.loads(prior_spec.read_text(encoding="utf-8")).get("slides") or []
                 slides = request_normalized_deck_revision(seed.slug, lesson, prior_slides, revision_feedback)
             else:
-                plan = request_json_with_retry(
+                slides = request_normalized_initial_deck(
                     seed.slug,
-                    "technical_content",
+                    lesson,
                     deck_prompt(
                         seed,
                         lesson,
@@ -3361,9 +3402,7 @@ def produce_deck(course_slug: str, lesson_number: int) -> list[str]:
                         if (run / "review" / f"{lesson_tag}_visual_plan.json").exists() else {},
                         revision_feedback,
                     ),
-                    max_tokens=12000,
                 )
-                slides = normalize_deck_slides(plan, lesson)
         deck_visual_plan_path = run / "deck" / f"{lesson_tag}_visual_plan.json"
         visual_checker = load_module("greg_visual_plan_check", "tools/greg_visual_plan_check.py")
         for visual_attempt in range(1, 4):

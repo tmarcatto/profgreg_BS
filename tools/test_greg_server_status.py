@@ -369,6 +369,43 @@ class GregServerStatusTests(unittest.TestCase):
         queued = next(item for item in jobs if item["state"] == "queued")
         self.assertEqual(1, queued["payload"]["recoveryCount"])
 
+    def test_interrupted_production_stage_is_requeued_with_bounded_recovery(self) -> None:
+        (ROOT / "tmp" / "jobs").mkdir(parents=True, exist_ok=True)
+        with tempfile.TemporaryDirectory(dir=ROOT / "tmp" / "jobs") as tmp:
+            root = Path(tmp)
+            job = checker.create_job(
+                job_root=root,
+                request_type="production_stage",
+                course_slug="demo",
+                lesson=6,
+                payload={"stage": "deck", "lessons": [6], "recoveryCount": 1},
+            )
+            checker.transition_job(root, job["job_id"], "running", note="claimed")
+            checker.recover_interrupted_jobs(root, worker_lane="delivery")
+            jobs = checker.list_jobs(root)
+        self.assertEqual(2, len(jobs))
+        queued = next(item for item in jobs if item["state"] == "queued")
+        self.assertEqual("automatic-production-recovery", queued["requested_by"])
+        self.assertEqual(2, queued["payload"]["recoveryCount"])
+        self.assertEqual([6], queued["payload"]["lessons"])
+
+    def test_interrupted_production_stage_stops_after_three_recoveries(self) -> None:
+        (ROOT / "tmp" / "jobs").mkdir(parents=True, exist_ok=True)
+        with tempfile.TemporaryDirectory(dir=ROOT / "tmp" / "jobs") as tmp:
+            root = Path(tmp)
+            job = checker.create_job(
+                job_root=root,
+                request_type="production_stage",
+                course_slug="demo",
+                lesson=6,
+                payload={"stage": "deck", "lessons": [6], "recoveryCount": 3},
+            )
+            checker.transition_job(root, job["job_id"], "running", note="claimed")
+            checker.recover_interrupted_jobs(root, worker_lane="delivery")
+            jobs = checker.list_jobs(root)
+        self.assertEqual(1, len(jobs))
+        self.assertEqual("failed", jobs[0]["state"])
+
     def test_content_worker_does_not_recover_running_delivery_job(self) -> None:
         (ROOT / "tmp" / "jobs").mkdir(parents=True, exist_ok=True)
         with tempfile.TemporaryDirectory(dir=ROOT / "tmp" / "jobs") as tmp:

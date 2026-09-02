@@ -97,3 +97,7 @@ The first worker implementation is intentionally narrow:
 Video jobs run one at a time in the delivery lane. Each locale fails independently and retries at most twice. The worker uploads the approved presentation, preserves AI Studios transcript generation, exports the video, and records the direct download URL. No browser session is part of the worker flow.
 
 The delivery worker runs with `--auto-video`. On every poll it discovers approved canonical presentation revisions whose SHA-256 has never been queued, creates exactly one `video_generation` job for each locale, and processes the queue serially. A worker restart may create one recovery job for an interrupted video; the persisted AI Studios project/export identifiers make that recovery resumable without creating a duplicate project for the same source revision.
+
+## Interrupted Production Recovery
+
+An interrupted `production_stage` job is marked failed for an accurate audit trail and requeued with the same course, lesson, stage, and payload. Production stages persist revision specs and are resumable, so a planned deployment or service restart must not silently discard an operator request. Automatic restart recovery is limited to three attempts; after that, the job remains failed for operator investigation.

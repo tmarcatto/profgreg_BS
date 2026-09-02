@@ -159,6 +159,40 @@ class VisualPlanCheckTests(unittest.TestCase):
             self.assertFalse(result["passed"])
             self.assertTrue(any(item["check"] == "diagram_visible_capacity" and item["status"] == "fail" for item in result["findings"]))
 
+    def test_deck_renderer_mechanisms_are_accepted_by_visual_qa(self) -> None:
+        for mechanism in ("planned-actual", "paired-record-rows", "verification-checklist"):
+            with self.subTest(mechanism=mechanism), tempfile.TemporaryDirectory() as tmp:
+                path = Path(tmp) / "visual_plan.json"
+                path.write_text(
+                    json.dumps(
+                        {
+                            "artifact_type": "deck",
+                            "visuals": [
+                                {
+                                    "visual_id": "V1",
+                                    "visual_type": "deterministic-diagram",
+                                    "placement": "slide 2",
+                                    "purpose": "Teaches a distinct residential field decision clearly.",
+                                    "learning_claim": "Learners connect documented conditions to the correct field response.",
+                                    "source_status": "not-required",
+                                    "context_focus": "U.S. residential construction",
+                                    "diagram_type": mechanism,
+                                    "diagram_rationale": "This renderer mechanism directly supports the stated field decision.",
+                                    "pedagogical_strategy": "explain-with-diagram",
+                                    "real_example_importance": "not-needed",
+                                    "generation_suitability": "safe",
+                                    "evidence_considered": [{"source_type": "course-map", "locator": "Lesson visual strategy"}],
+                                    "alternatives_considered": ["A photograph would hide the decision relationship."],
+                                    "selection_reason": "The structured visual makes the decision relationship explicit.",
+                                }
+                            ],
+                        }
+                    ),
+                    encoding="utf-8",
+                )
+                result = checker.run_checks(path)
+                self.assertTrue(result["passed"])
+
 
 if __name__ == "__main__":
     unittest.main()
