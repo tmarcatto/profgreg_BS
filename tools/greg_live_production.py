@@ -1335,7 +1335,23 @@ def normalize_callout_density(draft: str, maximum: int = 4) -> str:
     lines: list[str] = []
     raw_index = 0
     any_label = re.compile(r"^>\s*\*\*([^*]+?)\*\*\s*(?:[:,]\s*)?(.*)$")
+    admonition_label = re.compile(r"^>\s*\[!([^\]]+)\]\s*(.*)$", flags=re.I)
     while raw_index < len(raw_lines):
+        admonition = admonition_label.match(raw_lines[raw_index].strip())
+        if admonition:
+            end = raw_index + 1
+            while end < len(raw_lines) and raw_lines[end].lstrip().startswith(">"):
+                end += 1
+            body = [admonition.group(2).strip()] if admonition.group(2).strip() else []
+            body.extend(
+                line.lstrip()[1:].strip()
+                for line in raw_lines[raw_index + 1 : end]
+                if line.lstrip()[1:].strip()
+            )
+            label = admonition.group(1).strip().title()
+            lines.append(f"**{label}.**" + (" " + " ".join(body) if body else ""))
+            raw_index = end
+            continue
         match = any_label.match(raw_lines[raw_index].strip())
         if not match or match.group(1).strip().upper() in approved_labels:
             lines.append(raw_lines[raw_index])

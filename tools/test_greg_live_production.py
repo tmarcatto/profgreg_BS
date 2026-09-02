@@ -1001,6 +1001,16 @@ Use these terms to distinguish roles.
         self.assertNotIn("> **WARNING**", normalized)
         self.assertIn("> **BRIDGE**", normalized)
 
+    def test_callout_normalizer_unboxes_admonition_syntax(self) -> None:
+        draft = (
+            "# Section 01 - Work\n\n"
+            "> [!IMPORTANT]\n"
+            "> Verify the governing record.\n"
+        )
+        normalized = production.normalize_callout_density(draft)
+        self.assertIn("**Important.** Verify the governing record.", normalized)
+        self.assertNotIn("[!IMPORTANT]", normalized)
+
     def test_content_review_policy_allows_focused_capstone_convergence(self) -> None:
         source = Path(production.__file__).read_text(encoding="utf-8")
         self.assertIn("max_content_review_attempts = 7", source)
