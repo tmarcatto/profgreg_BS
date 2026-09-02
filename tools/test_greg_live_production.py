@@ -953,6 +953,26 @@ Use these terms to distinguish roles.
         self.assertEqual("deterministic-diagram", restored["visual_type"])
         self.assertNotIn("visual_type", visual)
 
+    def test_explicit_relationship_map_is_not_reclassified_from_handoff_words(self) -> None:
+        visual = {
+            "diagram_type": "relationship-map",
+            "purpose": "Map five independent residential handoff conditions",
+            "diagram_nodes": [
+                {"title": "Release conditions", "detail": "Shared hub"},
+                {"title": "Framing to mechanical", "detail": "Independent example"},
+            ],
+        }
+        self.assertEqual("relationship-map", production.infer_diagram_type(visual))
+
+    def test_callout_normalizer_repairs_inline_comma_form(self) -> None:
+        draft = (
+            "# Section 01 - Work\n\n"
+            "> **HANDS-ON EXAMPLE**, Apply the rule and check the result.\n"
+        )
+        normalized = production.normalize_callout_density(draft)
+        self.assertIn("> **HANDS-ON EXAMPLE**\n> Apply the rule and check the result.", normalized)
+        self.assertNotIn("EXAMPLE**,", normalized)
+
     def test_content_review_policy_allows_focused_capstone_convergence(self) -> None:
         source = Path(production.__file__).read_text(encoding="utf-8")
         self.assertIn("max_content_review_attempts = 6", source)

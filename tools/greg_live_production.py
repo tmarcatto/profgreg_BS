@@ -1310,7 +1310,7 @@ def normalize_callout_density(draft: str, maximum: int = 4) -> str:
     """Keep useful body callouts; structural sections are always unboxed prose."""
     lines = draft.splitlines()
     pattern = re.compile(
-        r"^>\s*(?:\*\*)?(KEY TERM|APPLY IT|HANDS-ON EXAMPLE|SCENARIO|CALLBACK|BRIDGE)(?:\*\*)?\s*(?::\s*(.*))?$",
+        r"^>\s*(?:\*\*)?(KEY TERM|APPLY IT|HANDS-ON EXAMPLE|SCENARIO|CALLBACK|BRIDGE)(?:\*\*)?\s*(?:[:,]\s*(.*))?$",
         flags=re.IGNORECASE,
     )
     blocks: list[dict[str, Any]] = []
@@ -1347,7 +1347,14 @@ def normalize_callout_density(draft: str, maximum: int = 4) -> str:
             index += 1
             continue
         if block["start"] in keep and block["section"] not in structural:
-            output.extend(lines[block["start"] : block["end"]])
+            # Always emit the canonical two-line form. Model revisions
+            # occasionally put a comma and the body on the bold label line;
+            # the renderer recognizes the label but can leave the closing
+            # Markdown markers visible in the student PDF.
+            output.append(f'> **{block["label"]}**')
+            if block["inline"]:
+                output.append(f'> {block["inline"]}')
+            output.extend(lines[block["start"] + 1 : block["end"]])
         else:
             body = [block["inline"]] if block["inline"] else []
             body.extend(line.lstrip()[1:].strip() for line in lines[block["start"] + 1 : block["end"]] if line.lstrip()[1:].strip())
@@ -2504,6 +2511,13 @@ def infer_diagram_type(visual: dict[str, Any]) -> str:
         return "schedule-bar-chart"
     if visual.get("network_paths"):
         return "activity-network"
+    # Node-based diagrams are structurally ambiguous: the same nodes can be a
+    # sequence, an unordered card set, or a hub-and-spoke relationship map.
+    # Honor an explicit valid mechanism once the planner/reviewer has chosen
+    # it. Inferring from words such as "handoff" otherwise overwrites a
+    # deliberate relationship-map on every retry and makes QA oscillate.
+    if requested in {"process-flow", "relationship-map", "card-sequence", "cost-stack"}:
+        return requested
     description = " ".join(
         str(visual.get(key) or "")
         for key in ("purpose", "learning_claim", "diagram_title")
@@ -2518,7 +2532,7 @@ def infer_diagram_type(visual: dict[str, Any]) -> str:
         return "activity-network"
     if numbered_nodes >= 2 or re.search(r"\b(step|steps|sequence|order|lifecycle|workflow|process|handoff|phase|first|next|then|finally)\b", description):
         return "process-flow"
-    if requested in {"process-flow", "relationship-map", "comparison-matrix", "card-sequence", "cost-stack", "schedule-bar-chart", "activity-network"}:
+    if requested in {"comparison-matrix", "schedule-bar-chart", "activity-network"}:
         return requested
     if re.search(r"\b(role|stakeholder|relationship|coordinate|influence|communication)\b", description):
         return "relationship-map"
