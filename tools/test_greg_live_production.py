@@ -802,6 +802,24 @@ class GregLiveProductionTests(unittest.TestCase):
         reference = production.student_reference_for_source(source)
         self.assertNotIn("https://", reference)
 
+    def test_government_guidance_document_reference_omits_page_url(self) -> None:
+        source = {
+            "formal_reference": "Occupational Safety and Health Administration. Fall Protection in Residential Construction: OSHA Guidance Document.",
+            "source_type": "government",
+            "url": "https://www.osha.gov/residential-fall-protection/guidance",
+        }
+        reference = production.student_reference_for_source(source)
+        self.assertNotIn("https://", reference)
+
+    def test_government_quick_start_guide_reference_omits_download_url(self) -> None:
+        source = {
+            "formal_reference": "National Institute of Standards and Technology. (2024). NIST Cybersecurity Framework 2.0: Small Business Quick Start Guide.",
+            "source_type": "government",
+            "url": "https://tsapps.nist.gov/publication/get_pdf.cfm?pub_id=957322",
+        }
+        reference = production.student_reference_for_source(source)
+        self.assertNotIn("https://", reference)
+
     def test_repeated_structural_blocks_are_removed_from_numbered_sections(self) -> None:
         draft = """## Learning Objectives
 
@@ -887,6 +905,12 @@ Use these terms to distinguish roles.
         self.assertIn("hidden extra nodes or rows", prompt)
         self.assertIn("material learner-visible error", prompt)
         self.assertIn("minor editorial preferences are non-blocking", prompt)
+
+    def test_visual_retry_policy_uses_literal_reviewer_replacements(self) -> None:
+        source = Path(production.__file__).read_text(encoding="utf-8")
+        self.assertIn("copy those replacements exactly", source)
+        self.assertIn("max_visual_review_attempts = 6", source)
+        self.assertNotIn("after two review passes", source)
 
     def test_render_spec_fingerprint_changes_with_visuals(self) -> None:
         base = {"source_markdown": "lesson.md", "visuals": [{"title": "One"}]}

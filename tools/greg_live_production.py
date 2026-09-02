@@ -971,7 +971,18 @@ def student_reference_for_source(source: dict[str, Any]) -> str:
         "professional-standard", "professional-guide", "government-publication",
         "industry-publication", "manual", "report",
     }
-    formal_title = bool(re.search(r"\b(?:manual|standard|code|handbook|verification requirements)\b", text, flags=re.I))
+    # Source-research providers commonly classify government PDFs and formal
+    # guidance as the broad `government` type.  Their download URLs do not
+    # always end in `.pdf` (NIST's `get_pdf.cfm` is one example), so title
+    # semantics must also keep these works bibliographic.  Without this gate a
+    # reviewer removes the URL and the next deterministic references rebuild
+    # silently adds it again, creating a revision loop.
+    formal_title = bool(re.search(
+        r"\b(?:manual|standard|code|handbook|guidance document|quick start guide|"
+        r"verification requirements)\b",
+        text,
+        flags=re.I,
+    ))
     if source_type in formal_types or document_url or formal_title:
         text = re.sub(r"\s+https?://\S+", "", text).rstrip(" .") + "."
     elif url and url not in text:
@@ -2508,18 +2519,26 @@ def create_visual_assets(seed, lesson: dict[str, Any], draft: str, run: Path, le
         # Allow several focused corrections before blocking, rather than
         # discarding a validated course-book draft over successive diagram
         # factual refinements.
-        for review_attempt in range(1, 5):
+        max_visual_review_attempts = 6
+        for review_attempt in range(1, max_visual_review_attempts + 1):
             plan["visuals"] = visuals
             semantic_review = request_visual_semantic_review(seed, lesson, draft, plan)
             write_json(run / "review" / f"{lesson_tag}_visual_plan_attempt_{review_attempt:02d}.json", plan)
             write_json(run / "review" / f"{lesson_tag}_visual_semantic_review_attempt_{review_attempt:02d}.json", semantic_review)
             if semantic_review.get("passed") is True:
                 break
-            if review_attempt == 4:
+            if review_attempt == max_visual_review_attempts:
                 changes = semantic_review.get("required_changes") or semantic_review.get("findings") or []
-                raise RuntimeError(f"Independent visual QA still requires changes after two review passes: {changes}")
+                raise RuntimeError(
+                    "Independent visual QA still requires changes after "
+                    f"{max_visual_review_attempts} focused review passes: {changes}"
+                )
             revision_prompt = visual_plan_prompt(seed, lesson, draft, read_uploads(seed.slug)) + (
                 "\n\nRevise the complete plan to fix every independent QA finding. Return the complete JSON object, not a patch.\n"
+                "When the reviewer supplies quoted replacement labels or cell text, copy those replacements exactly; "
+                "do not paraphrase, lengthen, or reinterpret them. Change only visuals named by the reviewer and "
+                "preserve every unmentioned visual verbatim. Apply changes to learner-visible fields, not only to "
+                "rationales, captions, or metadata.\n"
                 f"Previous plan:\n{json.dumps(plan, ensure_ascii=False)[:24000]}\n"
                 f"Required changes:\n{json.dumps(semantic_review.get('required_changes') or semantic_review.get('findings') or [], ensure_ascii=False)}"
             )
