@@ -1193,7 +1193,7 @@ def normalize_prose_dashes(draft: str) -> str:
 
 
 def normalize_repeated_lesson_objectives(draft: str) -> str:
-    """Remove lesson-level objective lists repeated inside numbered sections."""
+    """Remove structural objective or glossary lists repeated inside teaching sections."""
     lines = draft.splitlines()
     normalized: list[str] = []
     index = 0
@@ -1204,6 +1204,24 @@ def normalize_repeated_lesson_objectives(draft: str) -> str:
             inside_numbered_section = True
         elif re.match(r"^#\s+(?:Summary and Key Takeaways|Glossary|References)\s*$", line):
             inside_numbered_section = False
+        embedded_label = re.fullmatch(r"\*\*(Learning Objectives|Glossary)\*\*", line.strip(), flags=re.I)
+        if inside_numbered_section and embedded_label:
+            probe = index + 1
+            while probe < len(lines) and not lines[probe].strip():
+                probe += 1
+            if embedded_label.group(1).lower() == "glossary" and probe < len(lines) and not re.match(r"^\s*[-*+]\s+", lines[probe]):
+                probe += 1
+                while probe < len(lines) and not lines[probe].strip():
+                    probe += 1
+            bullet_start = probe
+            while probe < len(lines) and re.match(r"^\s*[-*+]\s+\S", lines[probe]):
+                probe += 1
+            if probe > bullet_start:
+                index = probe
+                while normalized and not normalized[-1].strip():
+                    normalized.pop()
+                normalized.append("")
+                continue
         if inside_numbered_section and re.search(r"\bby the end of this (?:lesson|chapter)\b", line, flags=re.I):
             index += 1
             while index < len(lines) and not lines[index].strip():
@@ -2825,10 +2843,10 @@ def produce_study_guide(course_slug: str, lesson_number: int) -> list[str]:
         write_text(working_path, draft)
     prior_revision_was_noop = False
     deterministic_checker = load_module("greg_study_guide_content_check_loop", "tools/greg_study_guide_content_check.py")
-    # Three complete review rounds preserve independent QA while avoiding the
-    # former five-pass loop, which could spend heavily on a draft that was not
-    # converging. A blocked lesson remains blocked; it is never released.
-    for attempt in range(1, 4):
+    # Allow three complete correction passes, followed by one confirmation
+    # review. The former three-review loop produced feedback on its last round
+    # but stopped before applying that final requested correction.
+    for attempt in range(1, 5):
         if not draft:
             try:
                 draft = request_text(seed.slug, "technical_content", study_guide_prompt(seed, lesson, references, active_ledger, revision_feedback), max_tokens=24000)
@@ -2882,7 +2900,7 @@ def produce_study_guide(course_slug: str, lesson_number: int) -> list[str]:
                 "and verify each required change against the final wording."
             )
         write_text(run / "review" / f"{lesson_tag}_automatic_revision_{attempt:02d}.md", revision_feedback)
-        if attempt < 3:
+        if attempt < 4:
             try:
                 prior_draft = draft
                 revised_draft = targeted_study_guide_revision(
@@ -2908,7 +2926,7 @@ def produce_study_guide(course_slug: str, lesson_number: int) -> list[str]:
             prior_revision_was_noop = draft.strip() == force_student_references(prior_draft, references).strip()
             write_text(working_path, draft)
     else:
-        raise RuntimeError("Independent study-guide reviewers still require changes after three automatic revision passes.")
+        raise RuntimeError("Independent study-guide reviewers still require changes after three automatic correction passes and a final confirmation review.")
 
     if operator_revision_request:
         require_targeted_study_guide_scope(revision_scope_baseline, draft, operator_allowed_headings)

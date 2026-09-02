@@ -666,6 +666,35 @@ class GregLiveProductionTests(unittest.TestCase):
         reference = production.student_reference_for_source(source)
         self.assertNotIn("https://", reference)
 
+    def test_repeated_structural_blocks_are_removed_from_numbered_sections(self) -> None:
+        draft = """## Learning Objectives
+
+- Keep this objective.
+
+# Section 01 - Lead
+
+**Learning Objectives**
+
+- Remove this objective.
+
+Teaching body.
+
+**Glossary**
+
+Use these terms to distinguish roles.
+
+- **Duplicate:** Remove this definition.
+
+# Glossary
+
+- **Canonical:** Keep this definition.
+"""
+        revised = production.normalize_repeated_lesson_objectives(draft)
+        self.assertIn("Keep this objective", revised)
+        self.assertNotIn("Remove this objective", revised)
+        self.assertNotIn("Remove this definition", revised)
+        self.assertIn("Keep this definition", revised)
+
     def test_student_reference_does_not_strip_title_containing_applied_in(self) -> None:
         source = {
             "formal_reference": (
