@@ -851,6 +851,21 @@ class GregLiveProductionTests(unittest.TestCase):
         reference = production.student_reference_for_source(source)
         self.assertNotIn("https://", reference)
 
+    def test_standalone_document_reference_drops_parent_collection(self) -> None:
+        source = {
+            "title": "After-Move-In Service Matrix",
+            "formal_reference": (
+                "National Association of Home Builders. After-Move-In Service Matrix. "
+                "In Beyond Warranty. Accessed September 2, 2026."
+            ),
+            "source_type": "webpage",
+            "url": "https://example.org/AfterMoveInServiceMatrix.pdf?rev=2",
+        }
+        self.assertEqual(
+            "National Association of Home Builders. After-Move-In Service Matrix.",
+            production.student_reference_for_source(source),
+        )
+
     def test_repeated_structural_blocks_are_removed_from_numbered_sections(self) -> None:
         draft = """## Learning Objectives
 
@@ -975,7 +990,7 @@ Use these terms to distinguish roles.
 
     def test_content_review_policy_allows_focused_capstone_convergence(self) -> None:
         source = Path(production.__file__).read_text(encoding="utf-8")
-        self.assertIn("max_content_review_attempts = 6", source)
+        self.assertIn("max_content_review_attempts = 7", source)
         self.assertIn("max_content_review_attempts - 1", source)
 
     def test_cross_section_consistency_uses_chapter_context(self) -> None:
@@ -986,6 +1001,13 @@ Use these terms to distinguish roles.
         )
         self.assertTrue(production.revision_requires_chapter_context(feedback))
         self.assertFalse(production.revision_requires_chapter_context("Simplify the Section 02 example."))
+
+    def test_mece_reorganization_uses_chapter_context(self) -> None:
+        feedback = (
+            "Automatic reviewer changes required:\n"
+            "- Reorganize the lesson so each section owns a distinct stage."
+        )
+        self.assertTrue(production.revision_requires_chapter_context(feedback))
 
     def test_introduction_is_available_to_automatic_section_revision(self) -> None:
         draft = "# Introduction\n\nRevise me.\n\n## Learning Objectives\n\n- Learn.\n\n# Section 01 - Work\n\nBody.\n"

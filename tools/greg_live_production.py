@@ -926,6 +926,7 @@ def student_reference_text(value: str) -> str:
     text = re.sub(r"\s+retrieved\s+[A-Z][a-z]+\s+\d{1,2},\s+\d{4}\.?", ".", text, flags=re.I)
     text = re.sub(r"\s+retrieved\s+\d{4}-\d{2}-\d{2}\.?", ".", text, flags=re.I)
     text = re.sub(r"\bCurrent online edition\s*\.\s*", "Current online edition. ", text)
+    text = re.sub(r"\.{2,}\s*$", ".", text)
     text = re.sub(r"\s{2,}", " ", text).strip()
     return text
 
@@ -971,6 +972,20 @@ def student_reference_for_source(source: dict[str, Any]) -> str:
     source_type = str(source.get("source_type") or "").lower()
     url = str(source.get("url") or "").strip()
     document_url = bool(re.search(r"\.(pdf|docx?|pptx?)(?:[?#]|$)", url, flags=re.I))
+    title = str(source.get("title") or "").strip()
+    # A directly linked standalone document is cited by its own title. Model
+    # research sometimes appends the parent marketing collection as
+    # ``In Collection Name``; that is neither needed nor reliably sourced and
+    # can create a reviewer loop because validated references are reinserted
+    # after every prose revision.
+    if document_url and title:
+        standalone = re.match(
+            rf"^(.*?\b{re.escape(title)}\.)\s+In\s+[^.]+\.\s*$",
+            text,
+            flags=re.I,
+        )
+        if standalone:
+            text = standalone.group(1)
     formal_types = {
         "book", "published-book", "standard", "code", "recommended-practice",
         "professional-standard", "professional-guide", "government-publication",
@@ -1436,6 +1451,7 @@ def revision_requires_chapter_context(feedback: str) -> bool:
         return False
     return bool(re.search(
         r"\b(?:throughout the lesson|entire lesson|across (?:the )?(?:lesson|sections)|"
+        r"reorganize the (?:lesson|chapter)|each section owns|"
         r"one (?:canonical|cumulative|common) (?:case|schema|template|record)|"
         r"single (?:canonical|cumulative|common) (?:case|schema|template|record)|"
         r"keep (?:its )?field names.*consistent|reconcile every amount)\b",
@@ -3121,7 +3137,7 @@ def produce_study_guide(course_slug: str, lesson_number: int) -> list[str]:
     # Complex capstone lessons can expose a new, narrower finding only after a
     # prior correction becomes visible. Keep the saved complete draft and
     # allow focused convergence without restarting research or generation.
-    max_content_review_attempts = 6
+    max_content_review_attempts = 7
     for attempt in range(1, max_content_review_attempts + 1):
         if not draft:
             try:
