@@ -314,7 +314,7 @@
       "primary": {
         "provider": "anthropic",
         "model": "claude-sonnet-5",
-        "reasoning": "high"
+        "reasoning": "medium"
       },
       "fallbacks": [
         {
@@ -350,7 +350,7 @@
       "primary": {
         "provider": "anthropic",
         "model": "claude-sonnet-5",
-        "reasoning": "high"
+        "reasoning": "medium"
       },
       "fallbacks": [
         {

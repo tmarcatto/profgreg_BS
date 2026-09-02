@@ -227,10 +227,18 @@ def anthropic_text(
     *,
     timeout: int = 600,
     return_usage: bool = False,
+    reasoning: str = "",
 ) -> str | tuple[str, dict[str, Any]]:
+    payload: dict[str, Any] = {
+        "model": model,
+        "max_tokens": max_tokens,
+        "messages": [{"role": "user", "content": prompt}],
+    }
+    if reasoning:
+        payload["output_config"] = {"effort": reasoning}
     response = post_json(
         f"{base_url.rstrip('/')}/v1/messages",
-        {"model": model, "max_tokens": max_tokens, "messages": [{"role": "user", "content": prompt}]},
+        payload,
         {"x-api-key": api_key, "anthropic-version": "2023-06-01"},
         timeout=timeout,
         attempts=2,
@@ -332,6 +340,7 @@ def request_text(course_slug: str, role: str, prompt: str, *, max_tokens: int = 
                 prompt,
                 max_tokens,
                 return_usage=True,
+                reasoning=str(binding.get("reasoning") or ""),
             )
         elif provider_name == "openai":
             reasoning = str(binding.get("reasoning") or "")

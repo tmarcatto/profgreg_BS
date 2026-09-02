@@ -50,6 +50,22 @@ class ModelRouterRetryTests(unittest.TestCase):
         self.assertEqual(2, post_json.call_args.kwargs["attempts"])
 
     @patch("greg_model_router.post_json")
+    def test_anthropic_reasoning_effort_is_sent_from_the_binding(self, post_json):
+        post_json.return_value = {"content": [{"type": "text", "text": "plan"}]}
+
+        result = greg_model_router.anthropic_text(
+            "https://example.test",
+            "secret",
+            "claude-sonnet-5",
+            "prompt",
+            100,
+            reasoning="medium",
+        )
+
+        self.assertEqual("plan", result)
+        self.assertEqual({"effort": "medium"}, post_json.call_args.args[1]["output_config"])
+
+    @patch("greg_model_router.post_json")
     def test_request_text_records_provider_token_usage(self, post_json):
         post_json.return_value = {
             "content": [{"type": "text", "text": "draft"}],
