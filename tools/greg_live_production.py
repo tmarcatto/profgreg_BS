@@ -316,8 +316,12 @@ def request_json_with_retry(course_slug: str, role: str, prompt: str, *, max_tok
 
 def render_spec_fingerprint(spec: dict[str, Any]) -> str:
     renderer_hash = hashlib.sha256(STUDY_GUIDE_RENDERER.read_bytes()).hexdigest()
+    source_path = Path(str(spec.get("source_markdown") or ""))
+    if source_path and not source_path.is_absolute():
+        source_path = ROOT / source_path
+    source_hash = hashlib.sha256(source_path.read_bytes()).hexdigest() if source_path.is_file() else ""
     payload = json.dumps(
-        {"render_spec": spec, "renderer_sha256": renderer_hash},
+        {"render_spec": spec, "renderer_sha256": renderer_hash, "source_markdown_sha256": source_hash},
         ensure_ascii=False,
         sort_keys=True,
         separators=(",", ":"),
@@ -2998,7 +3002,8 @@ def produce_study_guide(course_slug: str, lesson_number: int) -> list[str]:
     if pending_images.exists() and prior_drafts and reusable_sources_current:
         draft_path = prior_drafts[-1]
         draft_path, revision = revisioned_resumed_study_guide_draft(run, lesson_tag, draft_path)
-        draft = draft_path.read_text(encoding="utf-8", errors="replace")
+        draft = normalize_callout_density(draft_path.read_text(encoding="utf-8", errors="replace"))
+        write_text(draft_path, draft)
         render_visuals, waiting_images = create_visual_assets(seed, lesson, draft, run, lesson_tag)
         if waiting_images:
             update_canonical_manifest(seed.slug)
@@ -3009,7 +3014,8 @@ def produce_study_guide(course_slug: str, lesson_number: int) -> list[str]:
         match = re.search(r"_r(\d+)\.md$", draft_path.name)
         if match and not feedback_for(run, lesson_tag, "study_guide") and reviewed_draft_can_resume_visuals(run, lesson_tag, int(match.group(1))):
             draft_path, revision = revisioned_resumed_study_guide_draft(run, lesson_tag, draft_path)
-            draft = draft_path.read_text(encoding="utf-8", errors="replace")
+            draft = normalize_callout_density(draft_path.read_text(encoding="utf-8", errors="replace"))
+            write_text(draft_path, draft)
             render_visuals, waiting_images = create_visual_assets(seed, lesson, draft, run, lesson_tag)
             if waiting_images:
                 update_canonical_manifest(seed.slug)

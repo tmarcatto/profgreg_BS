@@ -1026,6 +1026,22 @@ Use these terms to distinguish roles.
                 second = production.render_spec_fingerprint({"source_markdown": "lesson.md"})
         self.assertNotEqual(first, second)
 
+    def test_render_spec_fingerprint_changes_with_source_markdown(self) -> None:
+        from tempfile import TemporaryDirectory
+        from unittest.mock import patch
+
+        with TemporaryDirectory() as directory:
+            root = Path(directory)
+            renderer = root / "renderer.py"
+            source = root / "lesson.md"
+            renderer.write_text("renderer", encoding="utf-8")
+            source.write_text("version one", encoding="utf-8")
+            with patch.object(production, "ROOT", root), patch.object(production, "STUDY_GUIDE_RENDERER", renderer):
+                first = production.render_spec_fingerprint({"source_markdown": "lesson.md"})
+                source.write_text("version two", encoding="utf-8")
+                second = production.render_spec_fingerprint({"source_markdown": "lesson.md"})
+        self.assertNotEqual(first, second)
+
     def test_citation_review_separates_prose_from_bibliography(self) -> None:
         seed = type("Seed", (), {"title": "Course"})()
         lesson = {"lesson_number": 1, "title": "Lesson"}
