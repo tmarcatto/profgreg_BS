@@ -1652,6 +1652,28 @@ Section:
     raise RuntimeError(f"The revision agent could not return a safe plain-Markdown patch for {heading}: {last_error}")
 
 
+def resolve_study_guide_headings(selected: list[str], available: dict[str, str]) -> list[str]:
+    """Resolve harmless heading paraphrases without widening revision scope."""
+    resolved: list[str] = []
+    for value in selected:
+        heading = value.strip()
+        if heading in available:
+            resolved.append(heading)
+            continue
+        section = re.search(r"\bSection\s+(\d{1,2})\b", heading, flags=re.I)
+        if section:
+            number = int(section.group(1))
+            matches = [
+                candidate for candidate in available
+                if re.match(rf"#\s+Section\s+0*{number}\b", candidate, flags=re.I)
+            ]
+            if len(matches) == 1:
+                resolved.append(matches[0])
+                continue
+        raise RuntimeError("The revision agent selected a section that does not exist in the saved course book.")
+    return list(dict.fromkeys(resolved))
+
+
 def targeted_study_guide_revision(
     course_slug: str,
     draft: str,
@@ -1702,9 +1724,7 @@ Available headings:
     selected = plan.get("headings")
     if not isinstance(selected, list) or not 1 <= len(selected) <= 6 or any(not isinstance(item, str) for item in selected):
         raise RuntimeError("The revision agent did not identify a valid, limited set of sections.")
-    selected = list(dict.fromkeys(selected))
-    if not set(selected).issubset(sections):
-        raise RuntimeError("The revision agent selected a section that does not exist in the saved course book.")
+    selected = resolve_study_guide_headings(selected, sections)
     chapter_limit_match = re.search(r"must not exceed\s+([\d,]+)\s+words", feedback, flags=re.I)
     chapter_limit = int(chapter_limit_match.group(1).replace(",", "")) if chapter_limit_match else None
     if chapter_limit and len(draft.split()) > chapter_limit:

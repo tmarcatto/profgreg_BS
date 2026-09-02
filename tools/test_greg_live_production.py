@@ -1116,6 +1116,23 @@ Use these terms to distinguish roles.
         self.assertIn("One canonical case.", revised)
         self.assertNotIn("Old canonical case.", revised)
 
+    def test_section_heading_variant_resolves_by_unique_number(self) -> None:
+        available = {
+            "# Section 03 - Protect Client Trust After Handover": "body",
+            "# Section 04 - Turn Experience into Standard Work": "body",
+        }
+        self.assertEqual(
+            ["# Section 03 - Protect Client Trust After Handover"],
+            production.resolve_study_guide_headings(["Section 3 - Technology Exercise"], available),
+        )
+
+    def test_unknown_section_heading_remains_blocked(self) -> None:
+        with self.assertRaisesRegex(RuntimeError, "does not exist"):
+            production.resolve_study_guide_headings(
+                ["Section 09 - Missing"],
+                {"# Section 03 - Existing": "body"},
+            )
+
     def test_render_spec_fingerprint_changes_with_visuals(self) -> None:
         base = {"source_markdown": "lesson.md", "visuals": [{"title": "One"}]}
         changed = {"source_markdown": "lesson.md", "visuals": [{"title": "Two"}]}
