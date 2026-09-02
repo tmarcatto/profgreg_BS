@@ -912,6 +912,16 @@ Use these terms to distinguish roles.
         self.assertIn("max_visual_review_attempts = 6", source)
         self.assertNotIn("after two review passes", source)
 
+    def test_structured_visual_recovers_dropped_visual_type(self) -> None:
+        visual = {
+            "visual_id": "L13V01",
+            "diagram_type": "relationship-map",
+            "diagram_nodes": [{"title": "Hub", "detail": "Controlled system"}],
+        }
+        restored = production.restore_structured_visual_type(visual)
+        self.assertEqual("deterministic-diagram", restored["visual_type"])
+        self.assertNotIn("visual_type", visual)
+
     def test_content_review_policy_allows_focused_capstone_convergence(self) -> None:
         source = Path(production.__file__).read_text(encoding="utf-8")
         self.assertIn("max_content_review_attempts = 6", source)

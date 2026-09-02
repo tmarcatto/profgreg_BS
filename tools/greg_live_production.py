@@ -2341,6 +2341,23 @@ def normalize_visual_strategy(visual: dict[str, Any]) -> dict[str, Any]:
     return normalized
 
 
+def restore_structured_visual_type(visual: dict[str, Any]) -> dict[str, Any]:
+    """Recover a dropped type when learner-visible diagram structure is explicit."""
+    normalized = dict(visual)
+    if normalized.get("visual_type"):
+        return normalized
+    if (
+        normalized.get("diagram_type")
+        or normalized.get("diagram_nodes")
+        or normalized.get("diagram_columns")
+        or normalized.get("diagram_rows")
+        or normalized.get("schedule_rows")
+        or normalized.get("network_paths")
+    ):
+        normalized["visual_type"] = "deterministic-diagram"
+    return normalized
+
+
 def visual_plan_has_decision_evidence(plan: dict[str, Any]) -> bool:
     """Return whether every planned visual records the current decision protocol."""
     visuals = plan.get("visuals") or []
@@ -2495,7 +2512,7 @@ def create_visual_assets(seed, lesson: dict[str, Any], draft: str, run: Path, le
     section_headings = re.findall(r"(?im)^#\s+(Section\s+\d{2}\s+-\s+[^\n]+)$", draft)
 
     def prepare_visuals(items: list[dict[str, Any]]) -> list[dict[str, Any]]:
-        prepared = [normalize_visual_strategy(visual) for visual in items]
+        prepared = [normalize_visual_strategy(restore_structured_visual_type(visual)) for visual in items]
         generated_seen = 0
         for index, visual in enumerate(prepared):
             placement = str(visual.get("placement") or "")
