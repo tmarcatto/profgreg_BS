@@ -1858,7 +1858,18 @@ def validate_deck_revision_resolutions(
                 panel for panel in panels
                 if isinstance(panel, dict) and not str(panel.get("body") or "").strip()
             ]
-            if (items and empty_items) or empty_panels:
+            planned_actual_rows = target.get("planned_actual_rows") or []
+            invalid_planned_actual = target.get("layout") == "planned_actual" and (
+                any(
+                    not isinstance(row, dict)
+                    or not str(row.get("planned") or "").strip()
+                    or not str(row.get("actual") or "").strip()
+                    for row in planned_actual_rows
+                )
+                if planned_actual_rows
+                else any(not isinstance(panel, dict) or not str(panel.get("body") or "").strip() for panel in panels[:2])
+            )
+            if (items and empty_items) or empty_panels or invalid_planned_actual:
                 raise RuntimeError(
                     f"Request {item.get('request_id')} reported blank content on slide {slide_number}, but empty diagram regions remain."
                 )
@@ -3428,6 +3439,19 @@ def normalize_deck_slides(data: dict[str, Any], lesson: dict[str, Any]) -> list[
                     ),
                 }
             rows = slide.get("planned_actual_rows") if isinstance(slide.get("planned_actual_rows"), list) else []
+            if not rows and isinstance(slide.get("rows"), list):
+                rows = [
+                    {
+                        "item": row.get("item") or row.get("label") or row.get("title") or "Condition",
+                        "planned": row.get("planned") or "",
+                        "actual": row.get("actual") or "",
+                        "action": row.get("action") or row.get("decision") or "",
+                    }
+                    for row in slide["rows"]
+                    if isinstance(row, dict) and (row.get("planned") or row.get("actual"))
+                ]
+                if rows:
+                    slide["planned_actual_rows"] = rows
             if not rows and isinstance(slide.get("items"), list):
                 for item in slide["items"]:
                     if not isinstance(item, dict):
