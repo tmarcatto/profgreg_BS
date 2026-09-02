@@ -285,7 +285,9 @@ def request_json_with_retry(course_slug: str, role: str, prompt: str, *, max_tok
             active_prompt = malformed_json_repair_prompt(malformed_output, last_error or "invalid JSON")
         else:
             retry_note = "" if attempt == 0 else (
-                "\n\nA prior response could not be repaired. Regenerate the complete result from the instructions above. "
+                "\n\nA prior response could not be repaired or exceeded the output limit. "
+                "Regenerate the complete result from the instructions above using substantially shorter string values. "
+                "Keep every required object and field, but remove repetition and optional prose so the complete JSON fits. "
                 "Return strict JSON only. Before responding, verify every delimiter, quote, comma, array, and object."
             )
             active_prompt = prompt + retry_note
@@ -304,6 +306,7 @@ def request_json_with_retry(course_slug: str, role: str, prompt: str, *, max_tok
                 "returned invalid json" not in message
                 and "did not return the required json object" not in message
                 and "returned no text content" not in message
+                and "returned incomplete text content" not in message
             ):
                 raise
             last_error = error

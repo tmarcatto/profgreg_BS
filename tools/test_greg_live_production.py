@@ -46,6 +46,22 @@ def deck_decision(medium: str = "native-diagram") -> dict:
 
 
 class GregLiveProductionTests(unittest.TestCase):
+    def test_json_request_retries_incomplete_output_with_compaction_instruction(self) -> None:
+        responses = [
+            production.ModelRequestError(
+                "OpenAI returned incomplete text content (reason={'reason': 'max_output_tokens'})."
+            ),
+            '{"slides": []}',
+        ]
+        with patch.object(production, "request_text", side_effect=responses) as request:
+            result = production.request_json_with_retry(
+                "demo", "technical_content", "Return a deck.", max_tokens=12000
+            )
+
+        self.assertEqual([], result["slides"])
+        self.assertEqual(2, request.call_count)
+        self.assertIn("substantially shorter string values", request.call_args_list[1].args[2])
+
     def test_video_compatible_deck_rejects_more_than_twenty_mb(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             deck = Path(directory) / "too-large.pptx"
