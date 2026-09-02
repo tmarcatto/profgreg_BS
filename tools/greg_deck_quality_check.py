@@ -166,6 +166,21 @@ def visible_text_by_slide(rows: list[dict]) -> dict[int, str]:
     return {slide: "\n".join(parts) for slide, parts in by_slide.items()}
 
 
+def sparse_body_slides(rows: list[dict], slide_count: int, minimum_words: int = 8) -> list[int]:
+    """Catch rendered body slides whose layout-specific content disappeared."""
+    generic = {
+        "eyebrow", "footer-course", "footer-number", "slide-title", "slide-subtitle",
+        "bottom-line", "takeaway", "final-line", "variance-label",
+    }
+    words: dict[int, list[str]] = defaultdict(list)
+    for row in rows:
+        if row.get("kind") != "textbox" or row.get("name") in generic:
+            continue
+        slide = int(row.get("slide", 0) or 0)
+        words[slide].extend(re.findall(r"\b[\w'-]+\b", str(row.get("text") or "")))
+    return [slide for slide in range(2, slide_count) if len(words.get(slide, [])) < minimum_words]
+
+
 def bbox(row: dict) -> tuple[float, float, float, float] | None:
     value = row.get("bbox")
     if not isinstance(value, list) or len(value) != 4:
@@ -361,6 +376,12 @@ def run_checks(deck_path: Path, qa_path: Path | None = None) -> dict:
     slide_text = visible_text_by_slide(rows)
     slide_tokens = {slide: normalize_tokens(text) for slide, text in slide_text.items()}
     slide_functions = {slide: classify_slide_function(text) for slide, text in slide_text.items()}
+
+    sparse = sparse_body_slides(rows, slide_count)
+    if sparse:
+        findings.append(Finding("fail", "body_slide_content", f"Rendered body content is missing or too sparse on slides: {sparse}."))
+    else:
+        findings.append(Finding("pass", "body_slide_content", "Every body slide contains visible layout-specific teaching content."))
 
     similar_pairs = []
     duplicate_function_pairs = []

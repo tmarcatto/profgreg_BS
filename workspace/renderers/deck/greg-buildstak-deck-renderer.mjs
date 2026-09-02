@@ -224,17 +224,18 @@ function addBullet(slide, text, x, y, w, idx, size = 22) {
 function card(slide, key, title, body, x, y, w, h, accent = C.navy, fill = C.white) {
   const compact = w < 300;
   const shallow = h < 180;
-  const titleHeight = shallow ? 34 : compact ? 48 : 34;
-  const bodyTop = shallow ? 56 : compact ? 76 : 72;
+  const longTitle = String(title || "").length > (shallow ? 24 : 18);
+  const titleHeight = shallow ? (longTitle ? 52 : 34) : compact ? (longTitle ? 64 : 48) : 34;
+  const bodyTop = shallow ? (longTitle ? 78 : 56) : compact ? (longTitle ? 92 : 76) : 72;
   addShape(slide, `${key}-card`, "roundRect", x, y, w, h, fill, C.line, 1.4);
   addText(slide, `${key}-title`, title, x + 20, y + 18, w - 40, titleHeight, {
-    fontSize: shallow ? 16 : compact ? 18 : 21,
+    fontSize: shallow ? (longTitle ? 15 : 16) : compact ? (longTitle ? 15 : 18) : 21,
     bold: true,
     color: accent,
     alignment: "center",
   });
   addText(slide, `${key}-body`, body, x + 22, y + bodyTop, w - 44, h - bodyTop - 14, {
-    fontSize: shallow ? 12 : compact ? 14 : 18,
+    fontSize: shallow ? (longTitle ? 11 : 12) : compact ? (longTitle ? 12 : 14) : 18,
     color: C.gray,
     alignment: "center",
   });

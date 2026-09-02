@@ -29,6 +29,15 @@ class DeckQualityCheckTests(unittest.TestCase):
         b = deck_qa.normalize_tokens("Good documentation makes decisions traceable.")
         self.assertLess(deck_qa.jaccard(a, b), 0.22)
 
+    def test_sparse_body_slide_detection_ignores_titles_and_bottom_line(self) -> None:
+        rows = [
+            {"kind": "textbox", "slide": 2, "name": "slide-title", "text": "A complete title"},
+            {"kind": "textbox", "slide": 2, "name": "bottom-line", "text": "A persuasive concluding sentence"},
+            {"kind": "textbox", "slide": 3, "name": "card-title", "text": "One two three four"},
+            {"kind": "textbox", "slide": 3, "name": "card-body", "text": "Five six seven eight"},
+        ]
+        self.assertEqual([2], deck_qa.sparse_body_slides(rows, 4))
+
     def test_function_classifier_distinguishes_sequence_and_trigger(self) -> None:
         sequence = deck_qa.classify_slide_function("A contract-aware PM builds five preventive habits. Read. Translate. Document.")
         trigger = deck_qa.classify_slide_function("Escalate when the issue leaves normal project control.")

@@ -277,6 +277,28 @@ class GregLiveProductionTests(unittest.TestCase):
         self.assertEqual("Clear drive", normalized[2]["planned_actual_rows"][0]["planned"])
         self.assertEqual("Clear before dispatch", normalized[2]["planned_actual_rows"][0]["action"])
 
+    def test_deck_normalizer_maps_record_rows_and_value_detail_variance(self) -> None:
+        slides = [{"layout": "cover", "title": "A", "subtitle": "B", "topics": ["One", "Two", "Three"]}]
+        body = [
+            {"layout": "row_list", "rows": [{"label": "Notice", "record": "Dated correspondence"}]},
+            {"layout": "planned_actual", "planned": {"label": "Budget", "value": "$40k", "detail": "Authorized"}, "actual": {"label": "Forecast", "value": "$42k", "detail": "At completion"}, "variance": {"label": "Decision", "value": "Find cause", "detail": "Act before spend"}},
+            {"layout": "card_sequence", "items": [{"title": "A", "body": "a"}, {"title": "B", "body": "b"}]},
+            {"layout": "comparison", "left": {"title": "A", "body": "a"}, "right": {"title": "B", "body": "b"}},
+            {"layout": "checklist_rows", "items": [{"title": "A", "body": "a"}, {"title": "B", "body": "b"}]},
+            {"layout": "row_list", "items": [{"title": "A", "body": "a"}, {"title": "B", "body": "b"}]},
+            {"layout": "card_sequence", "items": [{"title": "A", "body": "a"}, {"title": "B", "body": "b"}]},
+            {"layout": "comparison", "left": {"title": "A", "body": "a"}, "right": {"title": "B", "body": "b"}},
+        ]
+        slides.extend({**slide, **deck_decision()} for slide in body)
+        slides.append({"layout": "takeaway"})
+
+        normalized = production.normalize_deck_slides({"slides": slides}, {"title": "Test"})
+
+        self.assertEqual({"title": "Notice", "body": "Dated correspondence"}, normalized[1]["items"][0])
+        self.assertEqual("$40k — Authorized", normalized[2]["left"]["body"])
+        self.assertEqual("$42k — At completion", normalized[2]["right"]["body"])
+        self.assertEqual("Find cause — Act before spend", normalized[2]["decision_ready_update"]["body"])
+
     def test_deck_plan_rejects_layout_selected_before_visual_medium(self) -> None:
         slides = [{"layout": "cover", "title": "A", "subtitle": "B", "topics": ["One", "Two", "Three"]}]
         layouts = ["card_sequence", "comparison", "planned_actual", "row_list", "checklist_rows", "card_sequence", "comparison", "row_list"]

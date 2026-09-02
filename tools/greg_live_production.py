@@ -3176,16 +3176,36 @@ def normalize_deck_slides(data: dict[str, Any], lesson: dict[str, Any]) -> list[
                     for row in slide["rows"]
                     if isinstance(row, dict)
                 ]
+        if layout == "row_list" and not isinstance(slide.get("items"), list) and isinstance(slide.get("rows"), list):
+            slide["items"] = [
+                {
+                    "title": row.get("title") or row.get("label") or row.get("item") or "Record",
+                    "body": row.get("body") or row.get("record") or row.get("detail") or row.get("value") or "",
+                }
+                for row in slide["rows"]
+                if isinstance(row, dict)
+            ]
         if layout == "planned_actual":
-            if not isinstance(slide.get("left"), dict) and isinstance(slide.get("planned"), dict):
+            if (not isinstance(slide.get("left"), dict) or not str(slide["left"].get("body") or "").strip()) and isinstance(slide.get("planned"), dict):
                 slide["left"] = {
                     "title": slide["planned"].get("title") or slide["planned"].get("label") or "Planned",
-                    "body": slide["planned"].get("body") or "",
+                    "body": slide["planned"].get("body") or " — ".join(
+                        str(value) for value in (slide["planned"].get("value"), slide["planned"].get("detail")) if value
+                    ),
                 }
-            if not isinstance(slide.get("right"), dict) and isinstance(slide.get("actual"), dict):
+            if (not isinstance(slide.get("right"), dict) or not str(slide["right"].get("body") or "").strip()) and isinstance(slide.get("actual"), dict):
                 slide["right"] = {
                     "title": slide["actual"].get("title") or slide["actual"].get("label") or "Actual",
-                    "body": slide["actual"].get("body") or "",
+                    "body": slide["actual"].get("body") or " — ".join(
+                        str(value) for value in (slide["actual"].get("value"), slide["actual"].get("detail")) if value
+                    ),
+                }
+            if not isinstance(slide.get("decision_ready_update"), dict) and isinstance(slide.get("variance"), dict):
+                slide["decision_ready_update"] = {
+                    "title": slide["variance"].get("title") or slide["variance"].get("label") or "Decision",
+                    "body": slide["variance"].get("body") or " — ".join(
+                        str(value) for value in (slide["variance"].get("value"), slide["variance"].get("detail")) if value
+                    ),
                 }
             rows = slide.get("planned_actual_rows") if isinstance(slide.get("planned_actual_rows"), list) else []
             if not rows and isinstance(slide.get("items"), list):
