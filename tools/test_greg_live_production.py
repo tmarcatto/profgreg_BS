@@ -239,7 +239,7 @@ class GregLiveProductionTests(unittest.TestCase):
             {"layout": "planned_actual", "planned": {"label": "Planned", "body": "Start"}, "actual": {"label": "Actual", "body": "Delayed"}},
             {"layout": "card_sequence", "items": [{"title": "A", "body": "a"}, {"title": "B", "body": "b"}]},
             {"layout": "row_list", "items": [{"title": "A", "body": "a"}, {"title": "B", "body": "b"}]},
-            {"layout": "checklist_rows", "items": [{"title": "A", "body": "a"}, {"title": "B", "body": "b"}]},
+            {"layout": "checklist_rows", "rows": [{"label": "Verify", "body": "Check the evidence"}, {"label": "Release", "body": "Record the decision"}]},
             {"layout": "comparison", "left": {"title": "A", "body": "a"}, "right": {"title": "B", "body": "b"}},
             {"layout": "card_sequence", "items": [{"title": "A", "body": "a"}, {"title": "B", "body": "b"}]},
             {"layout": "row_list", "items": [{"title": "A", "body": "a"}, {"title": "B", "body": "b"}]},
@@ -249,6 +249,7 @@ class GregLiveProductionTests(unittest.TestCase):
         normalized = production.normalize_deck_slides({"slides": slides}, {"title": "Test"})
         self.assertEqual("Planned", normalized[2]["left"]["title"])
         self.assertEqual("Actual", normalized[2]["right"]["title"])
+        self.assertEqual("Verify", normalized[5]["items"][0]["title"])
 
     def test_deck_normalizer_accepts_columns_rows_and_planned_actual_row_variants(self) -> None:
         slides = [{"layout": "cover", "title": "A", "subtitle": "B", "topics": ["One", "Two", "Three"]}]

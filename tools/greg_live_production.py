@@ -3441,7 +3441,7 @@ def normalize_deck_slides(data: dict[str, Any], lesson: dict[str, Any]) -> list[
                     for row in slide["rows"]
                     if isinstance(row, dict)
                 ]
-        if layout == "row_list" and not isinstance(slide.get("items"), list) and isinstance(slide.get("rows"), list):
+        if layout in {"row_list", "checklist_rows"} and not isinstance(slide.get("items"), list) and isinstance(slide.get("rows"), list):
             slide["items"] = [
                 {
                     "title": row.get("title") or row.get("label") or row.get("item") or "Record",
