@@ -1396,7 +1396,7 @@ Existing chapter to edit:
 """
 
 
-def editable_study_guide_sections(draft: str) -> dict[str, str]:
+def editable_study_guide_sections(draft: str, *, include_introduction: bool = False) -> dict[str, str]:
     """Return complete, individually replaceable student-facing sections.
 
     A revision is deliberately expressed as a replacement of one named
@@ -1404,8 +1404,9 @@ def editable_study_guide_sections(draft: str) -> dict[str, str]:
     a hard preservation guarantee: text outside the requested patches stays
     byte-for-byte as it was in the reviewed draft.
     """
+    introduction = r"#\s+Introduction|" if include_introduction else ""
     heading_pattern = re.compile(
-        r"(?im)^(?:##\s+Learning Objectives|#\s+(?:Section\s+\d{2}\s+-\s+.+|Summary and Key Takeaways|Glossary))\s*$"
+        rf"(?im)^(?:{introduction}##\s+Learning Objectives|#\s+(?:Section\s+\d{{2}}\s+-\s+.+|Summary and Key Takeaways|Glossary))\s*$"
     )
     matches = list(heading_pattern.finditer(draft))
     sections: dict[str, str] = {}
@@ -1416,6 +1417,20 @@ def editable_study_guide_sections(draft: str) -> dict[str, str]:
         # the next heading, so a validated replacement can splice reliably.
         sections[heading] = draft[match.start() : end]
     return sections
+
+
+def revision_requires_chapter_context(feedback: str) -> bool:
+    """Detect reviewer requests whose correctness depends on multiple sections."""
+    if not feedback.startswith("Automatic reviewer changes required:"):
+        return False
+    return bool(re.search(
+        r"\b(?:throughout the lesson|entire lesson|across (?:the )?(?:lesson|sections)|"
+        r"one (?:canonical|cumulative|common) (?:case|schema|template|record)|"
+        r"single (?:canonical|cumulative|common) (?:case|schema|template|record)|"
+        r"keep (?:its )?field names.*consistent|reconcile every amount)\b",
+        feedback,
+        flags=re.I | re.S,
+    ))
 
 
 def preserved_study_guide_sections(draft: str) -> dict[str, str]:
@@ -1558,7 +1573,26 @@ def targeted_study_guide_revision(
     level: str,
 ) -> str:
     """Use a model for limited section patches while preserving all other text."""
-    sections = editable_study_guide_sections(draft)
+    if revision_requires_chapter_context(feedback):
+        revised = request_text(
+            course_slug,
+            "technical_content",
+            study_guide_revision_prompt(draft, feedback, references, attempt=1, level=level),
+            max_tokens=24000,
+        ).strip()
+        fence = chr(96) * 3
+        if revised.startswith(fence):
+            revised = re.sub(r"^\x60{3}(?:markdown)?\s*", "", revised, count=1, flags=re.I)
+            revised = re.sub(r"\s*\x60{3}$", "", revised, count=1).strip()
+        revised = normalize_reviewed_factual_language(force_student_references(revised, references))
+        revised = normalize_callout_density(revised)
+        if not preserves_complete_study_guide_structure(revised, draft):
+            raise RuntimeError("The chapter-wide consistency revision returned an incomplete course book.")
+        return revised
+    sections = editable_study_guide_sections(
+        draft,
+        include_introduction=feedback.startswith("Automatic reviewer changes required:"),
+    )
     if not sections:
         raise RuntimeError("The saved course book has no editable sections.")
     headings = "\n".join(f"- {heading}" for heading in sections)
@@ -1567,7 +1601,7 @@ def targeted_study_guide_revision(
         "technical_content",
         f"""Select the smallest set of existing course-book sections needed to address the revision request.
 Return JSON only: {{\"headings\": [\"exact heading\"]}}.
-Choose one to five headings from this exact list. Do not select Introduction or References.
+Choose one to six headings from this exact list. References are controlled separately.
 
 Revision request:
 {feedback}
@@ -1578,7 +1612,7 @@ Available headings:
         max_tokens=4000,
     )
     selected = plan.get("headings")
-    if not isinstance(selected, list) or not 1 <= len(selected) <= 5 or any(not isinstance(item, str) for item in selected):
+    if not isinstance(selected, list) or not 1 <= len(selected) <= 6 or any(not isinstance(item, str) for item in selected):
         raise RuntimeError("The revision agent did not identify a valid, limited set of sections.")
     selected = list(dict.fromkeys(selected))
     if not set(selected).issubset(sections):

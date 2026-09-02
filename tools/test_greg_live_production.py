@@ -957,6 +957,20 @@ Use these terms to distinguish roles.
         self.assertIn("max_content_review_attempts = 6", source)
         self.assertIn("max_content_review_attempts - 1", source)
 
+    def test_cross_section_consistency_uses_chapter_context(self) -> None:
+        feedback = (
+            "Automatic reviewer changes required:\n"
+            "- Define one canonical schema and keep its field names consistent throughout the lesson.\n"
+            "- Reconcile every amount across sections."
+        )
+        self.assertTrue(production.revision_requires_chapter_context(feedback))
+        self.assertFalse(production.revision_requires_chapter_context("Simplify the Section 02 example."))
+
+    def test_introduction_is_available_to_automatic_section_revision(self) -> None:
+        draft = "# Introduction\n\nRevise me.\n\n## Learning Objectives\n\n- Learn.\n\n# Section 01 - Work\n\nBody.\n"
+        sections = production.editable_study_guide_sections(draft, include_introduction=True)
+        self.assertIn("# Introduction", sections)
+
     def test_render_spec_fingerprint_changes_with_visuals(self) -> None:
         base = {"source_markdown": "lesson.md", "visuals": [{"title": "One"}]}
         changed = {"source_markdown": "lesson.md", "visuals": [{"title": "Two"}]}
