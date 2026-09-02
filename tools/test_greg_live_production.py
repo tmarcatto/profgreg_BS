@@ -812,6 +812,13 @@ Use these terms to distinguish roles.
         self.assertIn("after the final `# References` heading", prompt)
         self.assertIn("teaching prose is not a bibliography defect", prompt)
 
+    def test_design_review_allows_bold_teaching_lead_ins(self) -> None:
+        seed = type("Seed", (), {"title": "Course"})()
+        lesson = {"lesson_number": 1, "title": "Lesson"}
+        prompt = production.reviewer_prompt("design_review", seed, lesson, "# Section 01 - Work\n\n**Plan the work.** Teaching prose.", {"sources": []})
+        self.assertIn("Bold lead-ins used to introduce a teaching paragraph or list are explicitly allowed", prompt)
+        self.assertIn("entire section body contains only one line", prompt)
+
     def test_targeted_revision_review_does_not_reopen_unrelated_baseline_issues(self) -> None:
         seed = type("Seed", (), {"title": "Course"})()
         lesson = {"lesson_number": 6, "title": "Control the Money"}
