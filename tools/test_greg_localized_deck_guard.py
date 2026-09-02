@@ -32,7 +32,7 @@ def write_pptx(path: Path, shape_counts: list[int]) -> None:
             )
 
 
-def build_run(root: Path, *, localized_shapes: list[int], baseline: str = "deck/lesson_05_deck_r02.pptx") -> tuple[Path, Path]:
+def build_run(root: Path, *, localized_shapes: list[int], baseline: str | None = "deck/lesson_05_deck_r02.pptx", approve_localized: bool = False) -> tuple[Path, Path]:
     run = root / "runs" / "demo"
     source_deck = run / "deck" / "lesson_05_deck_r02.pptx"
     localized_deck = run / "localization" / "pt-br" / "lesson_05_deck_pt_br_r01.pptx"
@@ -55,16 +55,21 @@ def build_run(root: Path, *, localized_shapes: list[int], baseline: str = "deck/
         {"layout": "cover", "title": "Plano", "topics": ["Um", "Dois"]},
         {"layout": "comparison", "title": "Compare", "left": {"title": "A"}, "right": {"title": "B"}},
     ]
+    localized_spec = {
+        "output": {"pptx": "localization/pt-br/lesson_05_deck_pt_br_r01.pptx"},
+        "slides": localized_slides,
+    }
+    if baseline is not None:
+        localized_spec["approved_baseline_artifact"] = baseline
     (localized_deck.parent / "lesson_05_deck_pt_br_spec_r01.json").write_text(
-        json.dumps(
-            {
-                "approved_baseline_artifact": baseline,
-                "output": {"pptx": "localization/pt-br/lesson_05_deck_pt_br_r01.pptx"},
-                "slides": localized_slides,
-            }
-        ),
+        json.dumps(localized_spec),
         encoding="utf-8",
     )
+    if approve_localized:
+        (run / "approval" / "lesson_05_pt_br_deck_approval.md").write_text(
+            "- Artifact: runs/demo/localization/pt-br/lesson_05_deck_pt_br_r01.pptx\n",
+            encoding="utf-8",
+        )
     return run, localized_deck
 
 
@@ -91,6 +96,30 @@ class LocalizedDeckGuardTests(unittest.TestCase):
                 Path(directory),
                 localized_shapes=[3, 5],
                 baseline="deck/lesson_05_deck_r01.pptx",
+            )
+
+            with self.assertRaisesRegex(LocalizedDeckIntegrityError, "currently approved"):
+                validate_localized_deck(run, "lesson_05", localized_deck)
+
+    def test_accepts_legacy_localized_deck_only_when_exact_artifact_was_approved(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            run, localized_deck = build_run(
+                Path(directory),
+                localized_shapes=[3, 5],
+                baseline=None,
+                approve_localized=True,
+            )
+
+            evidence = validate_localized_deck(run, "lesson_05", localized_deck)
+
+            self.assertTrue(evidence["localized_deck_sha256"])
+
+    def test_rejects_unapproved_legacy_localized_deck_without_provenance(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            run, localized_deck = build_run(
+                Path(directory),
+                localized_shapes=[3, 5],
+                baseline=None,
             )
 
             with self.assertRaisesRegex(LocalizedDeckIntegrityError, "currently approved"):

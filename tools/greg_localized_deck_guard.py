@@ -95,6 +95,21 @@ def localized_spec_path(run: Path, lesson_tag: str, localized_deck: Path) -> Pat
     return localized_deck.parent / f"{lesson_tag}_deck_{match.group(1)}_spec_r{int(match.group(2)):02d}.json"
 
 
+def localized_approval_matches(run: Path, lesson_tag: str, localized_deck: Path) -> bool:
+    match = re.fullmatch(
+        rf"{re.escape(lesson_tag)}_deck_(pt_br|es)_r\d+\.pptx",
+        localized_deck.name,
+    )
+    if not match:
+        return False
+    approval = run / "approval" / f"{lesson_tag}_{match.group(1)}_deck_approval.md"
+    try:
+        approved_localized_deck = _artifact_from_approval(run, approval)
+    except LocalizedDeckIntegrityError:
+        return False
+    return approved_localized_deck.resolve() == localized_deck.resolve()
+
+
 def spec_structure(slides: Any) -> list[dict[str, Any]]:
     if not isinstance(slides, list):
         raise LocalizedDeckIntegrityError("Presentation spec has no valid slide list.")
@@ -178,7 +193,13 @@ def validate_localized_deck(run: Path, lesson_tag: str, localized_deck: Path) ->
     recorded_baseline = str(
         provenance.get("approved_deck_path") or localized.get("approved_baseline_artifact") or ""
     ).strip()
-    if not recorded_baseline or _resolve_run_path(run, recorded_baseline) != approved_deck.resolve():
+    if recorded_baseline and _resolve_run_path(run, recorded_baseline) != approved_deck.resolve():
+        raise LocalizedDeckIntegrityError(
+            "The localized presentation was not generated from the currently approved English presentation."
+        )
+    if not recorded_baseline and (
+        provenance or not localized_approval_matches(run, lesson_tag, localized_deck)
+    ):
         raise LocalizedDeckIntegrityError(
             "The localized presentation was not generated from the currently approved English presentation."
         )

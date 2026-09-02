@@ -259,6 +259,13 @@ class GregUiServerTests(unittest.TestCase):
         name = ui.safe_download_filename("Lesson 01: PM / Closeout?.pdf", "fallback.pdf")
         self.assertEqual(name, "Lesson 01- PM - Closeout-.pdf")
 
+    def test_blocked_localized_deck_page_explains_next_action_without_raw_json(self) -> None:
+        page = ui.blocked_localized_deck_page().decode("utf-8")
+        self.assertIn("precisa ser gerada novamente", page)
+        self.assertIn("Voltar ao Prof Greg", page)
+        self.assertNotIn('"error"', page)
+        self.assertNotIn("currently approved English presentation", page)
+
     def test_build_server_rejects_unsafe_job_root(self) -> None:
         with self.assertRaises(ValueError):
             ui.build_server("127.0.0.1", 0, job_root=Path("/tmp/not-profgreg"), upload_root=ROOT / "tmp" / "uploads", default_course="demo")

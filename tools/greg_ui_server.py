@@ -19,7 +19,7 @@ from greg_operator import course_status, default_job_root, enqueue_job, handle_r
 from greg_record_approval import record_approval
 from greg_server_status import list_jobs, safe_job_root
 from greg_create_run import create_run, slugify
-from greg_localized_deck_guard import localized_deck_context, validate_localized_deck
+from greg_localized_deck_guard import LocalizedDeckIntegrityError, localized_deck_context, validate_localized_deck
 
 
 DEFAULT_HOST = "127.0.0.1"
@@ -346,6 +346,32 @@ def safe_download_filename(value: str, fallback: str) -> str:
     raw = unquote(value or "").strip() or fallback
     name = re.sub(r"[^\w .()\-]+", "-", raw, flags=re.UNICODE).strip(" .-")
     return name or fallback
+
+
+def blocked_localized_deck_page() -> bytes:
+    return """<!doctype html>
+<html lang="pt-BR">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Tradução bloqueada</title>
+  <style>
+    body { margin: 0; min-height: 100vh; display: grid; place-items: center; background: #f5f7fa; color: #1f2937; font-family: Inter, system-ui, sans-serif; }
+    main { width: min(640px, calc(100% - 40px)); padding: 36px; border: 1px solid #d8e0ea; border-radius: 16px; background: white; box-shadow: 0 8px 24px rgba(16, 24, 40, .08); }
+    h1 { margin-top: 0; color: #1e3a5f; }
+    p { line-height: 1.55; }
+    a { display: inline-block; margin-top: 12px; padding: 11px 16px; border-radius: 8px; background: #f07800; color: white; font-weight: 700; text-decoration: none; }
+  </style>
+</head>
+<body>
+  <main>
+    <h1>Esta tradução precisa ser gerada novamente</h1>
+    <p>O arquivo anterior foi bloqueado porque não corresponde à apresentação em inglês aprovada. Isso impede que uma versão errada seja baixada.</p>
+    <p>Volte ao Prof Greg, atualize a página e gere novamente as apresentações traduzidas. O novo arquivo será produzido somente a partir da versão aprovada.</p>
+    <a href="/">Voltar ao Prof Greg</a>
+  </main>
+</body>
+</html>""".encode("utf-8")
 
 
 def upload_identifier(meta: dict) -> str:
@@ -2353,7 +2379,16 @@ class GregUiHandler(BaseHTTPRequestHandler):
                 query = parse_qs(parsed.query)
                 artifact = query.get("path", [""])[0]
                 filename = query.get("filename", [""])[0]
-                self.send_file(safe_artifact_path(artifact), filename=filename)
+                try:
+                    artifact_path = safe_artifact_path(artifact)
+                except LocalizedDeckIntegrityError:
+                    self.send_bytes(
+                        HTTPStatus.CONFLICT,
+                        blocked_localized_deck_page(),
+                        "text/html; charset=utf-8",
+                    )
+                    return
+                self.send_file(artifact_path, filename=filename)
                 return
             self.send_json(HTTPStatus.NOT_FOUND, {"error": "Not found"})
         except Exception as error:
