@@ -639,6 +639,33 @@ class GregLiveProductionTests(unittest.TestCase):
             production.student_reference_for_source(source),
         )
 
+    def test_student_reference_consolidates_part_1926_sections(self) -> None:
+        entries = [
+            production.student_reference_for_source({"formal_reference": "Occupational Safety and Health Administration. 29 C.F.R. § 1926.20, General safety and health provisions. Current OSHA online text.", "source_type": "standard"}),
+            production.student_reference_for_source({"formal_reference": "Occupational Safety and Health Administration. 29 C.F.R. Part 1926, Safety and Health Regulations for Construction. Current OSHA online text.", "source_type": "standard"}),
+        ]
+        self.assertEqual(entries[0], entries[1])
+        self.assertEqual(
+            "Occupational Safety and Health Administration. Safety and Health Regulations for Construction, 29 C.F.R. Part 1926. U.S. Department of Labor.",
+            entries[0],
+        )
+
+    def test_force_references_removes_embedded_reference_list(self) -> None:
+        draft = "# Introduction\n\nIntro.\n\n# Section 01 - One\n\nBody.\n\n**References**\n\n- Embedded source.\n\n# Summary and Key Takeaways\n\n- One.\n\n# References\n\n- Model source.\n"
+        revised = production.force_student_references(draft, "# References\n\n- Validated source.")
+        self.assertNotIn("Embedded source", revised)
+        self.assertNotIn("Model source", revised)
+        self.assertIn("Validated source", revised)
+
+    def test_verification_requirements_reference_omits_document_url(self) -> None:
+        source = {
+            "formal_reference": "U.S. Environmental Protection Agency. (2024). Indoor AirPlus Verification Requirements, Version 2.",
+            "source_type": "government",
+            "url": "https://example.gov/verification-requirements.txt",
+        }
+        reference = production.student_reference_for_source(source)
+        self.assertNotIn("https://", reference)
+
     def test_student_reference_does_not_strip_title_containing_applied_in(self) -> None:
         source = {
             "formal_reference": (

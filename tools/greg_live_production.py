@@ -924,6 +924,11 @@ def student_reference_text(value: str) -> str:
 
 def student_reference_for_source(source: dict[str, Any]) -> str:
     text = student_reference_text(str(source.get("formal_reference") or ""))
+    if re.search(r"29 C\.F\.R\.\s+(?:§\s*1926(?:\.\d+)?|Part\s+1926)", text, flags=re.I):
+        return (
+            "Occupational Safety and Health Administration. Safety and Health Regulations for Construction, "
+            "29 C.F.R. Part 1926. U.S. Department of Labor."
+        )
     # Only chapter references use the `In` cleanup. A broad match mistakes
     # ordinary titles such as "As Applied in Engineering" for an anthology
     # citation and silently removes the beginning of the reference.
@@ -945,6 +950,15 @@ def student_reference_for_source(source: dict[str, Any]) -> str:
     # bibliography identifies the complete work once; that locator belongs in
     # source metadata and teaching prose, not the final student reference.
     text = re.sub(r"\s+(?:Chapter|Section)\s+[^.]+\.\s*$", ".", text, flags=re.I)
+    text = re.sub(r"\s+Current (?:OSHA )?online (?:text|edition)\.?", ".", text, flags=re.I)
+    if "Safety and Health Program Management Guidelines" in text and not re.search(r"\(\d{4}", text):
+        year = str(source.get("publication_date") or "")[:4]
+        if year.isdigit():
+            text = text.replace(
+                "Occupational Safety and Health Administration.",
+                f"Occupational Safety and Health Administration. ({year}).",
+                1,
+            )
     text = re.sub(r"\s*\([^)]*\bpp?\.\s*[^)]*\)", "", text, flags=re.I)
     source_type = str(source.get("source_type") or "").lower()
     url = str(source.get("url") or "").strip()
@@ -954,7 +968,7 @@ def student_reference_for_source(source: dict[str, Any]) -> str:
         "professional-standard", "professional-guide", "government-publication",
         "industry-publication", "manual", "report",
     }
-    formal_title = bool(re.search(r"\b(?:manual|standard|code|handbook)\b", text, flags=re.I))
+    formal_title = bool(re.search(r"\b(?:manual|standard|code|handbook|verification requirements)\b", text, flags=re.I))
     if source_type in formal_types or document_url or formal_title:
         text = re.sub(r"\s+https?://\S+", "", text).rstrip(" .") + "."
     elif url and url not in text:
@@ -1081,6 +1095,30 @@ def visual_cards_from_lesson(lesson: dict[str, Any]) -> list[dict[str, Any]]:
     return cards
 
 
+def remove_embedded_reference_lists(draft: str) -> str:
+    """Remove model-inserted bibliographies from teaching sections."""
+    lines = draft.splitlines()
+    cleaned: list[str] = []
+    index = 0
+    heading_pattern = re.compile(r"^(?:#{2,6}\s+References?|\*\*References?\*\*)\s*$", flags=re.I)
+    while index < len(lines):
+        if not heading_pattern.match(lines[index].strip()):
+            cleaned.append(lines[index])
+            index += 1
+            continue
+        probe = index + 1
+        while probe < len(lines) and not lines[probe].strip():
+            probe += 1
+        if probe >= len(lines) or not re.match(r"^\s*[-*+]\s+", lines[probe]):
+            cleaned.append(lines[index])
+            index += 1
+            continue
+        index = probe
+        while index < len(lines) and (not lines[index].strip() or re.match(r"^\s*[-*+]\s+", lines[index])):
+            index += 1
+    return "\n".join(cleaned).rstrip() + "\n"
+
+
 def force_student_references(draft: str, references: str, locale: str = "en") -> str:
     """The validated ledger, rather than model output, owns the references list."""
     labels = {
@@ -1091,6 +1129,7 @@ def force_student_references(draft: str, references: str, locale: str = "en") ->
     summary_heading, references_heading = labels.get(locale, labels["en"])
     if locale == "es":
         draft = re.sub(r"(?im)^#\s+Resumen y puntos clave\s*$", f"# {summary_heading}", draft)
+    draft = remove_embedded_reference_lists(draft)
     body = re.split(rf"(?im)^#\s+{re.escape(references_heading)}\s*$", draft, maxsplit=1)[0].rstrip()
     summary_match = re.search(rf"(?ims)(^#\s+{re.escape(summary_heading)}\s*$)(.*?)(?=^#\s+|\Z)", body)
     if summary_match:
@@ -1427,6 +1466,7 @@ def request_plain_study_guide_section_patch(
 Return the complete replacement section as plain Markdown, with no JSON, no Markdown fence, and no commentary.
 The first line must be exactly: {heading}
 Do not add any other level-one or level-two heading.
+Do not add any level-three or deeper heading, References block, source list, or bibliography inside the section.
 Keep the student-facing tone, apply only the relevant revision requests, and preserve facts that do not require correction.
 The complete chapter must remain below {maximum_words:,} words.
 The complete replacement section must not exceed {target_words:,} words. Finish every sentence and reserve output space for the ending.
@@ -1502,7 +1542,7 @@ Revision request:
 Available headings:
 {headings}
 """,
-        max_tokens=1200,
+        max_tokens=4000,
     )
     selected = plan.get("headings")
     if not isinstance(selected, list) or not 1 <= len(selected) <= 5 or any(not isinstance(item, str) for item in selected):
@@ -1882,7 +1922,7 @@ def reviewer_prompt(
     operator_allowed_headings: set[str] | None = None,
 ) -> str:
     criteria = {
-        "pedagogy_review": "Check only learning progression, depth for level, MECE sections, residential examples, explanations before bullets, no classroom/group activities or quizzes, and no audience boilerplate. A HANDS-ON EXAMPLE is a deliberate exception: it must give the individual learner supplied inputs, a concrete action to perform, and an answer or result check; reject a HANDS-ON box that merely contains explanatory course-book prose. Any ordered procedure must use a real numbered Markdown list with exactly one step per source line; reject `1. ... 2. ... 3. ...` embedded in one paragraph because it hides the sequence from the learner and renderer. The Summary and Key Takeaways section is a strict exception: it must contain only 4-6 bullets, with no framing sentence or prose. Require a readable Markdown table only for one uninterrupted list of seven or more comparable items that repeatedly state category, quantity or amount, and the same condition or comment. Do not demand tables for conceptual lists, short examples, WBS vocabulary, or distinct decision steps. After a table, require prose to add a decision, exception, or interpretation rather than restating its rows. Citation style and reference formatting belong to the citation reviewer; do not fail this review merely because ordinary claims lack inline citations. Figures are planned and inserted by a separate visual pipeline after this review. Do not request ASCII diagrams, Markdown tables used as figures, fenced visual source, or final figure rendering inside the chapter Markdown.",
+        "pedagogy_review": "Check only learning progression, depth for level, MECE sections, residential examples, explanations before bullets, no classroom/group activities or quizzes, and no audience boilerplate. Learning Objectives and Summary and Key Takeaways are structural bullet-only exceptions and must not receive an orienting or framing paragraph. A HANDS-ON EXAMPLE is a deliberate exception: it must give the individual learner supplied inputs, a concrete action to perform, and an answer or result check; reject a HANDS-ON box that merely contains explanatory course-book prose. Any ordered procedure must use a real numbered Markdown list with exactly one step per source line; reject `1. ... 2. ... 3. ...` embedded in one paragraph because it hides the sequence from the learner and renderer. The Summary and Key Takeaways section must contain only 4-6 bullets, with no framing sentence or prose. Require a readable Markdown table only for one uninterrupted list of seven or more comparable items that repeatedly state category, quantity or amount, and the same condition or comment. Do not demand tables for conceptual lists, short examples, WBS vocabulary, or distinct decision steps. After a table, require prose to add a decision, exception, or interpretation rather than restating its rows. Citation style and reference formatting belong to the citation reviewer; do not fail this review merely because ordinary claims lack inline citations. Figures are planned and inserted by a separate visual pipeline after this review. Do not request ASCII diagrams, Markdown tables used as figures, fenced visual source, or final figure rendering inside the chapter Markdown.",
         "citation_review": "Check factual support against the ledger, current applicability, clean student references, no invented claims, and no internal/local source language. Internal/local source language means file paths, ledger mechanics, reviewer rationale, or private production notes; neutral student-facing references to documented authority, organizational procedures, or project procedures are allowed. Do not demand inline citations for every source or every ordinary claim. References may include materially consulted sources even when they are not named decoratively in the teaching prose. List each work only once, even when multiple chapters or claims used it; omit chapter, section, and page details from the final References section. Evaluate that bibliography rule only against the text after the final `# References` heading. A chapter, section, or direct-content hyperlink discussed in the teaching prose is not a bibliography defect and must not be reported as one. Never request or add accessed/retrieved dates. Books, codes, standards, regulations, reports, manuals, and paginated formal publications must remain bibliographic references without URLs even when the research ledger records an official online location; do not demand URLs for those formal works. Only sources actually classified as webpages may retain the direct content URL used. The Summary and Key Takeaways section must be only 4-6 bullets, with no introductory prose; never request a summary opener.",
         "design_review": "Check only the draft's approved structural and presentation contract: Introduction followed by Learning Objectives with no Lesson Roadmap; continuous lesson body; separate summary, glossary, and references; only the six approved callout labels; no callouts in structural sections; no H3 or deeper headings; no dash punctuation in prose; no one-line section openers; and every ordered procedure formatted as a real numbered Markdown list with one step per source line rather than several numbered markers embedded in a paragraph. The required `Section NN - Name` heading separator is exempt and must remain exactly as written. Useful callouts inside the teaching body are allowed. Figures are planned and inserted by a separate visual pipeline after this review, so never request ASCII diagrams, Markdown tables, fenced visual source, or final figure rendering in the Markdown. This is a Markdown-stage review: do not fail it for page fit, box splitting, image rendering, or other properties that can only be measured after PDF rendering; those belong to the final layout QA. Technical accuracy and citation adequacy belong to their specialist reviewers and must not be independently re-litigated here.",
     }[kind]
