@@ -3769,7 +3769,8 @@ def _produce_deck_impl(course_slug: str, lesson_number: int) -> list[str]:
         "created": date.today().isoformat(),
         "production_mode": "revision" if (run / "approval" / f"{lesson_tag}_deck_approval.md").exists() else "initial",
         "revision": f"r{revision:02d}",
-        "revision_reason": revision_feedback,
+        "revision_reason": [str(item.get("note") or "").strip() for item in revision_requests]
+        if revision_requests else ([revision_feedback] if revision_feedback else []),
         "run_folder": f"runs/{seed.slug}",
         "assets": {"brand_icon": BRAND_ICON, "negative_wordmark": NEGATIVE_WORDMARK},
         "output": {"pptx": f"deck/{filename}", "qa": f"deck/{lesson_tag}_deck_qa_r{revision:02d}.md", "rendered_dir": f"deck/rendered_slides_{lesson_tag}_r{revision:02d}"},
