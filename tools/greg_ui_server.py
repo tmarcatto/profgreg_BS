@@ -65,6 +65,19 @@ def operator_visible_jobs(jobs: list[dict[str, object]], *, limit: int = 30) -> 
     return visible[-limit:]
 
 
+def recent_worker_errors(jobs: list[dict[str, object]], *, limit: int = 10) -> list[dict[str, object]]:
+    """Return the latest failed worker jobs without hiding superseded attempts."""
+    failed = [
+        job for job in jobs
+        if job.get("state") == "failed" and str(job.get("lane") or "") in {"content", "delivery", "video"}
+    ]
+    failed.sort(
+        key=lambda job: str(job.get("updated_at") or job.get("created_at") or ""),
+        reverse=True,
+    )
+    return failed[:limit]
+
+
 def enqueue_production_lesson_jobs(
     *,
     job_root: Path,
@@ -1091,6 +1104,8 @@ def ui_shell(default_course: str) -> str:
     .cost-provider-list {{ margin: 12px 0 0; color: var(--muted); font-size: 13px; }}
     .cost-math {{ display: grid; gap: 8px; margin-top: 14px; }}
     .cost-math-row {{ border: 1px solid var(--line); border-radius: 7px; padding: 10px 12px; background: #fbfcfe; font-size: 13px; line-height: 1.45; }}
+    .worker-error-action {{ color: var(--navy); font-weight: 760; }}
+    .worker-error-explanation {{ min-width: 360px; line-height: 1.45; }}
     .hidden {{ display: none !important; }}
     code {{ font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; font-size: 12px; }}
     @media (max-width: 980px) {{
@@ -1175,6 +1190,13 @@ def ui_shell(default_course: str) -> str:
         <div class="table-wrap"><table><thead><tr><th>Provider</th><th>Model</th><th>API calls</th><th>Cost (USD)</th></tr></thead><tbody id="costMath"><tr><td colspan="4" class="muted">No cost calculation available yet.</td></tr></tbody></table></div>
         <div class="cost-provider-list" id="costRecentLabel">Latest API requests</div>
         <div class="table-wrap"><table><thead><tr><th>Date / time</th><th>Artifact / stage</th><th>Provider</th><th>Model</th><th>Usage</th><th>Cost (USD)</th><th>Status</th></tr></thead><tbody id="costRows"><tr><td colspan="7" class="muted">No AI calls recorded for this workspace.</td></tr></tbody></table></div>
+      </div>
+    </section>
+
+    <section id="worker-errors" class="card">
+      <div class="section-head"><div class="title-row"><div class="step-num">!</div><div><h2>Latest worker errors</h2><div class="hint">The 10 most recent failed worker actions for this course, including failures later resolved by a retry.</div></div></div></div>
+      <div class="body">
+        <div class="table-wrap"><table><thead><tr><th>Date / time</th><th>Worker</th><th>Action that failed</th><th>Explanation / next step</th></tr></thead><tbody id="workerErrorRows"><tr><td colspan="4" class="muted">No worker errors recorded for this workspace.</td></tr></tbody></table></div>
       </div>
     </section>
     </div>
@@ -1523,6 +1545,36 @@ def ui_shell(default_course: str) -> str:
         return `<tr><td>${{esc(item.at || '—')}}</td><td>${{esc(roleLabels[item.role] || item.role || '—')}}</td><td>${{esc(item.provider || '—')}}</td><td>${{esc(item.model || '—')}}</td><td>${{usageLabel(item.usage)}}</td><td>${{costText}}</td><td><span class="status-pill ${{esc(item.outcome || 'missing')}}">${{status}}</span></td></tr>`;
       }}).join('') : '<tr><td colspan="7" class="muted">No AI calls recorded for this workspace.</td></tr>';
     }}
+    const workerLabels = {{content:'Content worker', delivery:'Delivery worker', video:'Video worker'}};
+    const stageActionLabels = {{
+      study_guide:'Generate course book', deck:'Generate presentation',
+      translations_book:'Translate course book', translations_deck:'Translate presentation',
+      course_map:'Generate Course Map', video:'Generate video'
+    }};
+    function workerErrorAction(job) {{
+      const stage = String(job?.payload?.stage || '');
+      const requestType = String(job?.request_type || '').replace(/_/g, ' ');
+      const action = stageActionLabels[stage] || job?.input_summary || requestType || 'Worker action';
+      const lesson = Number(job?.lesson || (job?.payload?.lessons || [])[0] || 0);
+      return lesson ? `${{action}} · Lesson ${{String(lesson).padStart(2, '0')}}` : action;
+    }}
+    function workerErrorExplanation(job) {{
+      const raw = String(job?.last_error || '');
+      if (/needs an approved course book before presentation production/i.test(raw)) return 'The presentation was requested before its Course Book was approved. Generate and approve the Course Book, then retry the presentation.';
+      if (/ended mid-sentence|incomplete text content|max_output_tokens/i.test(raw)) return 'The AI response reached its output limit and stopped mid-section. Retry the Course Book; the saved complete draft is preserved for a focused revision.';
+      if (/Independent study-guide reviewers still require changes/i.test(raw)) return 'The Course Book still had unresolved reviewer findings after the automatic correction rounds. Review the lesson QA reports, correct the cited content, then retry.';
+      if (/source\/reference.*QA failed/i.test(raw)) return 'The source/reference check found missing, incomplete, or unsupported citation data. Review the lesson source QA report and correct the flagged references before retrying.';
+      if (/layout automatic QA failed|PDF layout QA failed/i.test(raw)) return 'The generated file failed automatic layout checks. Correct the reported overflow or page-layout issue, then retry; no incomplete file was released.';
+      return operatorJobMessage(job) || 'The worker stopped. Review the action and retry after correcting the reported condition.';
+    }}
+    function renderWorkerErrors(errors) {{
+      const rows = errors || [];
+      document.getElementById('workerErrorRows').innerHTML = rows.length ? rows.map(job => {{
+        const timestamp = job.updated_at || job.created_at;
+        const when = timestamp ? new Date(timestamp).toLocaleString() : '—';
+        return `<tr><td>${{esc(when)}}</td><td>${{esc(workerLabels[job.lane] || job.lane || 'Worker')}}</td><td class="worker-error-action">${{esc(workerErrorAction(job))}}</td><td class="worker-error-explanation">${{esc(workerErrorExplanation(job))}}</td></tr>`;
+      }}).join('') : '<tr><td colspan="4" class="muted">No worker errors recorded for this workspace.</td></tr>';
+    }}
     function renderCourseMapPanel() {{
       const map = artifactByNames(['course_map_md']);
       const panel = document.getElementById('courseMapPanel');
@@ -1837,6 +1889,7 @@ def ui_shell(default_course: str) -> str:
         const jobs = await api('/api/jobs?course=' + encodeURIComponent(course.value));
         currentJobs = jobs.jobs || [];
         renderJobs();
+        renderWorkerErrors(jobs.worker_errors || []);
         const uploads = await api('/api/uploads?course=' + encodeURIComponent(course.value));
         renderUploadTables(uploads.uploads || []);
         renderPipeline();
@@ -2364,8 +2417,9 @@ class GregUiHandler(BaseHTTPRequestHandler):
                 jobs = list_jobs(job_root)
                 if course:
                     jobs = [job for job in jobs if str(job.get("course_slug") or "") == slugify(course)]
+                worker_errors = recent_worker_errors(jobs)
                 jobs = operator_visible_jobs(jobs)
-                self.send_json(HTTPStatus.OK, {"jobs": jobs})
+                self.send_json(HTTPStatus.OK, {"jobs": jobs, "worker_errors": worker_errors})
                 return
             if parsed.path == "/api/uploads":
                 course = parse_qs(parsed.query).get("course", [getattr(self.server, "default_course", DEFAULT_COURSE)])[0]

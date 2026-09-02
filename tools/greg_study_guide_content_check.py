@@ -53,7 +53,7 @@ INTERNAL_PATTERNS = [
     r"\bprerequisites?\b",
     r"\bunit policy\b",
     r"\bsource policy\b",
-    r"\binternal(?:ly)?\b",
+    r"\binternal (?:note|metadata|workflow|rationale|source|review|use only)\b",
     r"\bAI workflow\b",
 ]
 

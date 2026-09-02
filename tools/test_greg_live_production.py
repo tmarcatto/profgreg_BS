@@ -628,6 +628,17 @@ class GregLiveProductionTests(unittest.TestCase):
             reference,
         )
 
+    def test_student_reference_removes_trailing_chapter_locator_after_period(self) -> None:
+        source = {
+            "formal_reference": "International Code Council. (2024). 2024 International Residential Code. Chapter RE 1, Scope and Administration.",
+            "source_type": "standard",
+            "url": "https://codes.example.test/chapter-re-1",
+        }
+        self.assertEqual(
+            "International Code Council. (2024). 2024 International Residential Code.",
+            production.student_reference_for_source(source),
+        )
+
     def test_student_reference_does_not_strip_title_containing_applied_in(self) -> None:
         source = {
             "formal_reference": (

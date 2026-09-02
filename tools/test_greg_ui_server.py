@@ -38,10 +38,16 @@ class GregUiServerTests(unittest.TestCase):
         self.assertNotIn("video.share_url", html)
         self.assertIn("Lessons", html)
         self.assertIn("AI Costs", html)
+        self.assertIn("Latest worker errors", html)
+        self.assertIn('id="workerErrorRows"', html)
+        self.assertIn("function renderWorkerErrors", html)
+        self.assertIn("Action that failed", html)
         self.assertIn("/api/costs?course=", html)
         self.assertIn("Course production remains available", html)
         self.assertIn("renderCosts(null)", html)
         self.assertLess(html.index('id="costs"'), html.index('id="brief"'))
+        self.assertLess(html.index('id="costs"'), html.index('id="worker-errors"'))
+        self.assertLess(html.index('id="worker-errors"'), html.index('id="brief"'))
         self.assertLess(html.index('id="brief"'), html.index('id="materials"'))
         self.assertLess(html.index('id="materials"'), html.index('id="course-map"'))
         self.assertLess(html.index('id="course-map"'), html.index('id="pipeline"'))
@@ -151,6 +157,18 @@ class GregUiServerTests(unittest.TestCase):
     def test_json_bytes_preserves_utf8(self) -> None:
         data = ui.json_bytes({"message": "ação"})
         self.assertIn("ação".encode("utf-8"), data)
+
+    def test_recent_worker_errors_keeps_superseded_failures_and_returns_latest_ten(self) -> None:
+        jobs = [
+            {"job_id": f"job-{index}", "state": "failed" if index != 5 else "completed", "lane": "content", "updated_at": f"2026-09-01T10:{index:02d}:00Z"}
+            for index in range(12)
+        ]
+        jobs.append({"job_id": "not-a-worker", "state": "failed", "lane": "", "updated_at": "2026-09-01T11:00:00Z"})
+        errors = ui.recent_worker_errors(jobs)
+        self.assertEqual(10, len(errors))
+        self.assertEqual("job-11", errors[0]["job_id"])
+        self.assertNotIn("job-5", {item["job_id"] for item in errors})
+        self.assertNotIn("not-a-worker", {item["job_id"] for item in errors})
 
     def test_cost_report_is_scoped_to_one_course_and_keeps_providers_separate(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:

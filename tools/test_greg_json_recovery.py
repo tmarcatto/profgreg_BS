@@ -200,6 +200,19 @@ Original summary.
 
         self.assertIn("This response is complete.", result)
 
+    def test_plain_section_patch_recovers_after_incomplete_model_response(self) -> None:
+        responses = [
+            production.ModelRequestError("OpenAI returned incomplete text content (reason=max_output_tokens)."),
+            "# Section 01 - Communicate\n\nThis shorter response is complete.",
+        ]
+        with patch.object(production, "request_text", side_effect=responses) as request:
+            result = production.request_plain_study_guide_section_patch(
+                "course", "# Section 01 - Communicate", "# Section 01 - Communicate\n\nOriginal.",
+                "Complete the section.", maximum_words=5400,
+            )
+        self.assertEqual(2, request.call_count)
+        self.assertIn("This shorter response is complete.", result)
+
 
 class LessonSourceMergeTests(unittest.TestCase):
     def test_research_passes_merge_distinct_authorities_and_use_later_gap_state(self) -> None:

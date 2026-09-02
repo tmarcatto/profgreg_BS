@@ -65,6 +65,22 @@ class StudyGuideContentCheckTests(unittest.TestCase):
             result = checker.run_checks(path)
             self.assertFalse(result["passed"])
 
+    def test_legitimate_internal_inspection_language_is_not_metadata(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "draft.md"
+            path.write_text("# Introduction\n\nQuality gates protect the work.\n\n## Learning Objectives\n\n- Coordinate internal, third-party, and authority inspections.\n\n# Section 01 - One\n\nBody.\n", encoding="utf-8")
+            result = checker.run_checks(path)
+            finding = next(item for item in result["findings"] if item["check"] == "student_facing_intro_metadata")
+            self.assertEqual("pass", finding["status"])
+
+    def test_internal_production_note_is_still_rejected(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "draft.md"
+            path.write_text("# Introduction\n\nInternal note: reviewer only.\n\n# Section 01 - One\n\nBody.\n", encoding="utf-8")
+            result = checker.run_checks(path)
+            finding = next(item for item in result["findings"] if item["check"] == "student_facing_intro_metadata")
+            self.assertEqual("fail", finding["status"])
+
     def test_professional_use_of_exercise_is_not_a_learner_activity(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             path = Path(tmp) / "draft.md"
