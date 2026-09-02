@@ -1563,7 +1563,7 @@ def ui_shell(default_course: str) -> str:
       if (/needs an approved course book before presentation production/i.test(raw)) return 'The presentation was requested before its Course Book was approved. Generate and approve the Course Book, then retry the presentation.';
       if (/ended mid-sentence|incomplete text content|max_output_tokens/i.test(raw)) return 'The AI response reached its output limit and stopped mid-section. Retry the Course Book; the saved complete draft is preserved for a focused revision.';
       if (/Independent study-guide reviewers still require changes/i.test(raw)) return 'The Course Book still had unresolved reviewer findings after the automatic correction rounds. Review the lesson QA reports, correct the cited content, then retry.';
-      if (/source\/reference.*QA failed/i.test(raw)) return 'The source/reference check found missing, incomplete, or unsupported citation data. Review the lesson source QA report and correct the flagged references before retrying.';
+      if (/source\\/reference.*QA failed/i.test(raw)) return 'The source/reference check found missing, incomplete, or unsupported citation data. Review the lesson source QA report and correct the flagged references before retrying.';
       if (/layout automatic QA failed|PDF layout QA failed/i.test(raw)) return 'The generated file failed automatic layout checks. Correct the reported overflow or page-layout issue, then retry; no incomplete file was released.';
       return operatorJobMessage(job) || 'The worker stopped. Review the action and retry after correcting the reported condition.';
     }}
