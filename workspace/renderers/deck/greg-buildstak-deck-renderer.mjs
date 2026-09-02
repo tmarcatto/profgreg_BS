@@ -119,7 +119,7 @@ function addText(slide, name, text, x, y, w, h, style = {}) {
     fill: "none",
     line: { style: "solid", fill: "none", width: 0 },
   });
-  shape.text = text;
+  shape.text = String(text ?? "");
   shape.text.style = {
     fontFace: "Arial",
     fontSize: style.fontSize ?? 22,
@@ -223,17 +223,18 @@ function addBullet(slide, text, x, y, w, idx, size = 22) {
 
 function card(slide, key, title, body, x, y, w, h, accent = C.navy, fill = C.white) {
   const compact = w < 300;
-  const titleHeight = compact ? 48 : 34;
-  const bodyTop = compact ? 76 : 72;
+  const shallow = h < 180;
+  const titleHeight = shallow ? 34 : compact ? 48 : 34;
+  const bodyTop = shallow ? 56 : compact ? 76 : 72;
   addShape(slide, `${key}-card`, "roundRect", x, y, w, h, fill, C.line, 1.4);
   addText(slide, `${key}-title`, title, x + 20, y + 18, w - 40, titleHeight, {
-    fontSize: compact ? 18 : 21,
+    fontSize: shallow ? 16 : compact ? 18 : 21,
     bold: true,
     color: accent,
     alignment: "center",
   });
   addText(slide, `${key}-body`, body, x + 22, y + bodyTop, w - 44, h - bodyTop - 14, {
-    fontSize: compact ? 14 : 18,
+    fontSize: shallow ? 12 : compact ? 14 : 18,
     color: C.gray,
     alignment: "center",
   });
@@ -343,19 +344,112 @@ async function renderCardSequence(deck, slideSpec) {
   const slide = addSlide(deck);
   await addChrome(slide, currentSlide);
   addTitle(slide, slideSpec.title, slideSpec.subtitle);
-  const x0 = 70;
-  const w = 260;
-  slideSpec.items.forEach((item, i) => {
-    const x = x0 + i * 282;
-    card(slide, `${slideSpec.key || "sequence"}-${i + 1}`, item.title, item.body, x, 270, w, 230, C.navy, C.light);
-    if (i < slideSpec.items.length - 1) addLine(slide, `${slideSpec.key || "sequence"}-arrow-${i + 1}`, x + w, 385, x + 282, 385);
-  });
-  addText(slide, "takeaway", slideSpec.takeaway, 150, 528, 980, 58, {
+  const items = slideSpec.items || [];
+  if (items.length > 4) {
+    const cols = 3;
+    const w = 360;
+    const h = 132;
+    const gapX = 28;
+    const gapY = 22;
+    const x0 = 72;
+    const y0 = 232;
+    items.slice(0, 6).forEach((item, i) => {
+      const x = x0 + (i % cols) * (w + gapX);
+      const y = y0 + Math.floor(i / cols) * (h + gapY);
+      card(slide, `${slideSpec.key || "sequence"}-${i + 1}`, item.title, item.body, x, y, w, h, C.navy, C.light);
+    });
+  } else {
+    const x0 = 70;
+    const w = 260;
+    items.forEach((item, i) => {
+      const x = x0 + i * 282;
+      card(slide, `${slideSpec.key || "sequence"}-${i + 1}`, item.title, item.body, x, 270, w, 230, C.navy, C.light);
+      if (i < items.length - 1) addLine(slide, `${slideSpec.key || "sequence"}-arrow-${i + 1}`, x + w, 385, x + 282, 385);
+    });
+  }
+  addText(slide, "takeaway", slideSpec.bottom_line || slideSpec.takeaway || "", 150, 548, 980, 44, {
     fontSize: 22,
     bold: true,
     color: C.navy,
     alignment: "center",
   });
+}
+
+async function renderProcessFlow(deck, slideSpec) {
+  const slide = addSlide(deck);
+  await addChrome(slide, currentSlide);
+  addTitle(slide, slideSpec.title, slideSpec.subtitle);
+  const items = (slideSpec.items || []).slice(0, 6);
+  const gap = 24;
+  const totalW = 1136;
+  const w = (totalW - gap * (items.length - 1)) / Math.max(items.length, 1);
+  const x0 = 72;
+  items.forEach((item, i) => {
+    const x = x0 + i * (w + gap);
+    if (i < items.length - 1) addLine(slide, `process-arrow-${i + 1}`, x + w, 386, x + w + gap, 386, C.orange, 3);
+  });
+  items.forEach((item, i) => {
+    const x = x0 + i * (w + gap);
+    card(slide, `process-${i + 1}`, item.title, item.body, x, 278, w, 216, C.navy, C.light);
+  });
+  addText(slide, "bottom-line", slideSpec.bottom_line || slideSpec.takeaway || "", 150, 536, 980, 52, {
+    fontSize: 22, bold: true, color: C.navy, alignment: "center",
+  });
+}
+
+async function renderScheduleBarChart(deck, slideSpec) {
+  const slide = addSlide(deck);
+  await addChrome(slide, currentSlide);
+  addTitle(slide, slideSpec.title, slideSpec.subtitle);
+  const rows = (slideSpec.schedule_rows || []).slice(0, 7);
+  const maxEnd = Math.max(1, ...rows.map((row) => Number(row.start || 0) + Number(row.duration || 1)));
+  const labelX = 82;
+  const chartX = 352;
+  const chartW = 822;
+  const rowH = 52;
+  const startY = 232;
+  for (let tick = 0; tick <= maxEnd; tick += 1) {
+    const x = chartX + (tick / maxEnd) * chartW;
+    addShape(slide, `schedule-grid-${tick}`, "rect", x, startY - 20, 1, rows.length * rowH + 20, C.line, C.line, 0);
+    if (tick < maxEnd) addText(slide, `schedule-tick-${tick}`, String(tick + 1), x + 4, startY - 24, 32, 20, { fontSize: 11, color: C.muted });
+  }
+  rows.forEach((row, i) => {
+    const y = startY + i * rowH;
+    addText(slide, `schedule-label-${i + 1}`, row.activity, labelX, y + 7, 246, 34, { fontSize: 16, bold: true, color: C.navy });
+    const x = chartX + (Number(row.start || 0) / maxEnd) * chartW;
+    const w = Math.max(20, (Number(row.duration || 1) / maxEnd) * chartW);
+    const fill = row.status === "delayed" ? C.orange : row.status === "complete" ? C.navy : C.softBlue;
+    addShape(slide, `schedule-bar-${i + 1}`, "roundRect", x, y + 8, w, 30, fill, fill, 0);
+  });
+  addText(slide, "bottom-line", slideSpec.bottom_line || "", 150, 594, 980, 34, { fontSize: 20, bold: true, color: C.navy, alignment: "center" });
+}
+
+async function renderActivityNetwork(deck, slideSpec) {
+  const slide = addSlide(deck);
+  await addChrome(slide, currentSlide);
+  addTitle(slide, slideSpec.title, slideSpec.subtitle);
+  const paths = (slideSpec.network_paths || []).slice(0, 2);
+  paths.forEach((networkPath, pathIndex) => {
+    const activities = (networkPath.activities || []).slice(0, 4);
+    const y = 254 + pathIndex * 170;
+    addText(slide, `network-path-${pathIndex + 1}-label`, networkPath.label || `Path ${pathIndex + 1}`, 70, y + 28, 142, 70, {
+      fontSize: 16, bold: true, color: networkPath.critical ? C.orange : C.navy,
+    });
+    const x0 = 224;
+    const w = 196;
+    const gap = 54;
+    activities.forEach((activity, i) => {
+      const x = x0 + i * (w + gap);
+      if (i < activities.length - 1) addLine(slide, `network-${pathIndex + 1}-arrow-${i + 1}`, x + w, y + 58, x + w + gap, y + 58, networkPath.critical ? C.orange : C.slate, 3);
+    });
+    activities.forEach((activity, i) => {
+      const x = x0 + i * (w + gap);
+      addShape(slide, `network-${pathIndex + 1}-node-${i + 1}`, "roundRect", x, y, w, 116, networkPath.critical ? C.paleOrange : C.light, networkPath.critical ? C.orange : C.line, 1.4);
+      addText(slide, `network-${pathIndex + 1}-title-${i + 1}`, activity.title, x + 14, y + 18, w - 28, 44, { fontSize: 16, bold: true, color: C.navy, alignment: "center" });
+      addText(slide, `network-${pathIndex + 1}-duration-${i + 1}`, activity.duration || "", x + 18, y + 72, w - 36, 24, { fontSize: 15, color: C.gray, alignment: "center" });
+    });
+  });
+  addText(slide, "bottom-line", slideSpec.bottom_line || "", 150, 582, 980, 42, { fontSize: 20, bold: true, color: C.navy, alignment: "center" });
 }
 
 async function renderComparison(deck, slideSpec) {
@@ -468,6 +562,9 @@ async function renderSlide(deck, slideSpec) {
     intro_image_bullets: renderIntroImageBullets,
     image_bullets: renderImageBullets,
     card_sequence: renderCardSequence,
+    process_flow: renderProcessFlow,
+    schedule_bar_chart: renderScheduleBarChart,
+    activity_network: renderActivityNetwork,
     comparison: renderComparison,
     planned_actual: renderPlannedActual,
     row_list: renderRowList,

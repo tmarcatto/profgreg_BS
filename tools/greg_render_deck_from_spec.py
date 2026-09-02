@@ -120,6 +120,15 @@ def slide_text_parts(slide: dict[str, Any]) -> list[str]:
         for item in slide.get(key, [])[:6]:
             if isinstance(item, dict):
                 parts.extend([text_of(item.get("title")), text_of(item.get("body"))])
+    for row in slide.get("schedule_rows", [])[:7]:
+        if isinstance(row, dict):
+            parts.extend([text_of(row.get("activity")), f"Start {text_of(row.get('start'))}, duration {text_of(row.get('duration'))}"])
+    for network_path in slide.get("network_paths", [])[:2]:
+        if isinstance(network_path, dict):
+            parts.append(text_of(network_path.get("label")))
+            for activity in network_path.get("activities", [])[:4]:
+                if isinstance(activity, dict):
+                    parts.extend([text_of(activity.get("title")), text_of(activity.get("duration"))])
     for key in ("left", "right"):
         item = slide.get(key)
         if isinstance(item, dict):

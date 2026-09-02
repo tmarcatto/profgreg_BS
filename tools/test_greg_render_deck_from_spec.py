@@ -40,6 +40,21 @@ class RenderDeckFromSpecTests(unittest.TestCase):
             with self.assertRaises(ValueError):
                 renderer.run_folder_from_spec({"run_folder": tmp})
 
+    def test_slide_text_parts_includes_schedule_and_network_content(self) -> None:
+        schedule = renderer.slide_text_parts({
+            "title": "Schedule",
+            "schedule_rows": [{"activity": "Framing", "start": 2, "duration": 4}],
+        })
+        network = renderer.slide_text_parts({
+            "title": "Network",
+            "network_paths": [{"label": "Critical", "activities": [{"title": "Pour", "duration": "1d"}]}],
+        })
+        self.assertIn("Framing", schedule)
+        self.assertIn("Start 2, duration 4", schedule)
+        self.assertIn("Critical", network)
+        self.assertIn("Pour", network)
+        self.assertIn("1d", network)
+
 
 if __name__ == "__main__":
     unittest.main()
