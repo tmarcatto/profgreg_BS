@@ -1088,7 +1088,7 @@ def ui_shell(default_course: str) -> str:
     .status-pill.revision-in-progress {{ background: #fff6e8; color: var(--warn); }}
     .status-pill.video-available {{ background: #e7f6ec; color: var(--ok); }}
     .status-pill.waiting-for-approved-presentation {{ background: #f2f4f7; color: #667085; }}
-    .status-pill.ready-for-video-generation, .status-pill.new-approved-revision-ready,
+    .status-pill.ready-for-video-generation, .status-pill.new-approved-revision-ready, .status-pill.generating,
     .status-pill.queued, .status-pill.uploading, .status-pill.configuring,
     .status-pill.generating-transcripts, .status-pill.exporting, .status-pill.rendering {{ background: #fff6e8; color: var(--warn); }}
     .status-pill.presentation-exceeds-20-mb, .status-pill.needs-attention, .status-pill.failed {{ background: #fff1f0; color: var(--bad); }}
@@ -2138,8 +2138,27 @@ def ui_shell(default_course: str) -> str:
         return url.protocol === 'https:' && !url.username && !url.password ? url.href : '';
       }} catch (_error) {{ return ''; }}
     }}
+    function activeProductionJob(item, stage) {{
+      return currentJobs.find(job =>
+        job.request_type === 'production_stage'
+        && ['queued', 'running'].includes(job.state)
+        && String(job?.payload?.stage || '') === stage
+        && Number(job?.lesson || (job?.payload?.lessons || [])[0] || 0) === Number(item.lesson)
+      );
+    }}
+    function activeVideoJob(item, locale, video) {{
+      return currentJobs.find(job => {{
+        if (job.request_type !== 'video_generation' || !['queued', 'running'].includes(job.state)) return false;
+        if (Number(job?.lesson || 0) !== Number(item.lesson)) return false;
+        if (String(job?.payload?.locale || '') !== locale) return false;
+        const jobSource = String(job?.payload?.sourceSha256 || '');
+        const videoSource = String(video?.source_sha256 || '');
+        return !jobSource || !videoSource || jobSource === videoSource;
+      }});
+    }}
     function videoCell(item, locale, label) {{
       const video = item?.videos?.[locale] || {{status:'waiting_approved_presentation'}};
+      const activeJob = activeVideoJob(item, locale, video);
       const labels = {{
         waiting_approved_presentation: 'waiting for approved presentation',
         presentation_too_large: 'presentation exceeds 20 MB',
@@ -2150,9 +2169,9 @@ def ui_shell(default_course: str) -> str:
         exporting: 'exporting', rendering: 'rendering',
         video_ready: 'video available', needs_attention: 'needs attention', failed: 'failed'
       }};
-      const status = labels[video.status] || String(video.status || 'not started').replace(/_/g, ' ');
+      const status = activeJob ? 'generating' : (labels[video.status] || String(video.status || 'not started').replace(/_/g, ' '));
       const links = [];
-      const canStart = ['ready', 'ready_new_revision', 'uploading', 'configuring', 'generating_transcripts', 'awaiting_export_confirmation', 'exporting', 'rendering', 'needs_attention', 'failed'].includes(video.status);
+      const canStart = !activeJob && ['ready', 'ready_new_revision', 'uploading', 'configuring', 'generating_transcripts', 'awaiting_export_confirmation', 'exporting', 'rendering', 'needs_attention', 'failed'].includes(video.status);
       if (canStart) {{
         const action = ['uploading', 'configuring', 'generating_transcripts', 'awaiting_export_confirmation', 'exporting', 'rendering'].includes(video.status) ? 'Resume monitoring' : 'Start video';
         links.push(`<button class="subtle video-start" onclick="startVideo(${{Number(item.lesson)}}, '${{esc(locale)}}')">${{action}}</button>`);
@@ -2176,7 +2195,15 @@ def ui_shell(default_course: str) -> str:
       const videos = lessons.flatMap(item => Object.values(item.videos || {{}}));
       const inProductionStates = new Set(['queued', 'uploading', 'configuring', 'generating_transcripts', 'awaiting_export_confirmation', 'exporting', 'rendering']);
       const available = videos.filter(video => video.status === 'video_ready').length;
-      const inProduction = videos.filter(video => inProductionStates.has(video.status)).length;
+      const activeVideoJobs = currentJobs.filter(job => job.request_type === 'video_generation' && ['queued', 'running'].includes(job.state));
+      const activeVideoKeys = new Set(activeVideoJobs.map(job => `${{Number(job?.lesson || 0)}}:${{String(job?.payload?.locale || '')}}:${{String(job?.payload?.sourceSha256 || '')}}`));
+      const persistedInProduction = lessons.flatMap(item => Object.entries(item.videos || {{}}).filter(([locale, video]) => {{
+        if (!inProductionStates.has(video.status)) return false;
+        const exactKey = `${{Number(item.lesson)}}:${{locale}}:${{String(video?.source_sha256 || '')}}`;
+        const keyWithoutSource = `${{Number(item.lesson)}}:${{locale}}:`;
+        return !activeVideoKeys.has(exactKey) && !activeVideoKeys.has(keyWithoutSource);
+      }}));
+      const inProduction = activeVideoJobs.length + persistedInProduction.length;
       const waiting = videos.filter(video => video.status === 'waiting_approved_presentation').length;
       document.getElementById('videoGeneratorSummary').innerHTML = `<div class="metric"><div class="label">Videos available</div><div class="value">${{available}}</div></div><div class="metric"><div class="label">In production</div><div class="value">${{inProduction}}</div></div><div class="metric"><div class="label">Waiting for presentation</div><div class="value">${{waiting}}</div></div>`;
       holder.innerHTML = lessons.length ? lessons.map(item => `<tr>
@@ -2205,8 +2232,11 @@ def ui_shell(default_course: str) -> str:
       const revision = item[`${{statusField}}_revision`];
       const pendingRevision = status === 'revision_requested';
       const stageByStatus = {{study_guide:'study_guide', deck:'deck', pt_br_study_guide:'pt_br_book', pt_br_deck:'pt_br_deck', es_study_guide:'es_book', es_deck:'es_deck'}};
+      const activeJob = activeProductionJob(item, stageByStatus[statusField]);
       const failedRevision = pendingRevision && currentJobs.some(job => job.state === 'failed' && String(job?.payload?.stage || '') === stageByStatus[statusField] && (job?.payload?.lessons || []).map(Number).includes(Number(item.lesson)));
-      const normalized = status === 'approved'
+      const normalized = activeJob
+        ? 'generating'
+        : status === 'approved'
         ? (revision?.state === 'approved' ? 'revision approved' : 'approved')
         : failedRevision
           ? 'revision needs attention'
@@ -2216,7 +2246,7 @@ def ui_shell(default_course: str) -> str:
               ? 'revision corrected · ready for review'
               : path ? 'ready for review' : 'not generated';
       const pill = statusPill(normalized);
-      if (pendingRevision || !isDownloadablePath(path)) return `<span class="doc-cell">${{pill}}</span>`;
+      if (activeJob || pendingRevision || !isDownloadablePath(path)) return `<span class="doc-cell">${{pill}}</span>`;
       const title = cleanFilenamePart(item.title || `Lesson ${{item.lesson}}`);
       const ext = fileExtension(path) || (label.toLowerCase().includes('deck') || label.toLowerCase().includes('presentation') ? '.pptx' : '.pdf');
       const filename = `Lesson ${{String(item.lesson).padStart(2, '0')}} - ${{title}} - ${{label}}${{ext}}`;
