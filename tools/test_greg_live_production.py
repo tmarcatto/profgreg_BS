@@ -638,6 +638,19 @@ class GregLiveProductionTests(unittest.TestCase):
         self.assertEqual(production.localized_slide_visible_items({"title": "Título"}), ["Título"])
         self.assertEqual(production.localized_slide_visible_items({"title": "T", "topics": ["Um", "Dois"]}), ["T", "Um", "Dois"])
 
+    def test_localized_translation_source_removes_authoring_evidence_only(self) -> None:
+        source = [{
+            "layout": "comparison", "title": "Visible", "comparison_columns": ["A", "B"],
+            "learning_job": "Internal", "visual_candidates": [{"reason": "Internal"}],
+            "evidence_considered": [{"locator": "Internal"}],
+        }]
+        compact = production.localized_deck_translation_source(source)
+        self.assertEqual("Visible", compact[0]["title"])
+        self.assertEqual(["A", "B"], compact[0]["comparison_columns"])
+        self.assertNotIn("learning_job", compact[0])
+        self.assertNotIn("visual_candidates", compact[0])
+        self.assertIn("learning_job", source[0])
+
     def test_localized_deck_rejects_omitted_nested_visible_copy(self) -> None:
         source = [{
             "layout": "planned_actual",

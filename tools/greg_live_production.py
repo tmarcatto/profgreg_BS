@@ -4673,6 +4673,20 @@ def localized_slide_visible_items(slide: dict[str, Any]) -> list[str]:
     return items or ["Slide content"]
 
 
+def localized_deck_translation_source(slides: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """Remove authoring evidence that needlessly consumes translation output tokens."""
+    internal_fields = {
+        "learning_job", "teaching_strategy", "visual_candidates", "text_role", "course_map_visual_id",
+        "pedagogical_strategy", "real_example_importance", "generation_suitability", "source_strategy",
+        "evidence_considered", "alternatives_considered", "selection_reason", "image_prompt", "image_alt",
+    }
+    result = copy.deepcopy(slides)
+    for slide in result:
+        for field in internal_fields:
+            slide.pop(field, None)
+    return result
+
+
 def localized_deck_slides(
     source_slides: list[dict[str, Any]], translated_slides: Any, *, preserve_layout_on_drift: bool = False,
 ) -> list[dict[str, Any]]:
@@ -4973,10 +4987,10 @@ def localize_deck(course_slug: str, lesson_number: int, locale: str) -> list[str
     prior_spec = latest_matching_path(run / "localization" / folder, f"{lesson_tag}_deck_{locale}_spec_r*.json") if revision_feedback else None
     if revision_feedback and prior_spec:
         prior_slides = json.loads(prior_spec.read_text(encoding="utf-8")).get("slides") or []
-        prompt = deck_revision_prompt(prior_slides, revision_feedback)
+        prompt = deck_revision_prompt(localized_deck_translation_source(prior_slides), revision_feedback)
         merge_baseline = prior_slides
     else:
-        prompt = f"""Translate every student-visible text value in this Prof Greg deck JSON into {language}. Return JSON only in the form {{"slides": [...]}}. Preserve all keys, layout names, numbers, filenames, asset paths, and slide count exactly. Do not add slides or speaker notes. Preserve U.S. construction terms, units, and facts. If localized copy would overflow its approved layout, use a shorter equivalent that preserves the central message; do not add emphasis Markdown or bold markers.\n\n{json.dumps(source['slides'], ensure_ascii=False)}"""
+        prompt = f"""Translate every student-visible text value in this Prof Greg deck JSON into {language}. Return JSON only in the form {{"slides": [...]}}. Preserve all keys, layout names, numbers, filenames, asset paths, and slide count exactly. Do not add slides or speaker notes. Preserve U.S. construction terms, units, and facts. If localized copy would overflow its approved layout, use a shorter equivalent that preserves the central message; do not add emphasis Markdown or bold markers.\n\n{json.dumps(localized_deck_translation_source(source['slides']), ensure_ascii=False)}"""
         merge_baseline = source["slides"]
     slides: list[dict[str, Any]] | None = None
     last_translation_error: Exception | None = None
@@ -4999,7 +5013,7 @@ The previous translation was rejected by structural QA: {error}
 Return every slide and every existing visible field, including nested item title/body values, comparison `columns`/`rows` and `comparison_columns`/`comparison_rows` aliases, planned/actual rows, decision-ready updates, schedule activity labels, and activity-network path/activity labels. Preserve layouts, counts, numbers, numeric duration codes such as `3d`, booleans, paths, and all non-visible metadata exactly. Translate word-based activity timing labels such as `before phase` or `release decision`. Never omit a visible field instead of translating it.
 
 Approved source structure:
-{json.dumps(merge_baseline, ensure_ascii=False)}"""
+{json.dumps(localized_deck_translation_source(merge_baseline), ensure_ascii=False)}"""
     if slides is None:
         raise RuntimeError(f"Localized presentation remained incomplete after three attempts: {last_translation_error}")
     slides = normalize_localized_dash_punctuation(slides)
@@ -5041,7 +5055,7 @@ Approved source structure:
             fit_data = request_json_with_retry(
                 seed.slug,
                 "localization",
-                deck_revision_prompt(slides, integrity_feedback),
+                deck_revision_prompt(localized_deck_translation_source(slides), integrity_feedback),
                 max_tokens=12000,
             )
             slides = localized_deck_slides(slides, fit_data.get("slides"), preserve_layout_on_drift=True)
@@ -5059,7 +5073,7 @@ Approved source structure:
             fit_data = request_json_with_retry(
                 seed.slug,
                 "localization",
-                deck_revision_prompt(slides, fit_feedback),
+                deck_revision_prompt(localized_deck_translation_source(slides), fit_feedback),
                 max_tokens=12000,
             )
             slides = localized_deck_slides(slides, fit_data.get("slides"), preserve_layout_on_drift=True)
