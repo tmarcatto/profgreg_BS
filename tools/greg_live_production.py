@@ -4305,6 +4305,16 @@ def localized_visual_contract_error(visuals: Any) -> str:
                             for row in visual.get("rows") or [] if isinstance(row, dict)
                         ):
                             return "Comparison-matrix cell exceeds the visible 40/130 character limit."
+                        if str(visual.get("type") or "") == "relationship_map":
+                            nodes = [node for node in visual.get("nodes") or [] if isinstance(node, dict)]
+                            if nodes and len(str(nodes[0].get("title") or "")) > 42:
+                                return "relationship-map central title exceeds the visible three-line limit."
+                            if any(len(str(node.get("title") or "")) > 28 for node in nodes[1:]):
+                                return "relationship-map satellite title exceeds the visible two-line limit."
+                        if str(visual.get("type") or "") == "comparison_matrix" and any(
+                            len(str(column or "")) > 28 for column in visual.get("columns") or []
+                        ):
+                            return "Comparison-matrix header does not fit in two visible lines."
                     return ""
     try:
         # Use the renderer's complete validation contract.  The former
@@ -4345,13 +4355,16 @@ English visual specifications:
 {json.dumps(source_visuals, ensure_ascii=False)}"""
     visuals: list[dict[str, Any]] | None = None
     last_error: Exception | None = None
-    for attempt in range(2):
+    for attempt in range(4):
         try:
             retry_note = ""
             if attempt and last_error:
                 retry_note = (
                     f"\n\nThe exact PDF renderer or parity validator rejected the previous batch: {last_error} "
-                    "Correct only the affected learner-visible labels or structure and return the complete batch again."
+                    "Correct only the affected learner-visible labels or structure and return the complete batch again. "
+                    "For every process-flow node use at most 18 characters in the title and 28 in the detail. "
+                    "For every relationship-map node use at most 18 characters in the title and avoid words longer "
+                    "than 10 characters. Prefer a concise construction term over a literal phrase."
                 )
             parsed = request_json_with_retry(seed.slug, "diagram_planning", prompt + retry_note, max_tokens=12000)
             candidate = parsed.get("visuals")
@@ -4375,7 +4388,7 @@ English visual specifications:
             last_error = error
             visuals = None
     if visuals is None:
-        raise RuntimeError(f"Localized visual translation failed after two validated batch attempts: {last_error}")
+        raise RuntimeError(f"Localized visual translation failed after four validated batch attempts: {last_error}")
 
     for source_visual, visual in zip(source_visuals, visuals):
         source_section = re.search(r"(?:Section|Seção|Sección)\s+(\d{1,2})", str(source_visual.get("after_heading") or ""), flags=re.I)
@@ -4642,6 +4655,8 @@ def localized_slide_visible_items(slide: dict[str, Any]) -> list[str]:
         value = slide.get(key)
         if isinstance(value, dict):
             items.extend(str(value.get(field) or "").strip() for field in ("title", "label", "body") if str(value.get(field) or "").strip())
+        elif isinstance(value, list):
+            items.extend(str(item).strip() for item in value if str(item).strip())
     items.extend(str(value).strip() for value in slide.get("comparison_columns") or [] if str(value).strip())
     for row_key in ("comparison_rows", "planned_actual_rows"):
         for row in slide.get(row_key) or []:
@@ -4734,6 +4749,15 @@ def localized_deck_slides(
             if source_value is None:
                 continue
             translated_value = translated_slide.get(field)
+            if isinstance(source_value, list):
+                if (
+                    not isinstance(translated_value, list)
+                    or len(translated_value) != len(source_value)
+                    or not all(isinstance(value, str) and value.strip() for value in translated_value)
+                ):
+                    raise RuntimeError(f"Localized presentation slide {index} did not preserve `{field}`.")
+                localized[field] = [value.strip() for value in translated_value]
+                continue
             if not isinstance(source_value, dict) or not isinstance(translated_value, dict):
                 raise RuntimeError(f"Localized presentation slide {index} did not preserve `{field}`.")
             merged_value = copy.deepcopy(source_value)

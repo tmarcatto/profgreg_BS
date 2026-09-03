@@ -675,6 +675,30 @@ class GregLiveProductionTests(unittest.TestCase):
         self.assertEqual("Registro mantido", slides[0]["comparison_rows"][0]["cells"][0])
         self.assertEqual("Confirmar liberação", slides[0]["planned_actual_rows"][0]["action"])
 
+    def test_localized_deck_translates_planned_and_actual_lists(self) -> None:
+        source = [{
+            "layout": "comparison",
+            "title": "Compare the condition",
+            "planned": ["Opening covered", "Route separated"],
+            "actual": ["Cover removed", "Route crosses opening"],
+        }]
+        translated = [{
+            "layout": "comparison",
+            "title": "Compare a condição",
+            "planned": ["Abertura coberta", "Rota separada"],
+            "actual": ["Cobertura removida", "Rota cruza a abertura"],
+        }]
+        slides = production.localized_deck_slides(source, translated)
+        self.assertEqual(["Abertura coberta", "Rota separada"], slides[0]["planned"])
+        self.assertEqual(["Cobertura removida", "Rota cruza a abertura"], slides[0]["actual"])
+        self.assertIn("Abertura coberta", production.localized_slide_visible_items(slides[0]))
+
+    def test_localized_deck_rejects_incomplete_planned_list(self) -> None:
+        source = [{"layout": "comparison", "title": "Compare", "planned": ["One", "Two"]}]
+        translated = [{"layout": "comparison", "title": "Compare", "planned": ["Um"]}]
+        with self.assertRaisesRegex(RuntimeError, "did not preserve `planned`"):
+            production.localized_deck_slides(source, translated)
+
     def test_localized_book_removes_unjustified_inline_bold(self) -> None:
         source = "**El gerente completo** comienza el trabajo.\n\n# Introducción"
         self.assertEqual(
