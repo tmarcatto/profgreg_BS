@@ -23,6 +23,7 @@ ATTENTION_ERRORS = (
     "approved gregory orange",
     "valid https download url",
 )
+CREATION_TIMEOUT_ERROR = "transcript generation did not finish"
 
 
 def load_json(path: Path) -> dict[str, Any]:
@@ -86,6 +87,37 @@ def needs_attention(error: Exception) -> bool:
     return any(marker in message for marker in ATTENTION_ERRORS)
 
 
+def creation_timed_out(error: object) -> bool:
+    """Return whether AI Studios left a Docs-to-Video project stalled."""
+    return CREATION_TIMEOUT_ERROR in str(error or "").lower()
+
+
+def retire_stalled_project(state: dict[str, Any], error: object) -> None:
+    """Stop a retry from polling the same permanently stalled remote project."""
+    project_id = str(state.get("aiStudiosProjectId") or "")
+    if project_id:
+        failed_projects = list(state.get("failedProjectAttempts") or [])
+        failed_projects.append(
+            {
+                "aiStudiosProjectId": project_id,
+                "creationState": str(state.get("creationState") or ""),
+                "creationProgress": int(state.get("creationProgress") or 0),
+                "errorSummary": str(error or "")[:240],
+                "retiredAt": utc_now(),
+            }
+        )
+        state["failedProjectAttempts"] = failed_projects[-10:]
+    for key in (
+        "aiStudiosProjectId",
+        "aiStudiosExportProjectId",
+        "creationState",
+        "creationProgress",
+        "exportState",
+        "exportProgress",
+    ):
+        state.pop(key, None)
+
+
 def run_video(
     *, course_slug: str, lesson: int, locale: str, presentation: Path, title: str, sleep=time.sleep
 ) -> dict[str, Any]:
@@ -114,9 +146,14 @@ def run_video(
     )
     client = AiStudiosClient(AiStudiosCredentials.from_environment())
     last_error: Exception | None = None
-    start_attempt = min(int(state.get("attemptCount") or 0), MAX_ATTEMPTS - 1)
-    for attempt in range(start_attempt + 1, MAX_ATTEMPTS + 1):
-        state.update({"attemptCount": attempt, "errorSummary": "", "updatedAt": utc_now()})
+    # MAX_ATTEMPTS applies to this worker invocation. A manual retry must get a
+    # full retry budget even when an earlier invocation exhausted its attempts.
+    start_attempt = int(state.get("attemptCount") or 0)
+    if creation_timed_out(state.get("errorSummary")):
+        retire_stalled_project(state, state.get("errorSummary"))
+    for attempt_offset in range(1, MAX_ATTEMPTS + 1):
+        attempt = start_attempt + attempt_offset
+        state.update({"attemptCount": attempt, "lastAttemptStartedAt": utc_now(), "updatedAt": utc_now()})
         write_json(state_path, state)
         try:
             project_id = str(state.get("aiStudiosProjectId") or "")
@@ -153,6 +190,7 @@ def run_video(
                 write_json(state_path, state)
             download_url = wait_for_export(client, export_id, state, state_path)
             state.update({"status": "video_ready", "downloadUrl": download_url, "completedAt": utc_now(), "updatedAt": utc_now()})
+            state["errorSummary"] = ""
             write_json(state_path, state)
             return state
         except Exception as error:
@@ -166,8 +204,11 @@ def run_video(
                 }
             )
             write_json(state_path, state)
-            if attention or attempt >= MAX_ATTEMPTS:
+            if attention or attempt_offset >= MAX_ATTEMPTS:
                 break
+            if creation_timed_out(error):
+                retire_stalled_project(state, error)
+                write_json(state_path, state)
             sleep(RETRY_BACKOFF_SECONDS)
     raise AiStudiosError(str(last_error or "AI Studios video generation failed."))
 

@@ -47,6 +47,23 @@ class AiStudiosVideoTests(unittest.TestCase):
         self.assertTrue(video.needs_attention(video.AiStudiosError("unexpected avatar")))
         self.assertFalse(video.needs_attention(video.AiStudiosError("AI Studios could not be reached.")))
 
+    def test_transcript_timeout_is_recognized(self) -> None:
+        self.assertTrue(video.creation_timed_out("AI Studios transcript generation did not finish within 30 minutes."))
+        self.assertFalse(video.creation_timed_out("AI Studios could not be reached."))
+
+    def test_stalled_project_is_retired_before_retry(self) -> None:
+        state = {
+            "aiStudiosProjectId": "stuck-project",
+            "aiStudiosExportProjectId": "unused-export",
+            "creationState": "building audio",
+            "creationProgress": 50,
+        }
+        video.retire_stalled_project(state, "transcript generation did not finish")
+        self.assertNotIn("aiStudiosProjectId", state)
+        self.assertNotIn("creationProgress", state)
+        self.assertEqual("stuck-project", state["failedProjectAttempts"][0]["aiStudiosProjectId"])
+        self.assertEqual(50, state["failedProjectAttempts"][0]["creationProgress"])
+
 
 if __name__ == "__main__":
     unittest.main()
