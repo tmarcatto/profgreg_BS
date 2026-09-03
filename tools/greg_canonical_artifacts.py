@@ -200,6 +200,23 @@ def approved_or_default_deck(run: Path, lesson: str, approval: Path) -> Path | N
     return latest_glob(run, [f"deck/lesson_{lesson}_deck_r*.pptx"])
 
 
+def approved_or_default_localized(
+    run: Path,
+    lesson: str,
+    artifact_type: str,
+    approval: Path,
+    patterns: list[str],
+) -> Path | None:
+    """Keep an approved localized revision canonical until its replacement is ready."""
+    candidate = revision_candidate(run, lesson, artifact_type)
+    if candidate:
+        return candidate
+    approved = artifact_from_approval(run, approval)
+    if approved:
+        return approved
+    return latest_glob(run, patterns)
+
+
 def infer_manifest(course_slug: str) -> dict:
     run = RUNS / course_slug
     artifacts = [
@@ -220,10 +237,26 @@ def infer_manifest(course_slug: str) -> dict:
         deck_approval = run / "approval" / f"lesson_{lesson}_deck_approval.md"
         study_pdf = approved_or_default_study_guide(run, lesson, study_guide_approval)
         deck_pptx = approved_or_default_deck(run, lesson, deck_approval)
-        pt_br_book = latest_glob(run, [f"localization/pt-br/lesson_{lesson}_study_guide_pt_br_r*.pdf"])
-        pt_br_deck = latest_glob(run, [f"localization/pt-br/lesson_{lesson}_deck_pt_br_r*.pptx"])
-        es_book = latest_glob(run, [f"localization/es-419/lesson_{lesson}_study_guide_es_r*.pdf"])
-        es_deck = latest_glob(run, [f"localization/es-419/lesson_{lesson}_deck_es_r*.pptx"])
+        pt_br_book_approval = run / "approval" / f"lesson_{lesson}_pt_br_study_guide_approval.md"
+        pt_br_deck_approval = run / "approval" / f"lesson_{lesson}_pt_br_deck_approval.md"
+        es_book_approval = run / "approval" / f"lesson_{lesson}_es_study_guide_approval.md"
+        es_deck_approval = run / "approval" / f"lesson_{lesson}_es_deck_approval.md"
+        pt_br_book = approved_or_default_localized(
+            run, lesson, "pt_br_study_guide", pt_br_book_approval,
+            [f"localization/pt-br/lesson_{lesson}_study_guide_pt_br_r*.pdf"],
+        )
+        pt_br_deck = approved_or_default_localized(
+            run, lesson, "pt_br_deck", pt_br_deck_approval,
+            [f"localization/pt-br/lesson_{lesson}_deck_pt_br_r*.pptx"],
+        )
+        es_book = approved_or_default_localized(
+            run, lesson, "es_study_guide", es_book_approval,
+            [f"localization/es-419/lesson_{lesson}_study_guide_es_r*.pdf"],
+        )
+        es_deck = approved_or_default_localized(
+            run, lesson, "es_deck", es_deck_approval,
+            [f"localization/es-419/lesson_{lesson}_deck_es_r*.pptx"],
+        )
 
         artifacts.extend(
             [
@@ -276,10 +309,10 @@ def infer_manifest(course_slug: str) -> dict:
                     qa_path=run / "deck" / f"lesson_{lesson}_deck_qa.md",
                     notes="Machine-checkable visual plan for the lesson deck.",
                 ),
-                artifact(run, f"lesson_{lesson}_study_guide_pt_br_pdf", pt_br_book, "active", "LOCALIZATION", lesson=lesson, notes="Latest PT-BR course book."),
-                artifact(run, f"lesson_{lesson}_deck_pt_br_pptx", pt_br_deck, "active", "LOCALIZATION", lesson=lesson, notes="Latest PT-BR presentation."),
-                artifact(run, f"lesson_{lesson}_study_guide_es_pdf", es_book, "active", "LOCALIZATION", lesson=lesson, notes="Latest ES course book."),
-                artifact(run, f"lesson_{lesson}_deck_es_pptx", es_deck, "active", "LOCALIZATION", lesson=lesson, notes="Latest ES presentation."),
+                artifact(run, f"lesson_{lesson}_study_guide_pt_br_pdf", pt_br_book, "approved" if pt_br_book_approval.exists() else "active", "LOCALIZATION", lesson=lesson, approval_path=pt_br_book_approval, notes="Approved PT-BR course book." if pt_br_book_approval.exists() else "Latest PT-BR course book."),
+                artifact(run, f"lesson_{lesson}_deck_pt_br_pptx", pt_br_deck, "approved" if pt_br_deck_approval.exists() else "active", "LOCALIZATION", lesson=lesson, approval_path=pt_br_deck_approval, notes="Approved PT-BR presentation." if pt_br_deck_approval.exists() else "Latest PT-BR presentation."),
+                artifact(run, f"lesson_{lesson}_study_guide_es_pdf", es_book, "approved" if es_book_approval.exists() else "active", "LOCALIZATION", lesson=lesson, approval_path=es_book_approval, notes="Approved ES course book." if es_book_approval.exists() else "Latest ES course book."),
+                artifact(run, f"lesson_{lesson}_deck_es_pptx", es_deck, "approved" if es_deck_approval.exists() else "active", "LOCALIZATION", lesson=lesson, approval_path=es_deck_approval, notes="Approved ES presentation." if es_deck_approval.exists() else "Latest ES presentation."),
                 artifact(run, f"lesson_{lesson}_pipeline_qa", run / "process_review" / f"lesson_{lesson}_pipeline_qa.md", "supporting", "PROCESS_REVIEW", lesson=lesson),
             ]
         )

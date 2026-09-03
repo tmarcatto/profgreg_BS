@@ -112,6 +112,37 @@ class CanonicalArtifactsTests(unittest.TestCase):
             finally:
                 canonical.ROOT = original_root
 
+    def test_approved_localized_deck_stays_canonical_when_newer_revision_exists(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            original_root = canonical.ROOT
+            canonical.ROOT = Path(tmp)
+            try:
+                run = canonical.ROOT / "runs" / "demo"
+                localized = run / "localization" / "pt-br"
+                approval = run / "approval" / "lesson_04_pt_br_deck_approval.md"
+                localized.mkdir(parents=True)
+                approval.parent.mkdir(parents=True)
+                approved = localized / "lesson_04_deck_pt_br_r01.pptx"
+                newer = localized / "lesson_04_deck_pt_br_r02.pptx"
+                approved.write_bytes(b"approved")
+                newer.write_bytes(b"not approved")
+                approval.write_text(
+                    "- Artifact: runs/demo/localization/pt-br/lesson_04_deck_pt_br_r01.pptx\n",
+                    encoding="utf-8",
+                )
+
+                selected = canonical.approved_or_default_localized(
+                    run,
+                    "04",
+                    "pt_br_deck",
+                    approval,
+                    ["localization/pt-br/lesson_04_deck_pt_br_r*.pptx"],
+                )
+
+                self.assertEqual(approved, selected)
+            finally:
+                canonical.ROOT = original_root
+
     def test_optional_missing_keys_do_not_include_approved_core(self) -> None:
         self.assertIn("localization_pt_br_deck_text_map", canonical.OPTIONAL_MISSING_KEYS)
         self.assertNotIn("deck_pptx", canonical.OPTIONAL_MISSING_KEYS)
