@@ -699,6 +699,31 @@ class GregLiveProductionTests(unittest.TestCase):
         with self.assertRaisesRegex(RuntimeError, "did not preserve `planned`"):
             production.localized_deck_slides(source, translated)
 
+    def test_localized_deck_translates_network_path_names_and_activity_bodies(self) -> None:
+        source = [{
+            "layout": "activity_network",
+            "title": "Release or hold",
+            "network_paths": [{
+                "path_name": "Conforming evidence to release",
+                "activities": [{"id": "C1", "title": "Self-check", "body": "Submit the check record."}],
+            }],
+        }]
+        translated = [{
+            "layout": "activity_network",
+            "title": "Liberar ou reter",
+            "network_paths": [{
+                "path_name": "Evidência conforme para liberação",
+                "activities": [{"id": "C1", "title": "Autoverificação", "body": "Envie o registro da verificação."}],
+            }],
+        }]
+        slides = production.localized_deck_slides(source, translated)
+        path = slides[0]["network_paths"][0]
+        self.assertEqual("Evidência conforme para liberação", path["path_name"])
+        self.assertEqual("Envie o registro da verificação.", path["activities"][0]["body"])
+        visible = production.localized_slide_visible_items(slides[0])
+        self.assertIn("Evidência conforme para liberação", visible)
+        self.assertIn("Envie o registro da verificação.", visible)
+
     def test_localized_book_removes_unjustified_inline_bold(self) -> None:
         source = "**El gerente completo** comienza el trabajo.\n\n# Introducción"
         self.assertEqual(

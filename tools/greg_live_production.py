@@ -4646,11 +4646,16 @@ def localized_slide_visible_items(slide: dict[str, Any]) -> list[str]:
     for path in slide.get("network_paths") or []:
         if not isinstance(path, dict):
             continue
-        if str(path.get("label") or "").strip():
-            items.append(str(path["label"]).strip())
+        for field in ("label", "path_name"):
+            if str(path.get(field) or "").strip():
+                items.append(str(path[field]).strip())
         for activity in path.get("activities") or []:
-            if isinstance(activity, dict) and str(activity.get("title") or "").strip():
-                items.append(str(activity["title"]).strip())
+            if isinstance(activity, dict):
+                items.extend(
+                    str(activity.get(field) or "").strip()
+                    for field in ("title", "body")
+                    if str(activity.get(field) or "").strip()
+                )
     for key in ("planned", "actual", "decision_ready_update"):
         value = slide.get(key)
         if isinstance(value, dict):
@@ -4841,19 +4846,33 @@ def localized_deck_slides(
             for source_path, translated_path, merged_path in zip(source_paths, translated_paths, merged_paths):
                 if not isinstance(translated_path, dict):
                     raise RuntimeError(f"Localized presentation slide {index} contains an invalid network path.")
-                label = translated_path.get("label")
-                if not isinstance(label, str) or not label.strip():
-                    raise RuntimeError(f"Localized presentation slide {index} contains an invalid network label.")
-                merged_path["label"] = label.strip()
+                for label_field in ("label", "path_name"):
+                    source_label = source_path.get(label_field)
+                    if not isinstance(source_label, str) or not source_label.strip():
+                        continue
+                    translated_label = translated_path.get(label_field)
+                    if not isinstance(translated_label, str) or not translated_label.strip():
+                        raise RuntimeError(
+                            f"Localized presentation slide {index} contains an invalid network `{label_field}`."
+                        )
+                    merged_path[label_field] = translated_label.strip()
                 translated_activities = translated_path.get("activities")
                 source_activities = source_path.get("activities") or []
                 if not isinstance(translated_activities, list) or len(translated_activities) != len(source_activities):
                     raise RuntimeError(f"Localized presentation slide {index} did not preserve its network activities.")
                 for translated_activity, merged_activity in zip(translated_activities, merged_path.get("activities") or []):
-                    title = translated_activity.get("title") if isinstance(translated_activity, dict) else None
-                    if not isinstance(title, str) or not title.strip():
+                    if not isinstance(translated_activity, dict):
                         raise RuntimeError(f"Localized presentation slide {index} contains an invalid network activity.")
-                    merged_activity["title"] = title.strip()
+                    for text_field in ("title", "body"):
+                        source_text = merged_activity.get(text_field)
+                        if not isinstance(source_text, str) or not source_text.strip():
+                            continue
+                        translated_text = translated_activity.get(text_field)
+                        if not isinstance(translated_text, str) or not translated_text.strip():
+                            raise RuntimeError(
+                                f"Localized presentation slide {index} omitted network activity `{text_field}`."
+                            )
+                        merged_activity[text_field] = translated_text.strip()
             localized["network_paths"] = merged_paths
         result.append(localized)
     return result
