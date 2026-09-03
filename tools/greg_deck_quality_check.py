@@ -129,6 +129,32 @@ def load_layout_elements(deck_path: Path) -> list[dict]:
     return elements
 
 
+def subtitle_content_overlap_issues(layout_rows: list[dict]) -> list[tuple[int, str]]:
+    """Find two-line subtitles whose visible lane is covered by body content."""
+    issues: list[tuple[int, str]] = []
+    by_slide: dict[int, list[dict]] = defaultdict(list)
+    for row in layout_rows:
+        by_slide[int(row.get("slide", 0) or 0)].append(row)
+    for slide, elements in by_slide.items():
+        subtitle = next((row for row in elements if row.get("name") == "slide-subtitle"), None)
+        if not subtitle or int((subtitle.get("textLayout") or {}).get("lineCount", 0) or 0) < 2:
+            continue
+        subtitle_box = bbox(subtitle)
+        if not subtitle_box:
+            continue
+        subtitle_bottom = subtitle_box[1] + subtitle_box[3]
+        body_starts = [
+            box[1]
+            for row in elements
+            if str(row.get("name") or "").startswith(("comparison-header-", "variance-header-"))
+            and not str(row.get("name") or "").startswith(("comparison-header-text-", "variance-header-text-"))
+            and (box := bbox(row))
+        ]
+        if body_starts and min(body_starts) < subtitle_bottom:
+            issues.append((slide, f"body starts at {min(body_starts):.0f}px before subtitle lane ends at {subtitle_bottom:.0f}px"))
+    return issues
+
+
 def normalize_tokens(text: str) -> set[str]:
     words = re.findall(r"[a-zA-Z][a-zA-Z'-]{2,}", text.lower())
     tokens = {word.strip("'") for word in words if word not in STOPWORDS}
@@ -662,6 +688,12 @@ def run_checks(deck_path: Path, qa_path: Path | None = None) -> dict:
         findings.append(Finding("fail", "footer_clearance", f"Non-footer elements overlap the footer band: {footer_overlaps[:8]}."))
     else:
         findings.append(Finding("pass", "footer_clearance", "No non-footer elements overlap the footer band."))
+
+    subtitle_overlaps = subtitle_content_overlap_issues(layout_rows)
+    if subtitle_overlaps:
+        findings.append(Finding("fail", "subtitle_content_clearance", f"Body content covers a wrapped subtitle: {subtitle_overlaps[:8]}."))
+    else:
+        findings.append(Finding("pass", "subtitle_content_clearance", "Wrapped subtitles remain clear of body content."))
 
     # The renderer records the authoritative text boxes in the inspect file.
     # Revisioned render folders may be retained separately, so their absence

@@ -223,6 +223,15 @@ class DeckQualityCheckTests(unittest.TestCase):
             self.assertFalse(result["passed"])
             self.assertTrue(any(item["check"] == "text_box_density" and item["status"] == "fail" for item in result["findings"]))
 
+    def test_wrapped_subtitle_cannot_be_covered_by_table_header(self) -> None:
+        rows = [
+            {"slide": 8, "name": "slide-subtitle", "bbox": [74, 168, 980, 52], "textLayout": {"lineCount": 2}},
+            {"slide": 8, "name": "variance-header-1", "bbox": [58, 210, 160, 46]},
+        ]
+        self.assertEqual([(8, "body starts at 210px before subtitle lane ends at 220px")], deck_qa.subtitle_content_overlap_issues(rows))
+        rows[1]["bbox"][1] = 228
+        self.assertEqual([], deck_qa.subtitle_content_overlap_issues(rows))
+
 
 if __name__ == "__main__":
     unittest.main()

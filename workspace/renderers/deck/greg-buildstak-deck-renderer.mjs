@@ -533,15 +533,15 @@ async function renderComparison(deck, slideSpec) {
     const widths = columns.map((_, i) => i === 0 ? firstW : otherW);
     let x = x0;
     columns.forEach((column, i) => {
-      addShape(slide, `comparison-header-${i + 1}`, "rect", x, 216, widths[i], 48, i === 0 ? C.slate : C.navy, C.white, 1);
-      addText(slide, `comparison-header-text-${i + 1}`, column, x + 8, 226, widths[i] - 16, 28, { fontSize: 14, bold: true, color: C.white, alignment: "center" });
+      addShape(slide, `comparison-header-${i + 1}`, "rect", x, 228, widths[i], 48, i === 0 ? C.slate : C.navy, C.white, 1);
+      addText(slide, `comparison-header-text-${i + 1}`, column, x + 8, 238, widths[i] - 16, 28, { fontSize: 14, bold: true, color: C.white, alignment: "center" });
       x += widths[i];
     });
     rows.forEach((row, rowIndex) => {
       const cells = Array.isArray(row.cells) ? row.cells : Object.values(row);
       let cellX = x0;
       widths.forEach((width, columnIndex) => {
-        const y = 264 + rowIndex * 58;
+        const y = 276 + rowIndex * 58;
         addShape(slide, `comparison-${rowIndex + 1}-${columnIndex + 1}`, "rect", cellX, y, width, 58, rowIndex % 2 ? C.white : C.light, C.line, 1);
         addText(slide, `comparison-text-${rowIndex + 1}-${columnIndex + 1}`, cells[columnIndex] || "", cellX + 8, y + 9, width - 16, 40, { fontSize: columnIndex === 0 ? 13 : 12, bold: columnIndex === 0, color: columnIndex === 0 ? C.navy : C.gray, alignment: "center" });
         cellX += width;
@@ -568,17 +568,17 @@ async function renderPlannedActual(deck, slideSpec) {
     const widths = [160, 286, 286, 432];
     let x = x0;
     columns.forEach((column, index) => {
-      addShape(slide, `variance-header-${index + 1}`, "rect", x, 210, widths[index], 46, index === 0 ? C.slate : C.navy, C.white, 1);
-      addText(slide, `variance-header-text-${index + 1}`, column, x + 8, 220, widths[index] - 16, 26, { fontSize: 14, bold: true, color: C.white, alignment: "center" });
+      addShape(slide, `variance-header-${index + 1}`, "rect", x, 228, widths[index], 46, index === 0 ? C.slate : C.navy, C.white, 1);
+      addText(slide, `variance-header-text-${index + 1}`, column, x + 8, 238, widths[index] - 16, 26, { fontSize: 14, bold: true, color: C.white, alignment: "center" });
       x += widths[index];
     });
-    const rowHeight = rows.length > 3 ? 61 : 82;
+    const rowHeight = rows.length > 3 ? 58 : 82;
     rows.forEach((row, rowIndex) => {
       const action = [...new Set([row.variance, row.action, row.decision].filter(Boolean))].join(" — ");
       const cells = [row.item || row.title || labels.condition, row.planned || "", row.actual || "", action];
       let cellX = x0;
       widths.forEach((width, columnIndex) => {
-        const y = 256 + rowIndex * rowHeight;
+        const y = 274 + rowIndex * rowHeight;
         addShape(slide, `variance-${rowIndex + 1}-${columnIndex + 1}`, "rect", cellX, y, width, rowHeight, rowIndex % 2 ? C.white : C.light, C.line, 1);
         addText(slide, `variance-text-${rowIndex + 1}-${columnIndex + 1}`, cells[columnIndex], cellX + 8, y + 7, width - 16, rowHeight - 14, {
           fontSize: rows.length > 3 ? (columnIndex === 0 ? 12 : 11) : (columnIndex === 0 ? 14 : 13),
