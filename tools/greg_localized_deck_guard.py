@@ -16,7 +16,7 @@ DRAWING_NS = "http://schemas.openxmlformats.org/drawingml/2006/main"
 
 ENGLISH_DOMAIN_TERMS = re.compile(
     r"\b(?:budget|cash|cost|forecast|variance|decision|billing|retainage|aging|"
-    r"invoices?|accruals?|townhomes?|draw|ticket|spend|records?|question|response|job)\b",
+    r"invoices?|accruals?|draw|ticket|spend|records?|question|response|job)\b",
     flags=re.IGNORECASE,
 )
 ENGLISH_GRAMMAR_TERMS = re.compile(

@@ -785,6 +785,25 @@ class GregLiveProductionTests(unittest.TestCase):
         self.assertIn("Evidência conforme para liberação", visible)
         self.assertIn("Envie o registro da verificação.", visible)
 
+    def test_localized_deck_translates_word_based_network_durations(self) -> None:
+        source = [{
+            "layout": "activity_network", "title": "Release",
+            "network_paths": [{"label": "Control", "activities": [
+                {"title": "Verify", "duration": "before exposure"},
+                {"title": "Release", "duration": "3d"},
+            ]}],
+        }]
+        translated = [{
+            "layout": "activity_network", "title": "Liberação",
+            "network_paths": [{"label": "Controle", "activities": [
+                {"title": "Verifique", "duration": "antes da exposição"},
+                {"title": "Libere", "duration": "3d"},
+            ]}],
+        }]
+        slide = production.localized_deck_slides(source, translated)[0]
+        self.assertEqual("antes da exposição", slide["network_paths"][0]["activities"][0]["duration"])
+        self.assertEqual("3d", slide["network_paths"][0]["activities"][1]["duration"])
+
     def test_localized_deck_accepts_row_list_alias_and_synchronizes_items(self) -> None:
         source = [{
             "layout": "row_list", "title": "Quality gates",

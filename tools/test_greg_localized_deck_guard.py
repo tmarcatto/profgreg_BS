@@ -133,6 +133,13 @@ class LocalizedDeckGuardTests(unittest.TestCase):
 
             assert_no_untranslated_english(deck)
 
+    def test_accepts_preserved_us_townhome_term_inside_localized_copy(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            deck = Path(directory) / "localized.pptx"
+            write_text_pptx(deck, ["Mudança ilustrativa em uma cozinha de townhome."])
+
+            assert_no_untranslated_english(deck)
+
     def test_accepts_localized_deck_with_exact_approved_structure(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             run, localized_deck = build_run(Path(directory), localized_shapes=[3, 5])

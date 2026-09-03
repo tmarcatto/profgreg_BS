@@ -4654,7 +4654,7 @@ def localized_slide_visible_items(slide: dict[str, Any]) -> list[str]:
             if isinstance(activity, dict):
                 items.extend(
                     str(activity.get(field) or "").strip()
-                    for field in ("title", "body")
+                    for field in ("title", "body", "duration")
                     if str(activity.get(field) or "").strip()
                 )
     for key in ("planned", "actual", "decision_ready_update"):
@@ -4920,9 +4920,11 @@ def localized_deck_slides(
                 for translated_activity, merged_activity in zip(translated_activities, merged_path.get("activities") or []):
                     if not isinstance(translated_activity, dict):
                         raise RuntimeError(f"Localized presentation slide {index} contains an invalid network activity.")
-                    for text_field in ("title", "body"):
+                    for text_field in ("title", "body", "duration"):
                         source_text = merged_activity.get(text_field)
                         if not isinstance(source_text, str) or not source_text.strip():
+                            continue
+                        if text_field == "duration" and re.fullmatch(r"\d+(?:[.,]\d+)?\s*[dhwm]", source_text.strip(), flags=re.I):
                             continue
                         translated_text = translated_activity.get(text_field)
                         if not isinstance(translated_text, str) or not translated_text.strip():
@@ -4994,7 +4996,7 @@ def localize_deck(course_slug: str, lesson_number: int, locale: str) -> list[str
                 break
             attempt_prompt = f"""Translate every learner-visible text field in this deck into {language} and return JSON only as {{"slides": [...]}}.
 The previous translation was rejected by structural QA: {error}
-Return every slide and every existing visible field, including nested item title/body values, comparison `columns`/`rows` and `comparison_columns`/`comparison_rows` aliases, planned/actual rows, decision-ready updates, schedule activity labels, and activity-network path/activity labels. Preserve layouts, counts, numbers, durations, booleans, paths, and all non-visible metadata exactly. Never omit a visible field instead of translating it.
+Return every slide and every existing visible field, including nested item title/body values, comparison `columns`/`rows` and `comparison_columns`/`comparison_rows` aliases, planned/actual rows, decision-ready updates, schedule activity labels, and activity-network path/activity labels. Preserve layouts, counts, numbers, numeric duration codes such as `3d`, booleans, paths, and all non-visible metadata exactly. Translate word-based activity timing labels such as `before phase` or `release decision`. Never omit a visible field instead of translating it.
 
 Approved source structure:
 {json.dumps(merge_baseline, ensure_ascii=False)}"""
