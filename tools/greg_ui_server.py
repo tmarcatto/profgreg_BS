@@ -948,7 +948,7 @@ def ui_shell(default_course: str) -> str:
     .body {{ padding: 18px; }}
     .workspace-bar {{
       display: grid;
-      grid-template-columns: minmax(220px, 1fr) minmax(220px, 1fr) auto;
+      grid-template-columns: minmax(200px, 1fr) minmax(190px, .8fr) minmax(190px, .8fr) auto;
       gap: 12px;
       align-items: center;
       border: 1px solid var(--line);
@@ -1211,12 +1211,16 @@ def ui_shell(default_course: str) -> str:
         <input id="course" value="" placeholder="New course workspace" aria-label="Course slug" readonly>
       </div>
       <div class="workspace-field">
-        <label for="coursePicker">Saved unfinished courses</label>
-        <select id="coursePicker" aria-label="Saved unfinished courses"><option value="">Loading saved courses…</option></select>
+        <label for="coursePicker">Unfinished Courses</label>
+        <select id="coursePicker" aria-label="Unfinished Courses"><option value="">Loading unfinished courses…</option></select>
+      </div>
+      <div class="workspace-field">
+        <label for="finishedCoursePicker">Finished Courses</label>
+        <select id="finishedCoursePicker" aria-label="Finished Courses"><option value="">Loading finished courses…</option></select>
       </div>
       <div class="workspace-actions">
         <button id="newCourse" class="primary">New course</button>
-        <button id="refreshWorkspace">Refresh</button>
+        <button id="completeCourse">Complete</button>
         <button id="restartWorkspace" class="subtle">Restart</button>
         <button id="deleteCourse" class="danger">Delete</button>
       </div>
@@ -2042,6 +2046,9 @@ def ui_shell(default_course: str) -> str:
       operatorTargetMap = {{}};
       operatorTargetsByLesson = {{}};
       course.value = '';
+      document.getElementById('coursePicker').value = '';
+      document.getElementById('finishedCoursePicker').value = '';
+      document.getElementById('completeCourse').disabled = true;
       document.getElementById('courseTitle').value = '';
       document.getElementById('courseSlug').value = '';
       document.getElementById('syllabus').value = '';
@@ -2064,19 +2071,26 @@ def ui_shell(default_course: str) -> str:
       if (showMessage) msg.textContent = 'New course workspace ready.';
     }}
     async function restoreSavedCourse() {{
-      const buttons = [document.getElementById('refreshTop'), document.getElementById('refreshWorkspace')];
+      const buttons = [document.getElementById('refreshTop')];
       buttons.forEach(button => button.disabled = true);
       try {{
         const data = await api('/api/courses');
         const picker = document.getElementById('coursePicker');
+        const finishedPicker = document.getElementById('finishedCoursePicker');
         const active = (data.courses || []).filter(item => item.status !== 'completed');
+        const finished = (data.courses || []).filter(item => item.status === 'completed');
         picker.innerHTML = active.length
-          ? active.map(item => `<option value="${{esc(item.course_slug)}}">${{esc(item.title)}} · in progress</option>`).join('')
+          ? '<option value="">Choose an unfinished course…</option>' + active.map(item => `<option value="${{esc(item.course_slug)}}">${{esc(item.title)}} · in progress</option>`).join('')
           : '<option value="">No unfinished courses</option>';
-        const selected = active.find(item => item.course_slug === course.value) || active[0];
+        finishedPicker.innerHTML = finished.length
+          ? '<option value="">Choose a finished course…</option>' + finished.map(item => `<option value="${{esc(item.course_slug)}}">${{esc(item.title)}} · completed</option>`).join('')
+          : '<option value="">No finished courses</option>';
+        const selected = (data.courses || []).find(item => item.course_slug === course.value) || active[0] || finished[0];
         if (!selected) {{ resetWorkspace(false); return; }}
         course.value = selected.course_slug;
-        picker.value = selected.course_slug;
+        picker.value = selected.status === 'completed' ? '' : selected.course_slug;
+        finishedPicker.value = selected.status === 'completed' ? selected.course_slug : '';
+        document.getElementById('completeCourse').disabled = selected.status === 'completed';
         await loadWorkspace();
         msg.textContent = `Loaded saved course: ${{selected.title}}`;
       }} catch (error) {{
@@ -2096,6 +2110,17 @@ def ui_shell(default_course: str) -> str:
       msg.textContent = 'Workspace cleared. The saved course remains on the server.';
       showConsolePage('sections-1-2', true);
       document.getElementById('brief').scrollIntoView({{behavior: 'smooth', block: 'start'}});
+    }}
+    async function completeCourse() {{
+      if (!course.value) {{
+        msg.textContent = 'Choose an unfinished course before marking it complete.';
+        return;
+      }}
+      try {{
+        const data = await api('/api/complete-course', {{method: 'POST', body: JSON.stringify({{course: course.value}})}});
+        await restoreSavedCourse();
+        msg.textContent = data.message;
+      }} catch (error) {{ msg.textContent = error.message; }}
     }}
     async function deleteCourse() {{
       if (!course.value) {{
@@ -2622,11 +2647,21 @@ def ui_shell(default_course: str) -> str:
     }}
     document.querySelectorAll('[data-level]').forEach(btn => btn.onclick = () => setLevel(btn.dataset.level));
     document.getElementById('refreshTop').onclick = restoreSavedCourse;
-    document.getElementById('refreshWorkspace').onclick = restoreSavedCourse;
     document.getElementById('newCourse').onclick = openNewCourse;
+    document.getElementById('completeCourse').onclick = completeCourse;
     document.getElementById('restartWorkspace').onclick = restartWorkspace;
     document.getElementById('coursePicker').onchange = async event => {{
+      if (!event.target.value) return;
       course.value = event.target.value;
+      document.getElementById('finishedCoursePicker').value = '';
+      document.getElementById('completeCourse').disabled = false;
+      await loadWorkspace();
+    }};
+    document.getElementById('finishedCoursePicker').onchange = async event => {{
+      if (!event.target.value) return;
+      course.value = event.target.value;
+      document.getElementById('coursePicker').value = '';
+      document.getElementById('completeCourse').disabled = true;
       await loadWorkspace();
     }};
     document.getElementById('deleteCourse').onclick = deleteCourse;
