@@ -1087,14 +1087,21 @@ def ui_shell(default_course: str) -> str:
       font-weight: 760;
     }}
     .actions {{ display: flex; flex-wrap: wrap; gap: 10px; margin-top: 12px; align-items: center; }}
-    .lesson-table-wrap {{ overflow-x: auto; border: 1px solid var(--line); border-radius: 8px; background: #fff; }}
-    .lesson-table {{ min-width: 1540px; table-layout: fixed; }}
+    .lesson-table-wrap {{ overflow-x: hidden; border: 1px solid var(--line); border-radius: 8px; background: #fff; }}
+    .lesson-table {{ min-width: 0; table-layout: fixed; }}
+    .lesson-select-col {{ width: 44px; }}
+    .lesson-name-col {{ width: 190px; }}
+    .lesson-visuals-col {{ width: 70px; }}
     .lesson-table th, .lesson-table td {{ font-size: 13px; vertical-align: middle; }}
     .lesson-action-row th {{ padding: 8px 5px; background: #fff; border-bottom: 0; vertical-align: stretch; }}
-    .lesson-action-row button {{ width: 100%; min-height: 64px; padding: 9px 8px; line-height: 1.2; }}
+    .lesson-action-row button {{ width: 100%; min-height: 58px; padding: 7px 5px; font-size: 12px; line-height: 1.15; }}
     .lesson-combined-actions {{ display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }}
     .lesson-column-headings th {{ border-top: 1px solid var(--line); }}
-    .lesson-title-cell {{ max-width: 340px; font-weight: 760; color: var(--navy); line-height: 1.25; }}
+    .lesson-column-headings th:first-child, .lesson-table tbody td:first-child {{ padding-left: 8px; padding-right: 4px; text-align: center; }}
+    .lesson-column-headings th:nth-child(2), .lesson-table tbody td:nth-child(2) {{ padding-left: 8px; }}
+    .lesson-column-headings th:nth-child(3), .lesson-table tbody td:nth-child(3) {{ padding-left: 4px; padding-right: 4px; text-align: center; }}
+    .lesson-title-cell {{ max-width: 190px; font-weight: 760; color: var(--navy); line-height: 1.25; }}
+    .visual-present {{ display: inline-flex; align-items: center; justify-content: center; color: var(--ok); font-size: 22px; font-weight: 820; }}
     .doc-cell {{ display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }}
     .doc-link {{ color: var(--navy); font-weight: 760; text-decoration: none; border-bottom: 1px solid rgba(30,58,95,.35); }}
     .course-map-actions {{ display: flex; gap: 10px; flex-wrap: wrap; align-items: center; }}
@@ -1346,6 +1353,12 @@ def ui_shell(default_course: str) -> str:
         <div>
           <div class="lesson-table-wrap">
             <table class="lesson-table">
+              <colgroup>
+                <col class="lesson-select-col">
+                <col class="lesson-name-col">
+                <col class="lesson-visuals-col">
+                <col span="6">
+              </colgroup>
               <thead>
                 <tr class="lesson-action-row">
                   <th colspan="3">
@@ -1362,9 +1375,9 @@ def ui_shell(default_course: str) -> str:
                   <th><button id="produceEsDecks">Translate ES presentation</button></th>
                 </tr>
                 <tr class="lesson-column-headings">
-                  <th style="width:56px"><input id="selectAllLessons" type="checkbox" aria-label="Select all lessons"></th>
-                  <th style="width:190px">Lesson</th>
-                  <th style="width:140px">Visuals</th>
+                  <th><input id="selectAllLessons" type="checkbox" aria-label="Select all lessons"></th>
+                  <th>Lesson</th>
+                  <th>Visuals</th>
                   <th>Course book</th>
                   <th>Presentation</th>
                   <th>PT-BR book</th>
@@ -2275,17 +2288,9 @@ def ui_shell(default_course: str) -> str:
       </tr>`).join('') : '<tr><td colspan="4" class="muted">Generate and approve a presentation to prepare its video.</td></tr>';
     }}
     function visualCell(item) {{
-      const visualLabel = item.visual_status === 'waiting_images'
-        ? 'waiting images'
-        : item.visual_status === 'content_ready'
-          ? 'course book content ready'
-          : item.visual_status === 'included'
-            ? 'included in course book'
-          : item.visual_status || 'pending';
-      const pill = statusPill(visualLabel);
-      if (item.visual_status !== 'waiting_images' || !item.image_request_path) return `<span class="doc-cell">${{pill}}</span>`;
-      const filename = `Lesson ${{String(item.lesson).padStart(2, '0')}} - Image Requests.md`;
-      return `<span class="doc-cell">${{pill}} <a class="doc-link" href="/artifact?path=${{encodeURIComponent(item.image_request_path)}}&filename=${{encodeURIComponent(filename)}}" target="_blank" rel="noopener">request</a></span>`;
+      return item.visual_status === 'included'
+        ? '<span class="visual-present" aria-label="Visuals present" title="Visuals present">✓</span>'
+        : '';
     }}
     function documentCell(item, statusField, pathField, label) {{
       const status = item[statusField] || 'missing';
