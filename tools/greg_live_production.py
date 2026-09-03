@@ -4627,7 +4627,7 @@ def latest_matching_path(folder: Path, pattern: str) -> Path | None:
 
 def localized_slide_visible_items(slide: dict[str, Any]) -> list[str]:
     items: list[str] = []
-    for key in ("title", "subtitle", "intro", "body", "bottom_line", "takeaway", "final_line", "bridge_label"):
+    for key in ("title", "subtitle", "intro", "body", "bottom_line", "takeaway", "final_line", "bridge_label", "decision", "variance"):
         if str(slide.get(key) or "").strip():
             items.append(str(slide[key]).strip())
     for key in ("topics", "bullets"):
@@ -4685,7 +4685,7 @@ def localized_deck_slides(
     if not isinstance(translated_slides, list) or len(translated_slides) != len(source_slides):
         raise RuntimeError("Localized presentation must preserve the approved slide count.")
 
-    scalar_fields = {"title", "subtitle", "intro", "body", "bottom_line", "takeaway", "final_line", "bridge_label"}
+    scalar_fields = {"title", "subtitle", "intro", "body", "bottom_line", "takeaway", "final_line", "bridge_label", "decision", "variance"}
     list_fields = {"topics", "bullets"}
     result: list[dict[str, Any]] = []
     for index, (source_slide, translated_slide) in enumerate(zip(source_slides, translated_slides), start=1):
@@ -4755,6 +4755,23 @@ def localized_deck_slides(
                 continue
             translated_value = translated_slide.get(field)
             if isinstance(source_value, list):
+                if translated_value is None and field in {"planned", "actual"}:
+                    translated_rows = translated_slide.get("comparison_rows") or translated_slide.get("rows") or []
+                    derived: list[str] = []
+                    for row in translated_rows:
+                        if not isinstance(row, dict):
+                            derived = []
+                            break
+                        cells = row.get("cells")
+                        if isinstance(cells, list) and len(cells) >= 3:
+                            derived.append(str(cells[1 if field == "planned" else 2]).strip())
+                        elif isinstance(row.get(field), str):
+                            derived.append(str(row[field]).strip())
+                        else:
+                            derived = []
+                            break
+                    if len(derived) == len(source_value) and all(derived):
+                        translated_value = derived
                 if (
                     not isinstance(translated_value, list)
                     or len(translated_value) != len(source_value)

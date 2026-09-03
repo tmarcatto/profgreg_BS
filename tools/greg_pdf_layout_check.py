@@ -70,6 +70,16 @@ def contains(text: str, pattern: str) -> bool:
     return bool(re.search(pattern, text, re.IGNORECASE))
 
 
+def structural_callout_labels(text: str) -> list[str]:
+    """Return actual standalone callout labels, not ordinary prose words."""
+    labels = (
+        r"KEY TERM|APPLY IT|HANDS-ON EXAMPLE|SCENARIO|CALLBACK|BRIDGE|"
+        r"TERMO-CHAVE|APLIQUE|EXEMPLO PRÁTICO|CENÁRIO|RETOMADA|PONTE|"
+        r"TÉRMINO CLAVE|APLICACIÓN|EJEMPLO PRÁCTICO|ESCENARIO|RETOMAR|PUENTE"
+    )
+    return re.findall(rf"(?im)^\s*({labels})\s*:?[ \t]*$", text)
+
+
 def has_unrendered_markdown(text: str) -> bool:
     return (
         "**" in text
@@ -411,6 +421,7 @@ def run_checks(pdf_path: Path, qa_path: Path | None = None) -> dict:
     if summary_page and references_page:
         structural_tail = "\n".join(pages[summary_page - 1 : references_page])
         callout_labels = re.findall(r"\b(KEY TERM|APPLY IT|HANDS-ON EXAMPLE|SCENARIO|CALLBACK|BRIDGE|TERMO-CHAVE|APLIQUE|EXEMPLO PRÁTICO|CENÁRIO|RETOMADA|PONTE|TÉRMINO CLAVE|APLICACIÓN|EJEMPLO PRÁCTICO|ESCENARIO|RETOMAR|PUENTE)\b", structural_tail, flags=re.IGNORECASE)
+        callout_labels = structural_callout_labels(structural_tail)
         if callout_labels:
             findings.append(Finding("fail", "callouts_in_structural_sections", f"Callout labels found in structural tail sections: {sorted(set(callout_labels))}."))
         else:

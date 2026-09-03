@@ -47,6 +47,10 @@ class PdfLayoutCheckUnitTests(unittest.TestCase):
         self.assertFalse(pdf_qa.contains("References AIA Contract Documents", r"/Users/"))
         self.assertFalse(pdf_qa.contains("reliability of working commitments", r"source reliability"))
 
+    def test_structural_callout_detection_requires_a_standalone_label(self) -> None:
+        self.assertEqual([], pdf_qa.structural_callout_labels("A retomada do trabalho exige verificação."))
+        self.assertEqual(["RETOMADA"], pdf_qa.structural_callout_labels("Resumo\nRETOMADA\nTexto"))
+
     def test_norm(self) -> None:
         self.assertEqual(pdf_qa.norm("A\n  B\tC"), "A B C")
         self.assertEqual(pdf_qa.norm("Pre-\nConstruction Plan"), "Pre-Construction Plan")

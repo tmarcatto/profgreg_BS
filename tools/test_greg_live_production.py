@@ -718,6 +718,24 @@ class GregLiveProductionTests(unittest.TestCase):
         self.assertEqual("Futuro", slide["comparison_rows"][0]["cells"][1])
         self.assertEqual(slide["comparison_rows"], slide["rows"])
 
+    def test_localized_deck_derives_planned_actual_lists_from_comparison_rows(self) -> None:
+        source = [{
+            "layout": "comparison", "title": "Plan meets field", "decision": "Pause exposure.",
+            "planned": ["Opening covered", "Route separated"],
+            "actual": ["Cover removed", "Route crosses opening"],
+            "comparison_columns": ["Check", "Planned", "Actual"],
+            "comparison_rows": [{"cells": ["Opening", "Opening covered", "Cover removed"]}, {"cells": ["Route", "Route separated", "Route crosses opening"]}],
+        }]
+        translated = [{
+            "layout": "comparison", "title": "Plano encontra campo", "decision": "Pause a exposição.",
+            "comparison_columns": ["Verificação", "Planejado", "Real"],
+            "comparison_rows": [{"cells": ["Abertura", "Abertura coberta", "Cobertura removida"]}, {"cells": ["Rota", "Rota separada", "Rota cruza a abertura"]}],
+        }]
+        slide = production.localized_deck_slides(source, translated)[0]
+        self.assertEqual(["Abertura coberta", "Rota separada"], slide["planned"])
+        self.assertEqual(["Cobertura removida", "Rota cruza a abertura"], slide["actual"])
+        self.assertEqual("Pause a exposição.", slide["decision"])
+
     def test_localized_deck_translates_planned_and_actual_lists(self) -> None:
         source = [{
             "layout": "comparison",
