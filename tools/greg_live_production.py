@@ -4780,6 +4780,8 @@ def localized_deck_slides(
         if source_slide.get("comparison_columns") is not None:
             source_columns = source_slide["comparison_columns"]
             translated_columns = translated_slide.get("comparison_columns")
+            if translated_columns is None:
+                translated_columns = translated_slide.get("columns")
             if (
                 not isinstance(translated_columns, list)
                 or len(translated_columns) != len(source_columns)
@@ -4787,9 +4789,13 @@ def localized_deck_slides(
             ):
                 raise RuntimeError(f"Localized presentation slide {index} did not preserve comparison columns.")
             localized["comparison_columns"] = [value.strip() for value in translated_columns]
+            if source_slide.get("columns") is not None:
+                localized["columns"] = copy.deepcopy(localized["comparison_columns"])
         if source_slide.get("comparison_rows") is not None:
             source_rows = source_slide["comparison_rows"]
             translated_rows = translated_slide.get("comparison_rows")
+            if translated_rows is None:
+                translated_rows = translated_slide.get("rows")
             if not isinstance(translated_rows, list) or len(translated_rows) != len(source_rows):
                 raise RuntimeError(f"Localized presentation slide {index} did not preserve comparison rows.")
             merged_rows = copy.deepcopy(source_rows)
@@ -4817,6 +4823,8 @@ def localized_deck_slides(
                         )
                     merged_row[text_field] = translated_text.strip()
             localized["comparison_rows"] = merged_rows
+            if source_slide.get("rows") is not None:
+                localized["rows"] = copy.deepcopy(merged_rows)
         if source_slide.get("planned_actual_rows") is not None:
             source_rows = source_slide["planned_actual_rows"]
             translated_rows = translated_slide.get("planned_actual_rows")
@@ -4949,7 +4957,7 @@ def localize_deck(course_slug: str, lesson_number: int, locale: str) -> list[str
                 break
             attempt_prompt = f"""Translate every learner-visible text field in this deck into {language} and return JSON only as {{"slides": [...]}}.
 The previous translation was rejected by structural QA: {error}
-Return every slide and every existing visible field, including nested item title/body values, comparison columns and cells, planned/actual rows, decision-ready updates, schedule activity labels, and activity-network path/activity labels. Preserve layouts, counts, numbers, durations, booleans, paths, and all non-visible metadata exactly. Never omit a visible field instead of translating it.
+Return every slide and every existing visible field, including nested item title/body values, comparison `columns`/`rows` and `comparison_columns`/`comparison_rows` aliases, planned/actual rows, decision-ready updates, schedule activity labels, and activity-network path/activity labels. Preserve layouts, counts, numbers, durations, booleans, paths, and all non-visible metadata exactly. Never omit a visible field instead of translating it.
 
 Approved source structure:
 {json.dumps(merge_baseline, ensure_ascii=False)}"""

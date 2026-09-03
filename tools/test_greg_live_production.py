@@ -697,6 +697,27 @@ class GregLiveProductionTests(unittest.TestCase):
         self.assertEqual("Líder", row["variable"])
         self.assertEqual("Gerente de projeto", row["weekly_coordination"])
 
+    def test_localized_deck_accepts_comparison_aliases_and_synchronizes_them(self) -> None:
+        source = [{
+            "layout": "comparison",
+            "title": "Classify",
+            "columns": ["Question", "Risk"],
+            "rows": [{"cells": ["When?", "Future"]}],
+            "comparison_columns": ["Question", "Risk"],
+            "comparison_rows": [{"cells": ["When?", "Future"]}],
+        }]
+        translated = [{
+            "layout": "comparison",
+            "title": "Classifique",
+            "columns": ["Pergunta", "Risco"],
+            "rows": [{"cells": ["Quando?", "Futuro"]}],
+        }]
+        slide = production.localized_deck_slides(source, translated)[0]
+        self.assertEqual(["Pergunta", "Risco"], slide["comparison_columns"])
+        self.assertEqual(slide["comparison_columns"], slide["columns"])
+        self.assertEqual("Futuro", slide["comparison_rows"][0]["cells"][1])
+        self.assertEqual(slide["comparison_rows"], slide["rows"])
+
     def test_localized_deck_translates_planned_and_actual_lists(self) -> None:
         source = [{
             "layout": "comparison",
