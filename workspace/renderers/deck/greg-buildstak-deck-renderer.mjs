@@ -507,7 +507,9 @@ async function renderActivityNetwork(deck, slideSpec) {
       const x = x0 + i * (w + gap);
       addShape(slide, `network-${pathIndex + 1}-node-${i + 1}`, "roundRect", x, y, w, 116, networkPath.critical ? C.paleOrange : C.light, networkPath.critical ? C.orange : C.line, 1.4);
       addText(slide, `network-${pathIndex + 1}-title-${i + 1}`, activity.title, x + 14, y + 12, w - 28, 54, { fontSize: 14, bold: true, color: C.navy, alignment: "center" });
-      addText(slide, `network-${pathIndex + 1}-duration-${i + 1}`, activity.duration || "", x + 18, y + 72, w - 36, 24, { fontSize: 15, color: C.gray, alignment: "center" });
+      if (String(activity.duration || "").trim()) {
+        addText(slide, `network-${pathIndex + 1}-duration-${i + 1}`, activity.duration, x + 18, y + 72, w - 36, 24, { fontSize: 15, color: C.gray, alignment: "center" });
+      }
     });
   });
   addText(slide, "bottom-line", slideSpec.bottom_line || "", 150, 582, 980, 42, { fontSize: 20, bold: true, color: C.navy, alignment: "center" });
