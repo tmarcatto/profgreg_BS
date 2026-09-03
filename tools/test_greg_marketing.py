@@ -92,6 +92,7 @@ class GregMarketingTests(unittest.TestCase):
         self.assertIn("Plan topic 1", page_text[3])
         self.assertIn("Practice topic 1", page_text[3])
         self.assertNotIn("Review topic 1", page_text[3])
+        self.assertNotIn("...", page_text[3])
         self.assertIn("HOW THIS CAN SUPPORT YOUR CAREER", page_text[4])
         self.assertIn("Start the course today", page_text[4])
         self.assertNotIn(self.marketing["landing_page_url"], page_text[4])
@@ -115,6 +116,11 @@ class GregMarketingTests(unittest.TestCase):
         self.assertIn("Lesson topic 1", page_four)
         self.assertIn("Plan topic 1", page_four)
         self.assertIn("Practice topic 1", page_four)
+        self.assertNotIn("...", page_four)
+
+    def test_page_four_title_uses_text_before_first_colon(self) -> None:
+        title = "Own the Whole Job: The Residential Construction Project Manager Role"
+        self.assertEqual("Own the Whole Job", marketing.main_lesson_title(title))
 
 
 if __name__ == "__main__":

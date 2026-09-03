@@ -75,6 +75,10 @@ def sentence_count(value: str) -> int:
     return len(re.findall(r"[.!?](?:[\"')\]]+)?(?:\s|$)", protected.strip()))
 
 
+def main_lesson_title(value: Any) -> str:
+    return _text(value, 180).split(":", 1)[0].strip()
+
+
 def _lesson_details(value: Any, lessons: list[Any]) -> list[dict[str, Any]]:
     supplied = value if isinstance(value, list) else []
     by_number = {
@@ -294,6 +298,40 @@ def _wrap(canvas: Any, text: str, x: float, y: float, width: float, *, font: str
     return y
 
 
+def _fit_wrap(
+    canvas: Any,
+    text: str,
+    x: float,
+    y: float,
+    width: float,
+    *,
+    font: str,
+    size: float,
+    minimum_size: float,
+    max_lines: int,
+    leading_ratio: float = 1.18,
+    color: Any = None,
+    sentence: bool = False,
+) -> float:
+    """Fit text without ellipses, compacting only as a final safety fallback."""
+    fitted_text = str(text or "").strip()
+    fitted_size = size
+    while fitted_size > minimum_size and len(_wrapped_lines(fitted_text, width, font, fitted_size)) > max_lines:
+        fitted_size = max(minimum_size, fitted_size - 0.2)
+    if len(_wrapped_lines(fitted_text, width, font, fitted_size)) > max_lines:
+        words = fitted_text.split()
+        while words:
+            candidate = " ".join(words).rstrip(" ,;:-")
+            if sentence and candidate and candidate[-1] not in ".!?":
+                candidate += "."
+            if len(_wrapped_lines(candidate, width, font, fitted_size)) <= max_lines:
+                fitted_text = candidate
+                break
+            words.pop()
+    leading = fitted_size * leading_ratio
+    return _wrap(canvas, fitted_text, x, y, width, font=font, size=fitted_size, leading=leading, color=color)
+
+
 def render_brochure(course_slug: str, data: dict[str, Any] | None = None) -> Path:
     from reportlab.lib.colors import HexColor, white
     from reportlab.lib.pagesizes import letter
@@ -449,7 +487,7 @@ def render_brochure(course_slug: str, data: dict[str, Any] | None = None) -> Pat
     columns = 3
     rows = max(1, (len(details) + columns - 1) // columns)
     start_y = 610
-    card_w, card_h, col_gap, row_gap = 166, 90, 10, 8
+    card_w, card_h, col_gap, row_gap = 166, 94, 10, 7
     for index, lesson in enumerate(details):
         col = index // rows
         row = index % rows
@@ -460,12 +498,13 @@ def render_brochure(course_slug: str, data: dict[str, Any] | None = None) -> Pat
         c.setFillColor(orange)
         c.setFont("Helvetica-Bold", 9)
         c.drawString(x + 10, top - 18, f"{int(lesson.get('lesson_number') or index + 1):02d}")
-        _wrap(c, lesson.get("title", ""), x + 35, top - 12, card_w - 45, font="Helvetica-Bold", size=8.2, leading=9.5, color=navy, max_lines=2)
+        main_title = main_lesson_title(lesson.get("title"))
+        _fit_wrap(c, main_title, x + 35, top - 12, card_w - 45, font="Helvetica-Bold", size=8.2, minimum_size=6.8, max_lines=2, leading_ratio=1.15, color=navy)
         for bullet_index, bullet in enumerate((lesson.get("bullets") or [])[:2]):
-            bullet_y = top - 48 - bullet_index * 22
+            bullet_y = top - 43 - bullet_index * 27
             c.setFillColor(orange)
             c.circle(x + 12, bullet_y + 2.2, 1.8, fill=1, stroke=0)
-            _wrap(c, bullet, x + 19, bullet_y, card_w - 29, size=7.1, leading=8.4, color=ink, max_lines=2)
+            _fit_wrap(c, bullet, x + 19, bullet_y, card_w - 29, font="Helvetica", size=7.1, minimum_size=6.2, max_lines=3, leading_ratio=1.16, color=ink, sentence=True)
     footer(4)
     c.showPage()
 
