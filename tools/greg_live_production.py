@@ -4796,14 +4796,26 @@ def localized_deck_slides(
             for source_row, translated_row, merged_row in zip(source_rows, translated_rows, merged_rows):
                 source_cells = source_row.get("cells") if isinstance(source_row, dict) else None
                 translated_cells = translated_row.get("cells") if isinstance(translated_row, dict) else None
-                if (
-                    not isinstance(source_cells, list)
-                    or not isinstance(translated_cells, list)
-                    or len(translated_cells) != len(source_cells)
-                    or not all(isinstance(value, str) and value.strip() for value in translated_cells)
-                ):
-                    raise RuntimeError(f"Localized presentation slide {index} did not preserve comparison row cells.")
-                merged_row["cells"] = [value.strip() for value in translated_cells]
+                if isinstance(source_cells, list):
+                    if (
+                        not isinstance(translated_cells, list)
+                        or len(translated_cells) != len(source_cells)
+                        or not all(isinstance(value, str) and value.strip() for value in translated_cells)
+                    ):
+                        raise RuntimeError(f"Localized presentation slide {index} did not preserve comparison row cells.")
+                    merged_row["cells"] = [value.strip() for value in translated_cells]
+                    continue
+                if not isinstance(source_row, dict) or not isinstance(translated_row, dict):
+                    raise RuntimeError(f"Localized presentation slide {index} did not preserve comparison rows.")
+                for text_field, source_text in source_row.items():
+                    if not isinstance(source_text, str) or not source_text.strip():
+                        continue
+                    translated_text = translated_row.get(text_field)
+                    if not isinstance(translated_text, str) or not translated_text.strip():
+                        raise RuntimeError(
+                            f"Localized presentation slide {index} omitted comparison row field `{text_field}`."
+                        )
+                    merged_row[text_field] = translated_text.strip()
             localized["comparison_rows"] = merged_rows
         if source_slide.get("planned_actual_rows") is not None:
             source_rows = source_slide["planned_actual_rows"]

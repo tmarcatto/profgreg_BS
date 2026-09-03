@@ -675,6 +675,28 @@ class GregLiveProductionTests(unittest.TestCase):
         self.assertEqual("Registro mantido", slides[0]["comparison_rows"][0]["cells"][0])
         self.assertEqual("Confirmar liberação", slides[0]["planned_actual_rows"][0]["action"])
 
+    def test_localized_deck_translates_named_comparison_rows(self) -> None:
+        source = [{
+            "layout": "comparison",
+            "title": "Three forums",
+            "comparison_columns": ["Variable", "Daily huddle", "Weekly coordination"],
+            "comparison_rows": [{
+                "variable": "Leader", "daily_huddle": "Superintendent", "weekly_coordination": "Project manager",
+            }],
+        }]
+        translated = [{
+            "layout": "comparison",
+            "title": "Três fóruns",
+            "comparison_columns": ["Variável", "Reunião diária", "Coordenação semanal"],
+            "comparison_rows": [{
+                "variable": "Líder", "daily_huddle": "Superintendente", "weekly_coordination": "Gerente de projeto",
+            }],
+        }]
+        slides = production.localized_deck_slides(source, translated)
+        row = slides[0]["comparison_rows"][0]
+        self.assertEqual("Líder", row["variable"])
+        self.assertEqual("Gerente de projeto", row["weekly_coordination"])
+
     def test_localized_deck_translates_planned_and_actual_lists(self) -> None:
         source = [{
             "layout": "comparison",
