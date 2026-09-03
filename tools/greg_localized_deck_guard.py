@@ -23,7 +23,6 @@ ENGLISH_GRAMMAR_TERMS = re.compile(
     r"\b(?:the|and|with|when|will|does|within|before|after|higher|more|main|correct)\b",
     flags=re.IGNORECASE,
 )
-ENGLISH_DURATION = re.compile(r"\b\d+\s*d\b", flags=re.IGNORECASE)
 
 
 class LocalizedDeckIntegrityError(RuntimeError):
@@ -214,13 +213,16 @@ def untranslated_english_findings(path: Path) -> list[dict[str, Any]]:
         text = item["text"]
         domain_hits = sorted({match.group(0).lower() for match in ENGLISH_DOMAIN_TERMS.finditer(text)})
         grammar_hits = sorted({match.group(0).lower() for match in ENGLISH_GRAMMAR_TERMS.finditer(text)})
-        duration_hits = sorted({match.group(0).lower() for match in ENGLISH_DURATION.finditer(text)})
-        if domain_hits or len(grammar_hits) >= 2 or duration_hits:
+        # Construction schedule durations such as `1d` and `15d` are
+        # locale-neutral data labels, not English prose.  Treating them as
+        # untranslated text blocked otherwise complete activity-network
+        # slides in both supported locales.
+        if domain_hits or len(grammar_hits) >= 2:
             findings.append(
                 {
                     "slide": item["slide"],
                     "text": text,
-                    "hits": [*domain_hits, *grammar_hits, *duration_hits],
+                    "hits": [*domain_hits, *grammar_hits],
                 }
             )
     return findings

@@ -636,7 +636,44 @@ class GregLiveProductionTests(unittest.TestCase):
 
     def test_localized_slide_visible_items_never_returns_empty(self) -> None:
         self.assertEqual(production.localized_slide_visible_items({"title": "Título"}), ["Título"])
-        self.assertEqual(production.localized_slide_visible_items({"title": "T", "topics": ["Um", "Dois"]}), ["Um", "Dois"])
+        self.assertEqual(production.localized_slide_visible_items({"title": "T", "topics": ["Um", "Dois"]}), ["T", "Um", "Dois"])
+
+    def test_localized_deck_rejects_omitted_nested_visible_copy(self) -> None:
+        source = [{
+            "layout": "planned_actual",
+            "title": "Control the variance",
+            "left": {"title": "Plan", "body": "Expected condition"},
+            "right": {"title": "Actual", "body": "Observed condition"},
+            "decision_ready_update": {"title": "Decision-ready update", "body": "State the effect."},
+        }]
+        incomplete = [{
+            "layout": "planned_actual",
+            "title": "Controle a variação",
+            "left": {"title": "Plano", "body": "Condição esperada"},
+            "right": {"title": "Real", "body": "Condição observada"},
+            "decision_ready_update": {"title": "Atualização para decisão"},
+        }]
+        with self.assertRaisesRegex(RuntimeError, "decision_ready_update field `body`"):
+            production.localized_deck_slides(source, incomplete)
+
+    def test_localized_deck_translates_comparison_and_planned_actual_rows(self) -> None:
+        source = [{
+            "layout": "planned_actual",
+            "title": "Read the record",
+            "comparison_columns": ["Evidence", "Decision"],
+            "comparison_rows": [{"cells": ["Record kept", "Confirmed owner decision"]}],
+            "planned_actual_rows": [{"item": "Permit", "planned": "Monday", "actual": "Unknown", "action": "Confirm release"}],
+        }]
+        translated = [{
+            "layout": "planned_actual",
+            "title": "Leia o registro",
+            "comparison_columns": ["Evidência", "Decisão"],
+            "comparison_rows": [{"cells": ["Registro mantido", "Decisão do proprietário confirmada"]}],
+            "planned_actual_rows": [{"item": "Licença", "planned": "Segunda-feira", "actual": "Desconhecido", "action": "Confirmar liberação"}],
+        }]
+        slides = production.localized_deck_slides(source, translated)
+        self.assertEqual("Registro mantido", slides[0]["comparison_rows"][0]["cells"][0])
+        self.assertEqual("Confirmar liberação", slides[0]["planned_actual_rows"][0]["action"])
 
     def test_localized_book_removes_unjustified_inline_bold(self) -> None:
         source = "**El gerente completo** comienza el trabajo.\n\n# Introducción"
@@ -653,7 +690,10 @@ class GregLiveProductionTests(unittest.TestCase):
 
     def test_cached_localized_visuals_must_still_fit_renderer_contract(self) -> None:
         self.assertTrue(production.localized_visuals_fit_contract([{
-            "type": "process_flow", "nodes": [{"title": "Valid title", "detail": "Valid detail"}],
+            "type": "process_flow", "nodes": [
+                {"title": "Valid title", "detail": "Valid detail"},
+                {"title": "Next title", "detail": "Next detail"},
+            ],
         }]))
         self.assertFalse(production.localized_visuals_fit_contract([{
             "type": "process_flow", "nodes": [{"title": "X" * 31, "detail": "Valid detail"}],
@@ -663,6 +703,19 @@ class GregLiveProductionTests(unittest.TestCase):
         }]))
         self.assertFalse(production.localized_visuals_fit_contract([{
             "type": "source_to_wbs_matrix", "rows": [{"left": "X" * 41, "right": "Valid detail"}],
+        }]))
+        self.assertFalse(production.localized_visuals_fit_contract([{
+            "type": "relationship_map",
+            "nodes": [
+                {"title": "Centro", "detail": ""},
+                {"title": "X" * 50, "detail": ""},
+            ],
+        }]))
+        self.assertFalse(production.localized_visuals_fit_contract([{
+            "type": "comparison_matrix",
+            "title": "Comparación",
+            "columns": ["Variable", "Entrada del registro de problemas y decisiones pendientes", "Respuesta"],
+            "rows": [{"cells": ["Estado", "Registrado", "Listo"]}, {"cells": ["Dueño", "PM", "Cliente"]}],
         }]))
 
     def test_localized_book_visuals_translates_the_lesson_in_one_batch(self) -> None:
@@ -729,6 +782,17 @@ class GregLiveProductionTests(unittest.TestCase):
         self.assertEqual(
             ["missing `Resumo e Principais Conclusões`", "fewer than four numbered sections"],
             production.localized_book_structure_issues(partial, "pt_br"),
+        )
+
+    def test_localized_book_structure_reports_dash_punctuation_before_rendering(self) -> None:
+        localized = "\n".join([
+            "# Seção 01: Primeiro", "Texto — complemento.",
+            "# Seção 02: Segundo", "# Seção 03: Terceiro", "# Seção 04: Quarto",
+            "# Resumo e Principais Conclusões", "- Um", "# Referências",
+        ])
+        self.assertIn(
+            "dash punctuation on lines [2]",
+            production.localized_book_structure_issues(localized, "pt_br"),
         )
 
     def test_localized_retry_ignores_newer_incomplete_revision(self) -> None:

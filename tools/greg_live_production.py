@@ -4307,7 +4307,10 @@ def localized_visual_contract_error(visuals: Any) -> str:
                             return "Comparison-matrix cell exceeds the visible 40/130 character limit."
                     return ""
     try:
-        _PDF_VISUAL_CONTRACT.validate_visual_text_fit(visuals)
+        # Use the renderer's complete validation contract.  The former
+        # text-fit-only call omitted relationship-map limits, so a cached plan
+        # could pass worker QA and then fail inside the renderer.
+        _PDF_VISUAL_CONTRACT.validate_visuals(visuals)
     except (TypeError, ValueError) as error:
         return str(error)
     return ""
@@ -4323,7 +4326,7 @@ def localized_book_visuals(seed, run: Path, lesson_tag: str, locale: str, langua
     cache_path = run / "localization" / folder / f"{lesson_tag}_visuals_{locale}.json"
     if cache_path.exists():
         cached = json.loads(cache_path.read_text(encoding="utf-8"))
-        if cached.get("fit_contract") == "localized-visual-fit-v6" and localized_visuals_fit_contract(cached.get("visuals")):
+        if cached.get("fit_contract") == "localized-visual-fit-v7" and localized_visuals_fit_contract(cached.get("visuals")):
             return cached["visuals"]
     source_spec_path = latest_matching_path(run / "docx_pdf", f"{lesson_tag}_study_guide_spec_r*.json")
     if not source_spec_path:
@@ -4385,7 +4388,7 @@ English visual specifications:
     final_contract_error = localized_visual_contract_error(visuals)
     if final_contract_error:
         raise RuntimeError(f"Localized visual plan failed the exact PDF renderer contract: {final_contract_error}")
-    write_json(cache_path, {"locale": locale, "fit_contract": "localized-visual-fit-v6", "visuals": visuals})
+    write_json(cache_path, {"locale": locale, "fit_contract": "localized-visual-fit-v7", "visuals": visuals})
     return visuals
 
 
@@ -4463,6 +4466,15 @@ def localized_book_structure_issues(markdown: str, locale: str) -> list[str]:
     section_pattern = rf"(?im)^#\s+{re.escape(section)}\s+\d{{1,2}}\s*(?:-|:|–|—)\s+.+$"
     if len(re.findall(section_pattern, markdown)) < 4:
         issues.append("fewer than four numbered sections")
+    teaching_text = re.split(rf"(?im)^#\s+{re.escape(references)}\s*$", markdown, maxsplit=1)[0]
+    dash_lines = []
+    for number, line in enumerate(teaching_text.splitlines(), start=1):
+        if re.match(rf"^#{{1,2}}\s+{re.escape(section)}\s+\d{{1,2}}\s*(?:-|:|–|—)\s+", line):
+            continue
+        if "—" in line or "–" in line or re.search(r"\s-{1,2}\s", line):
+            dash_lines.append(number)
+    if dash_lines:
+        issues.append(f"dash punctuation on lines {dash_lines[:12]}")
     return issues
 
 
@@ -4496,19 +4508,27 @@ def localize_book(course_slug: str, lesson_number: int, locale: str) -> list[str
     pending_match = re.search(r"_r(\d+)\.md$", pending_draft.name) if pending_draft else None
     prior_translated = ""
     pending_text = pending_draft.read_text(encoding="utf-8", errors="replace") if pending_draft else ""
+    pending_issues = (
+        localized_book_structure_issues(pending_text, locale)
+        + localized_book_parity_issues(source_markdown, pending_text, locale)
+        if pending_draft else []
+    )
     if (
         pending_draft
         and pending_match
         and not revision_feedback
-        and not localized_book_parity_issues(source_markdown, pending_text, locale)
+        and not pending_issues
     ):
         prior_translated = pending_text
         translated = normalize_localized_course_contract(prior_translated, locale)
         revision = int(pending_match.group(1))
         draft_name = pending_draft.name
     else:
-        if revision_feedback and pending_draft:
-            prompt = f"""Revise this existing {language} course book. Return the complete Markdown only. Apply only the requested changes and preserve every unmentioned paragraph, heading, diagram placement, reference, and translation verbatim. Do not translate or recreate the whole book.\n\nRequested changes:\n{revision_feedback}\n\nExisting course book:\n{pending_draft.read_text(encoding='utf-8', errors='replace')[:48000]}"""
+        if pending_draft:
+            requested_changes = revision_feedback or (
+                "Repair these automatic QA failures only: " + ", ".join(pending_issues)
+            )
+            prompt = f"""Revise this existing {language} course book. Return the complete Markdown only. Apply only the requested changes and preserve every unmentioned paragraph, heading, diagram placement, reference, and translation verbatim. Do not translate or recreate the whole book.\n\nRequested changes:\n{requested_changes}\n\nExisting course book:\n{pending_draft.read_text(encoding='utf-8', errors='replace')[:48000]}"""
         else:
             prompt = f"""Translate the following student-facing construction course book into {language}. Return Markdown only. Preserve the structural order and Markdown heading levels exactly: Introduction is `#`, Learning Objectives is `##`, and every numbered Section is `#`. Do not change a numbered Section into `##`. Do not add a Lesson Roadmap. Translate all body text and section titles. Preserve every Summary and Key Takeaways item as a concise bullet point; never convert that section into paragraphs. Keep U.S. construction terminology, units, codes, and market context. Preserve the six approved callout labels semantically in the target language and never invent a new callout type. Preserve exactly the same number of callout blocks as the English source, formatted as Markdown blockquotes: `> **LOCALIZED LABEL**` followed by one or more `>` body lines. Preserve every table with exactly the same number of tables, columns, and body rows. Do not turn a callout into ordinary prose. Do not add or remove facts, activities, citations, or references. Do not use em dashes, en dashes, or spaced hyphens as punctuation. The mandatory source structure is {json.dumps(source_structure, ensure_ascii=False)}.\n\n{source_markdown[:48000]}"""
         try:
@@ -4577,7 +4597,7 @@ def latest_matching_path(folder: Path, pattern: str) -> Path | None:
 
 def localized_slide_visible_items(slide: dict[str, Any]) -> list[str]:
     items: list[str] = []
-    for key in ("subtitle", "intro", "body", "bottom_line", "takeaway", "final_line"):
+    for key in ("title", "subtitle", "intro", "body", "bottom_line", "takeaway", "final_line", "bridge_label"):
         if str(slide.get(key) or "").strip():
             items.append(str(slide[key]).strip())
     for key in ("topics", "bullets"):
@@ -4589,8 +4609,30 @@ def localized_slide_visible_items(slide: dict[str, Any]) -> list[str]:
     for key in ("left", "right"):
         item = slide.get(key)
         if isinstance(item, dict):
-            items.extend(str(item.get(field) or "").strip() for field in ("title", "body") if str(item.get(field) or "").strip())
-    return items or [str(slide.get("title") or "Slide content").strip()]
+            items.extend(str(item.get(field) or "").strip() for field in ("title", "label", "body") if str(item.get(field) or "").strip())
+    for row in slide.get("schedule_rows") or []:
+        if isinstance(row, dict) and str(row.get("activity") or "").strip():
+            items.append(str(row["activity"]).strip())
+    for path in slide.get("network_paths") or []:
+        if not isinstance(path, dict):
+            continue
+        if str(path.get("label") or "").strip():
+            items.append(str(path["label"]).strip())
+        for activity in path.get("activities") or []:
+            if isinstance(activity, dict) and str(activity.get("title") or "").strip():
+                items.append(str(activity["title"]).strip())
+    for key in ("planned", "actual", "decision_ready_update"):
+        value = slide.get(key)
+        if isinstance(value, dict):
+            items.extend(str(value.get(field) or "").strip() for field in ("title", "label", "body") if str(value.get(field) or "").strip())
+    items.extend(str(value).strip() for value in slide.get("comparison_columns") or [] if str(value).strip())
+    for row_key in ("comparison_rows", "planned_actual_rows"):
+        for row in slide.get(row_key) or []:
+            if not isinstance(row, dict):
+                continue
+            cells = row.get("cells") if isinstance(row.get("cells"), list) else row.values()
+            items.extend(str(value).strip() for value in cells if str(value).strip())
+    return items or ["Slide content"]
 
 
 def localized_deck_slides(
@@ -4620,8 +4662,11 @@ def localized_deck_slides(
             raise RuntimeError(f"Localized presentation slide {index} changed its approved layout.")
         localized = copy.deepcopy(source_slide)
         for field in scalar_fields:
+            source_value = source_slide.get(field)
             value = translated_slide.get(field)
-            if isinstance(value, str) and value.strip():
+            if isinstance(source_value, str) and source_value.strip():
+                if not isinstance(value, str) or not value.strip():
+                    raise RuntimeError(f"Localized presentation slide {index} omitted visible field `{field}`.")
                 localized[field] = value.strip()
         for field in list_fields:
             source_values = source_slide.get(field)
@@ -4644,19 +4689,96 @@ def localized_deck_slides(
                     if not isinstance(source_item, dict) or not isinstance(translated_item, dict):
                         raise RuntimeError(f"Localized presentation slide {index} contains an invalid item.")
                     for text_field in ("title", "body"):
+                        source_text = source_item.get(text_field)
                         value = translated_item.get(text_field)
-                        if isinstance(value, str) and value.strip():
+                        if isinstance(source_text, str) and source_text.strip():
+                            if not isinstance(value, str) or not value.strip():
+                                raise RuntimeError(
+                                    f"Localized presentation slide {index} omitted item field `{text_field}`."
+                                )
                             merged_item[text_field] = value.strip()
                 localized[field] = merged_items
             else:
                 if not isinstance(translated_value, dict):
                     raise RuntimeError(f"Localized presentation slide {index} did not preserve its comparison structure.")
                 merged_value = copy.deepcopy(source_value)
-                for text_field in ("title", "body"):
+                for text_field in ("title", "label", "body"):
+                    source_text = source_value.get(text_field)
                     value = translated_value.get(text_field)
-                    if isinstance(value, str) and value.strip():
+                    if isinstance(source_text, str) and source_text.strip():
+                        if not isinstance(value, str) or not value.strip():
+                            raise RuntimeError(
+                                f"Localized presentation slide {index} omitted {field} field `{text_field}`."
+                            )
                         merged_value[text_field] = value.strip()
                 localized[field] = merged_value
+        for field in ("planned", "actual", "decision_ready_update"):
+            source_value = source_slide.get(field)
+            if source_value is None:
+                continue
+            translated_value = translated_slide.get(field)
+            if not isinstance(source_value, dict) or not isinstance(translated_value, dict):
+                raise RuntimeError(f"Localized presentation slide {index} did not preserve `{field}`.")
+            merged_value = copy.deepcopy(source_value)
+            for text_field in ("title", "label", "body"):
+                source_text = source_value.get(text_field)
+                if not isinstance(source_text, str) or not source_text.strip():
+                    continue
+                translated_text = translated_value.get(text_field)
+                if not isinstance(translated_text, str) or not translated_text.strip():
+                    raise RuntimeError(
+                        f"Localized presentation slide {index} omitted {field} field `{text_field}`."
+                    )
+                merged_value[text_field] = translated_text.strip()
+            localized[field] = merged_value
+        if source_slide.get("comparison_columns") is not None:
+            source_columns = source_slide["comparison_columns"]
+            translated_columns = translated_slide.get("comparison_columns")
+            if (
+                not isinstance(translated_columns, list)
+                or len(translated_columns) != len(source_columns)
+                or not all(isinstance(value, str) and value.strip() for value in translated_columns)
+            ):
+                raise RuntimeError(f"Localized presentation slide {index} did not preserve comparison columns.")
+            localized["comparison_columns"] = [value.strip() for value in translated_columns]
+        if source_slide.get("comparison_rows") is not None:
+            source_rows = source_slide["comparison_rows"]
+            translated_rows = translated_slide.get("comparison_rows")
+            if not isinstance(translated_rows, list) or len(translated_rows) != len(source_rows):
+                raise RuntimeError(f"Localized presentation slide {index} did not preserve comparison rows.")
+            merged_rows = copy.deepcopy(source_rows)
+            for source_row, translated_row, merged_row in zip(source_rows, translated_rows, merged_rows):
+                source_cells = source_row.get("cells") if isinstance(source_row, dict) else None
+                translated_cells = translated_row.get("cells") if isinstance(translated_row, dict) else None
+                if (
+                    not isinstance(source_cells, list)
+                    or not isinstance(translated_cells, list)
+                    or len(translated_cells) != len(source_cells)
+                    or not all(isinstance(value, str) and value.strip() for value in translated_cells)
+                ):
+                    raise RuntimeError(f"Localized presentation slide {index} did not preserve comparison row cells.")
+                merged_row["cells"] = [value.strip() for value in translated_cells]
+            localized["comparison_rows"] = merged_rows
+        if source_slide.get("planned_actual_rows") is not None:
+            source_rows = source_slide["planned_actual_rows"]
+            translated_rows = translated_slide.get("planned_actual_rows")
+            if not isinstance(translated_rows, list) or len(translated_rows) != len(source_rows):
+                raise RuntimeError(f"Localized presentation slide {index} did not preserve planned/actual rows.")
+            merged_rows = copy.deepcopy(source_rows)
+            for source_row, translated_row, merged_row in zip(source_rows, translated_rows, merged_rows):
+                if not isinstance(source_row, dict) or not isinstance(translated_row, dict):
+                    raise RuntimeError(f"Localized presentation slide {index} contains an invalid planned/actual row.")
+                for text_field in ("item", "title", "planned", "actual", "variance", "action", "decision"):
+                    source_text = source_row.get(text_field)
+                    if not isinstance(source_text, str) or not source_text.strip():
+                        continue
+                    translated_text = translated_row.get(text_field)
+                    if not isinstance(translated_text, str) or not translated_text.strip():
+                        raise RuntimeError(
+                            f"Localized presentation slide {index} omitted planned/actual field `{text_field}`."
+                        )
+                    merged_row[text_field] = translated_text.strip()
+            localized["planned_actual_rows"] = merged_rows
         if source_slide.get("schedule_rows") is not None:
             translated_rows = translated_slide.get("schedule_rows")
             source_rows = source_slide["schedule_rows"]
@@ -4737,15 +4859,30 @@ def localize_deck(course_slug: str, lesson_number: int, locale: str) -> list[str
     else:
         prompt = f"""Translate every student-visible text value in this Prof Greg deck JSON into {language}. Return JSON only in the form {{"slides": [...]}}. Preserve all keys, layout names, numbers, filenames, asset paths, and slide count exactly. Do not add slides or speaker notes. Preserve U.S. construction terms, units, and facts. If localized copy would overflow its approved layout, use a shorter equivalent that preserves the central message; do not add emphasis Markdown or bold markers.\n\n{json.dumps(source['slides'], ensure_ascii=False)}"""
         merge_baseline = source["slides"]
-    try:
-        data = request_json_with_retry(seed.slug, "localization", prompt, max_tokens=12000)
-    except ModelRequestError as error:
-        raise RuntimeError(str(error)) from error
-    slides = localized_deck_slides(
-        merge_baseline,
-        data.get("slides"),
-        preserve_layout_on_drift=bool(revision_feedback),
-    )
+    slides: list[dict[str, Any]] | None = None
+    last_translation_error: Exception | None = None
+    attempt_prompt = prompt
+    for translation_attempt in range(1, 4):
+        try:
+            data = request_json_with_retry(seed.slug, "localization", attempt_prompt, max_tokens=12000)
+            slides = localized_deck_slides(
+                merge_baseline,
+                data.get("slides"),
+                preserve_layout_on_drift=bool(revision_feedback),
+            )
+            break
+        except (ModelRequestError, RuntimeError) as error:
+            last_translation_error = error
+            if translation_attempt == 3:
+                break
+            attempt_prompt = f"""Translate every learner-visible text field in this deck into {language} and return JSON only as {{"slides": [...]}}.
+The previous translation was rejected by structural QA: {error}
+Return every slide and every existing visible field, including nested item title/body values, comparison columns and cells, planned/actual rows, decision-ready updates, schedule activity labels, and activity-network path/activity labels. Preserve layouts, counts, numbers, durations, booleans, paths, and all non-visible metadata exactly. Never omit a visible field instead of translating it.
+
+Approved source structure:
+{json.dumps(merge_baseline, ensure_ascii=False)}"""
+    if slides is None:
+        raise RuntimeError(f"Localized presentation remained incomplete after three attempts: {last_translation_error}")
     slides = normalize_localized_dash_punctuation(slides)
     revision, filename = revisioned(run, f"localization/{folder}", f"{lesson_tag}_deck_{locale}", ".pptx")
     localized_course_title = {

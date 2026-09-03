@@ -31,6 +31,12 @@ function localizedLabels() {
       takeaway: "CONCLUSÃO DA LIÇÃO",
       baselineSchedule: "CRONOGRAMA-BASE",
       lookaheadPlan: "PLANO DE CURTO PRAZO",
+      condition: "Condição",
+      planned: "Planejado",
+      actual: "Realizado",
+      decisionAction: "Decisão / ação",
+      variance: "Variação",
+      decisionReadyUpdate: "Atualização para decisão",
     };
   }
   if (currentSpec?.locale === "es") {
@@ -40,6 +46,12 @@ function localizedLabels() {
       takeaway: "CONCLUSIÓN DE LA LECCIÓN",
       baselineSchedule: "CRONOGRAMA BASE",
       lookaheadPlan: "PLAN DE CORTO PLAZO",
+      condition: "Condición",
+      planned: "Planificado",
+      actual: "Real",
+      decisionAction: "Decisión / acción",
+      variance: "Variación",
+      decisionReadyUpdate: "Actualización para decidir",
     };
   }
   return {
@@ -48,6 +60,12 @@ function localizedLabels() {
     takeaway: "LESSON TAKEAWAY",
     baselineSchedule: "BASELINE SCHEDULE",
     lookaheadPlan: "LOOKAHEAD PLAN",
+    condition: "Condition",
+    planned: "Planned",
+    actual: "Actual",
+    decisionAction: "Decision / action",
+    variance: "Variance",
+    decisionReadyUpdate: "Decision-ready update",
   };
 }
 
@@ -542,7 +560,8 @@ async function renderPlannedActual(deck, slideSpec) {
   addTitle(slide, slideSpec.title, slideSpec.subtitle);
   const rows = (slideSpec.planned_actual_rows || []).slice(0, 5);
   if (rows.length) {
-    const columns = ["Condition", "Planned", "Actual", "Decision / action"];
+    const labels = localizedLabels();
+    const columns = [labels.condition, labels.planned, labels.actual, labels.decisionAction];
     const x0 = 58;
     const widths = [160, 286, 286, 432];
     let x = x0;
@@ -554,7 +573,7 @@ async function renderPlannedActual(deck, slideSpec) {
     const rowHeight = rows.length > 3 ? 61 : 82;
     rows.forEach((row, rowIndex) => {
       const action = [...new Set([row.variance, row.action, row.decision].filter(Boolean))].join(" — ");
-      const cells = [row.item || row.title || "Condition", row.planned || "", row.actual || "", action];
+      const cells = [row.item || row.title || labels.condition, row.planned || "", row.actual || "", action];
       let cellX = x0;
       widths.forEach((width, columnIndex) => {
         const y = 256 + rowIndex * rowHeight;
@@ -580,15 +599,15 @@ async function renderPlannedActual(deck, slideSpec) {
   const actual = slideSpec.right || slideSpec.actual || {};
   addShape(slide, "planned-lane", "roundRect", 106, 232, 458, 154, C.light, C.line, 1.4);
   addShape(slide, "actual-lane", "roundRect", 716, 232, 458, 154, C.light, C.line, 1.4);
-  addText(slide, "planned-title", planned.title || planned.label || "Planned", 138, 252, 386, 34, { fontSize: 21, bold: true, color: C.navy, alignment: "center" });
+  addText(slide, "planned-title", planned.title || planned.label || localizedLabels().planned, 138, 252, 386, 34, { fontSize: 21, bold: true, color: C.navy, alignment: "center" });
   addText(slide, "planned-body", planned.body || "", 146, 298, 370, 70, { fontSize: 16, color: C.gray, alignment: "center" });
-  addText(slide, "actual-title", actual.title || actual.label || "Actual", 748, 252, 386, 34, { fontSize: 21, bold: true, color: C.navy, alignment: "center" });
+  addText(slide, "actual-title", actual.title || actual.label || localizedLabels().actual, 748, 252, 386, 34, { fontSize: 21, bold: true, color: C.navy, alignment: "center" });
   addText(slide, "actual-body", actual.body || "", 756, 298, 370, 70, { fontSize: 16, color: C.gray, alignment: "center" });
   addLine(slide, "variance-arrow", 586, 312, 694, 312, C.orange, 4);
-  addText(slide, "variance-label", slideSpec.bridge_label || "Variance", 576, 266, 128, 34, { fontSize: 14, bold: true, color: C.orange, alignment: "center" });
+  addText(slide, "variance-label", slideSpec.bridge_label || localizedLabels().variance, 576, 266, 128, 34, { fontSize: 14, bold: true, color: C.orange, alignment: "center" });
   if (slideSpec.decision_ready_update) {
     const update = slideSpec.decision_ready_update;
-    card(slide, "decision-ready", update.title || update.label || "Decision-ready update", update.body || "", 238, 410, 804, 112, C.orange, C.paleOrange);
+    card(slide, "decision-ready", update.title || update.label || localizedLabels().decisionReadyUpdate, update.body || "", 238, 410, 804, 112, C.orange, C.paleOrange);
   }
   addText(slide, "bottom-line", slideSpec.bottom_line || "", 168, 548, 944, 42, {
     fontSize: 20,
