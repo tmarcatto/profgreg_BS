@@ -86,6 +86,8 @@ class GregMarketingTests(unittest.TestCase):
                 ]
         self.assertEqual(self.marketing["course_title"], saved["course_title"])
         self.assertTrue(status["brochure_ready"])
+        self.assertTrue(status["brochure_version"])
+        self.assertTrue(status["brochure_updated_at"])
         self.assertEqual(5, len(pages))
         self.assertTrue(all(skill in page_text[0] for skill in self.marketing["skills"]))
         self.assertIn("HOW YOU WILL LEARN", page_text[2])
@@ -94,9 +96,24 @@ class GregMarketingTests(unittest.TestCase):
         self.assertNotIn("Review topic 1", page_text[3])
         self.assertNotIn("...", page_text[3])
         self.assertIn("HOW THIS CAN SUPPORT YOUR CAREER", page_text[4])
-        self.assertIn("Start the course today", page_text[4])
+        self.assertIn(self.marketing["call_to_action"], page_text[4])
         self.assertNotIn(self.marketing["landing_page_url"], page_text[4])
         self.assertTrue(any(link.get("/A", {}).get("/URI") == self.marketing["landing_page_url"] for link in page_five_links))
+
+    @unittest.skipUnless(importlib.util.find_spec("pypdf"), "pypdf is required for PDF integration checks")
+    def test_brochure_version_changes_when_saved_content_changes(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            runs = Path(tmp) / "runs"
+            course = runs / "demo-course"
+            (course / "course_map").mkdir(parents=True)
+            (course / "course_map" / "course_map.json").write_text(json.dumps(self.course_map), encoding="utf-8")
+            with patch.object(marketing, "RUNS", runs):
+                marketing.save_marketing("demo-course", self.marketing)
+                first_version = marketing.marketing_status("demo-course")["brochure_version"]
+                revised = {**self.marketing, "call_to_action": "Start building with confidence."}
+                marketing.save_marketing("demo-course", revised)
+                second_version = marketing.marketing_status("demo-course")["brochure_version"]
+        self.assertNotEqual(first_version, second_version)
 
     @unittest.skipUnless(importlib.util.find_spec("pypdf"), "pypdf is required for PDF integration checks")
     def test_render_upgrades_legacy_marketing_with_lesson_details(self) -> None:

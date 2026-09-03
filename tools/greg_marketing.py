@@ -3,8 +3,10 @@
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
 import re
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
@@ -234,15 +236,23 @@ def marketing_status(course_slug: str) -> dict[str, Any]:
     slug = slugify(course_slug)
     data = read_json(marketing_json_path(slug))
     brochure = brochure_path(slug)
+    brochure_ready = brochure.exists()
+    brochure_stat = brochure.stat() if brochure_ready else None
     return {
         "course_slug": slug,
         "ready": bool(data),
         "marketing": data,
-        "brochure_ready": brochure.exists(),
+        "brochure_ready": brochure_ready,
         "brochure_path": (
             str(brochure.relative_to(ROOT))
             if brochure.exists() and (brochure == ROOT or ROOT in brochure.parents)
             else (str(brochure) if brochure.exists() else "")
+        ),
+        "brochure_version": hashlib.sha256(brochure.read_bytes()).hexdigest()[:16] if brochure_ready else "",
+        "brochure_updated_at": (
+            datetime.fromtimestamp(brochure_stat.st_mtime, tz=timezone.utc).isoformat()
+            if brochure_stat
+            else ""
         ),
     }
 
@@ -549,8 +559,20 @@ def render_brochure(course_slug: str, data: dict[str, Any] | None = None) -> Pat
     c.setFillColor(white)
     c.setFont("Helvetica-Bold", 8)
     c.drawString(64, 155, "READY TO BUILD SMARTER?")
-    c.setFont("Helvetica-Bold", 20)
-    c.drawString(64, 126, "Start the course today")
+    _fit_wrap(
+        c,
+        marketing.get("call_to_action") or "Start the course today",
+        64,
+        130,
+        380,
+        font="Helvetica-Bold",
+        size=20,
+        minimum_size=13,
+        max_lines=2,
+        leading_ratio=1.05,
+        color=white,
+        sentence=True,
+    )
     c.setFont("Helvetica", 9)
     c.drawString(64, 101, "Practical skills for your next project.")
     c.setFillColor(white)

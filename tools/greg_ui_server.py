@@ -1341,7 +1341,7 @@ def ui_shell(default_course: str) -> str:
         </div>
       </div>
       <div class="body">
-        <div id="marketingStatus" class="marketing-status">Generate and approve the Course Map first. Marketing uses the final learning journey, not the draft syllabus.</div>
+        <div id="marketingStatus" class="marketing-status" aria-live="polite">Generate and approve the Course Map first. Marketing uses the final learning journey, not the draft syllabus.</div>
         <div id="marketingSources" class="field-note" style="margin-top:8px"></div>
         <div class="marketing-grid" style="margin-top:16px">
           <div class="marketing-column">
@@ -1365,8 +1365,9 @@ def ui_shell(default_course: str) -> str:
         </div>
         <div class="marketing-actions">
           <button class="primary" id="generateMarketing">Generate website copy + brochure</button>
-          <button id="saveMarketing">Save edits + update brochure</button>
-          <a id="downloadBrochure" class="download-link hidden" target="_blank" rel="noopener">Download 5-page brochure</a>
+          <button id="saveMarketing">Save edits + rebuild brochure</button>
+          <a id="downloadBrochure" class="download-link hidden" download>Download 5-page brochure</a>
+          <span id="marketingSaveStatus" class="operator-result" aria-live="polite"></span>
           <span class="muted">Brochure format: US Letter PDF, using the BuildStak brand system.</span>
         </div>
       </div>
@@ -1750,6 +1751,7 @@ def ui_shell(default_course: str) -> str:
       const save = document.getElementById('saveMarketing');
       generate.disabled = !mapReady || active;
       save.disabled = !currentMarketing.ready || active;
+      if (!save.disabled && save.dataset.busy !== 'true') save.textContent = 'Save edits + rebuild brochure';
       generate.textContent = active ? 'Creating marketing kit...' : (currentMarketing.ready ? 'Regenerate from Course Map' : 'Generate website copy + brochure');
       const status = document.getElementById('marketingStatus');
       status.classList.toggle('ready', Boolean(currentMarketing.ready));
@@ -1768,7 +1770,9 @@ def ui_shell(default_course: str) -> str:
       download.classList.toggle('hidden', !currentMarketing.brochure_ready);
       if (currentMarketing.brochure_ready) {{
         const filename = `${{cleanFilenamePart(data.course_title || course.value)}} - BuildStak Course Brochure.pdf`;
-        download.href = `/artifact?path=${{encodeURIComponent(currentMarketing.brochure_path)}}&filename=${{encodeURIComponent(filename)}}`;
+        const version = currentMarketing.brochure_version ? `&v=${{encodeURIComponent(currentMarketing.brochure_version)}}` : '';
+        download.href = `/artifact?path=${{encodeURIComponent(currentMarketing.brochure_path)}}&filename=${{encodeURIComponent(filename)}}${{version}}`;
+        download.setAttribute('download', filename);
       }}
     }}
     async function generateMarketing() {{
@@ -1780,11 +1784,32 @@ def ui_shell(default_course: str) -> str:
       renderMarketing(currentMarketing);
     }}
     async function saveMarketingEdits() {{
+      const save = document.getElementById('saveMarketing');
+      const localStatus = document.getElementById('marketingSaveStatus');
+      save.dataset.busy = 'true';
+      save.disabled = true;
+      save.textContent = 'Saving and rebuilding...';
+      localStatus.className = 'operator-result';
+      localStatus.textContent = 'Saving edits and rebuilding the five-page brochure now...';
       try {{
         const data = await api('/api/marketing-save', {{method:'POST', body:JSON.stringify({{course:course.value, marketing:marketingPayload()}})}});
-        msg.textContent = data.message || 'Marketing content and brochure updated.';
         renderMarketing(data);
-      }} catch (error) {{ msg.textContent = error.message; }}
+        const updated = data.brochure_updated_at ? new Date(data.brochure_updated_at).toLocaleString() : 'just now';
+        save.textContent = 'Saved ✓';
+        localStatus.className = 'operator-result success';
+        localStatus.textContent = `Brochure rebuilt ${{updated}}. Use “Download newly rebuilt brochure” for the latest file.`;
+        const download = document.getElementById('downloadBrochure');
+        download.textContent = 'Download newly rebuilt brochure';
+        msg.textContent = data.message || 'Marketing content saved and brochure rebuilt.';
+      }} catch (error) {{
+        save.textContent = 'Save failed — try again';
+        localStatus.className = 'operator-result error';
+        localStatus.textContent = error.message;
+        msg.textContent = error.message;
+      }} finally {{
+        save.dataset.busy = 'false';
+        save.disabled = !currentMarketing.ready;
+      }}
     }}
     function renderOperatorTool() {{
       const select = document.getElementById('operatorTarget');
@@ -2924,7 +2949,7 @@ class GregUiHandler(BaseHTTPRequestHandler):
                     self.send_json(HTTPStatus.BAD_REQUEST, {"error": "Marketing fields are required."})
                     return
                 saved = save_marketing(course, marketing, render=True)
-                self.send_json(HTTPStatus.OK, {**marketing_status(course), "marketing": saved, "message": "Marketing content saved and the five-page brochure updated."})
+                self.send_json(HTTPStatus.OK, {**marketing_status(course), "marketing": saved, "message": "Marketing content saved and the five-page brochure rebuilt."})
                 return
             if parsed.path == "/api/produce":
                 course = str(body.get("course") or getattr(self.server, "default_course", DEFAULT_COURSE))
