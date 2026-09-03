@@ -45,20 +45,33 @@ DEFAULT_LESSON_COUNT_BY_LEVEL = {"Basic": 10, "Intermediate": 15, "Advanced": 15
 UPLOAD_PURPOSES = {"source_material", "visual_response", "revision_material", "revision_evidence"}
 
 
-def operator_visible_jobs(jobs: list[dict[str, object]], *, limit: int = 30) -> list[dict[str, object]]:
+def job_visibility_key(job: dict[str, object]) -> tuple[str, str, int, str]:
+    """Identify the exact production attempt that a later success supersedes."""
+    payload = job.get("payload") if isinstance(job.get("payload"), dict) else {}
+    lesson = int(job.get("lesson") or (payload.get("lessons") or [0])[0] or 0)
+    stage = str(payload.get("stage") or payload.get("locale") or "")
+    return (
+        str(job.get("course_slug") or ""),
+        str(job.get("request_type") or ""),
+        lesson,
+        stage,
+    )
+
+
+def operator_visible_jobs(jobs: list[dict[str, object]], *, limit: int = 200) -> list[dict[str, object]]:
     """Hide failed attempts that were superseded by a later successful retry."""
-    latest_completed_by_type: dict[tuple[str, str], str] = {}
+    latest_completed_by_type: dict[tuple[str, str, int, str], str] = {}
     for job in jobs:
         if job.get("state") != "completed":
             continue
-        key = (str(job.get("course_slug") or ""), str(job.get("request_type") or ""))
+        key = job_visibility_key(job)
         timestamp = str(job.get("updated_at") or job.get("created_at") or "")
         if timestamp > latest_completed_by_type.get(key, ""):
             latest_completed_by_type[key] = timestamp
 
     visible: list[dict[str, object]] = []
     for job in jobs:
-        key = (str(job.get("course_slug") or ""), str(job.get("request_type") or ""))
+        key = job_visibility_key(job)
         timestamp = str(job.get("updated_at") or job.get("created_at") or "")
         if job.get("state") == "failed" and latest_completed_by_type.get(key, "") > timestamp:
             continue
@@ -1074,20 +1087,13 @@ def ui_shell(default_course: str) -> str:
       font-weight: 760;
     }}
     .actions {{ display: flex; flex-wrap: wrap; gap: 10px; margin-top: 12px; align-items: center; }}
-    .lesson-toolbar {{
-      display: block;
-      margin-bottom: 14px;
-    }}
-    .lesson-actions {{
-      display: grid;
-      grid-template-columns: repeat(6, minmax(140px, 1fr));
-      gap: 8px;
-      width: 100%;
-    }}
-    .lesson-actions button {{ min-height: 46px; }}
     .lesson-table-wrap {{ overflow-x: auto; border: 1px solid var(--line); border-radius: 8px; background: #fff; }}
-    .lesson-table {{ min-width: 980px; }}
+    .lesson-table {{ min-width: 1540px; table-layout: fixed; }}
     .lesson-table th, .lesson-table td {{ font-size: 13px; vertical-align: middle; }}
+    .lesson-action-row th {{ padding: 8px 5px; background: #fff; border-bottom: 0; vertical-align: stretch; }}
+    .lesson-action-row button {{ width: 100%; min-height: 64px; padding: 9px 8px; line-height: 1.2; }}
+    .lesson-combined-actions {{ display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }}
+    .lesson-column-headings th {{ border-top: 1px solid var(--line); }}
     .lesson-title-cell {{ max-width: 340px; font-weight: 760; color: var(--navy); line-height: 1.25; }}
     .doc-cell {{ display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }}
     .doc-link {{ color: var(--navy); font-weight: 760; text-decoration: none; border-bottom: 1px solid rgba(30,58,95,.35); }}
@@ -1112,8 +1118,8 @@ def ui_shell(default_course: str) -> str:
     .status-pill.ready-for-review, .status-pill.revision-corrected-ready-for-review {{ background: #fff6e8; color: var(--warn); }}
     .status-pill.not-generated {{ background: #f2f4f7; color: #667085; }}
     .status-pill.not-approved {{ background: #fff6e8; color: var(--warn); }}
-    .status-pill.revision-needs-attention {{ background: #fff1f0; color: var(--bad); }}
-    .status-pill.revision-in-progress {{ background: #fff6e8; color: var(--warn); }}
+    .status-pill.revision-needs-attention, .status-pill.revision-failed, .status-pill.generation-failed {{ background: #fff1f0; color: var(--bad); }}
+    .status-pill.revision-in-progress, .status-pill.revision-pending {{ background: #fff6e8; color: var(--warn); }}
     .status-pill.video-available {{ background: #e7f6ec; color: var(--ok); }}
     .status-pill.waiting-for-approved-presentation {{ background: #f2f4f7; color: #667085; }}
     .status-pill.ready-for-video-generation, .status-pill.new-approved-revision-ready, .status-pill.generating,
@@ -1142,7 +1148,7 @@ def ui_shell(default_course: str) -> str:
     .hidden {{ display: none !important; }}
     code {{ font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; font-size: 12px; }}
     @media (max-width: 980px) {{
-      .topbar, .workspace-bar, .brief-grid, .field-grid, .progress-steps, .status-summary, .upload-controls, .log-tools, .lesson-toolbar, .operator-tool, .lesson-actions {{ grid-template-columns: 1fr; }}
+      .topbar, .workspace-bar, .brief-grid, .field-grid, .progress-steps, .status-summary, .upload-controls, .log-tools, .operator-tool {{ grid-template-columns: 1fr; }}
       .field-grid {{ grid-template-columns: 1fr !important; }}
       .operator-tool-details {{ grid-column: 1; }}
       .segmented {{ grid-template-columns: 1fr; }}
@@ -1338,23 +1344,27 @@ def ui_shell(default_course: str) -> str:
       <div class="body">
         <div class="notice hidden" id="message">Ready.</div>
         <div>
-          <div class="lesson-toolbar">
-            <div class="lesson-actions">
-              <button class="primary" id="produceBooks">Generate course books</button>
-              <button id="produceDecks">Generate presentations</button>
-              <button id="produceTranslatedBooks">Translate course books (PT + ES)</button>
-              <button id="producePtBrBooks">Translate PT-BR books only</button>
-              <button id="produceEsBooks">Translate ES books only</button>
-              <button id="produceTranslatedDecks">Translate presentations (PT + ES)</button>
-            </div>
-          </div>
           <div class="lesson-table-wrap">
             <table class="lesson-table">
               <thead>
-                <tr>
+                <tr class="lesson-action-row">
+                  <th colspan="3">
+                    <div class="lesson-combined-actions">
+                      <button id="produceTranslatedBooks">Translate course books (PT + ES)</button>
+                      <button id="produceTranslatedDecks">Translate presentations (PT + ES)</button>
+                    </div>
+                  </th>
+                  <th><button class="primary" id="produceBooks">Generate course books</button></th>
+                  <th><button id="produceDecks">Generate presentations</button></th>
+                  <th><button id="producePtBrBooks">Translate PT-BR course book</button></th>
+                  <th><button id="producePtBrDecks">Translate PT-BR presentation</button></th>
+                  <th><button id="produceEsBooks">Translate ES course book</button></th>
+                  <th><button id="produceEsDecks">Translate ES presentation</button></th>
+                </tr>
+                <tr class="lesson-column-headings">
                   <th style="width:56px"><input id="selectAllLessons" type="checkbox" aria-label="Select all lessons"></th>
-                  <th>Lesson</th>
-                  <th>Visuals</th>
+                  <th style="width:190px">Lesson</th>
+                  <th style="width:140px">Visuals</th>
                   <th>Course book</th>
                   <th>Presentation</th>
                   <th>PT-BR book</th>
@@ -1648,12 +1658,13 @@ def ui_shell(default_course: str) -> str:
           if (revision?.state === 'revision_requested') {{
             const stageByArtifact = {{study_guide:'study_guide', deck:'deck', pt_br_study_guide:'pt_br_book', pt_br_deck:'pt_br_deck', es_study_guide:'es_book', es_deck:'es_deck'}};
             const stage = stageByArtifact[group.artifactType];
-            const matchingJobs = currentJobs.filter(job => String(job?.payload?.stage || '') === stage && (job?.payload?.lessons || []).map(Number).includes(Number(lesson.lesson)));
-            const active = matchingJobs.some(job => ['queued', 'running'].includes(job.state));
-            const failed = matchingJobs.some(job => job.state === 'failed');
+            const matchingJobs = currentJobs.filter(job => String(job?.payload?.stage || '') === stage && Number(job?.lesson || (job?.payload?.lessons || [])[0] || 0) === Number(lesson.lesson));
+            const latestJob = matchingJobs[matchingJobs.length - 1];
+            const active = ['queued', 'running'].includes(latestJob?.state);
+            const failed = latestJob?.state === 'failed';
             const id = `revision:${{lesson.lesson}}:${{group.key}}`;
             operatorTargetMap[id] = {{kind:'revision', lesson:Number(lesson.lesson), group, path, status, title:lesson.title, revision, stage, active, failed}};
-            lessonTargets.push({{id, label: `${{group.title}} · ${{failed ? 'revision needs attention' : active ? 'revision in progress' : 'revision accepted'}}`}});
+            lessonTargets.push({{id, label: `${{group.title}} · ${{failed ? 'revision failed' : active ? 'revision in progress' : 'revision pending'}}`}});
             continue;
           }}
           if (!isDownloadablePath(path) || status === 'blocked') continue;
@@ -2185,13 +2196,16 @@ def ui_shell(default_course: str) -> str:
         return url.protocol === 'https:' && !url.username && !url.password ? url.href : '';
       }} catch (_error) {{ return ''; }}
     }}
-    function activeProductionJob(item, stage) {{
-      return currentJobs.find(job =>
+    function latestProductionJob(item, stage) {{
+      return currentJobs.filter(job =>
         job.request_type === 'production_stage'
-        && ['queued', 'running'].includes(job.state)
         && String(job?.payload?.stage || '') === stage
         && Number(job?.lesson || (job?.payload?.lessons || [])[0] || 0) === Number(item.lesson)
-      );
+      ).slice(-1)[0];
+    }}
+    function activeProductionJob(item, stage) {{
+      const job = latestProductionJob(item, stage);
+      return job && ['queued', 'running'].includes(job.state) ? job : null;
     }}
     function activeVideoJob(item, locale, video) {{
       return currentJobs.find(job => {{
@@ -2279,16 +2293,19 @@ def ui_shell(default_course: str) -> str:
       const revision = item[`${{statusField}}_revision`];
       const pendingRevision = status === 'revision_requested';
       const stageByStatus = {{study_guide:'study_guide', deck:'deck', pt_br_study_guide:'pt_br_book', pt_br_deck:'pt_br_deck', es_study_guide:'es_book', es_deck:'es_deck'}};
-      const activeJob = activeProductionJob(item, stageByStatus[statusField]);
-      const failedRevision = pendingRevision && currentJobs.some(job => job.state === 'failed' && String(job?.payload?.stage || '') === stageByStatus[statusField] && (job?.payload?.lessons || []).map(Number).includes(Number(item.lesson)));
+      const latestJob = latestProductionJob(item, stageByStatus[statusField]);
+      const activeJob = latestJob && ['queued', 'running'].includes(latestJob.state) ? latestJob : null;
+      const failedJob = latestJob?.state === 'failed';
       const normalized = activeJob
         ? 'generating'
         : status === 'approved'
         ? (revision?.state === 'approved' ? 'revision approved' : 'approved')
-        : failedRevision
-          ? 'revision needs attention'
+        : pendingRevision && failedJob
+          ? 'revision failed'
           : pendingRevision
-            ? 'revision accepted · in progress'
+            ? 'revision pending'
+            : failedJob
+              ? 'generation failed'
             : status === 'ready_for_review' && revision
               ? 'revision corrected · ready for review'
               : path ? 'ready for review' : 'not generated';
@@ -2436,7 +2453,9 @@ def ui_shell(default_course: str) -> str:
     document.getElementById('produceDecks').onclick = () => produceSelected('deck');
     document.getElementById('produceTranslatedBooks').onclick = () => produceSelected('translations_book');
     document.getElementById('producePtBrBooks').onclick = () => produceSelected('pt_br_book');
+    document.getElementById('producePtBrDecks').onclick = () => produceSelected('pt_br_deck');
     document.getElementById('produceEsBooks').onclick = () => produceSelected('es_book');
+    document.getElementById('produceEsDecks').onclick = () => produceSelected('es_deck');
     document.getElementById('produceTranslatedDecks').onclick = () => produceSelected('translations_deck');
     document.getElementById('selectAllLessons').onchange = event => {{
       document.querySelectorAll('[data-lesson-select]').forEach(input => input.checked = event.target.checked);
