@@ -12,6 +12,18 @@ from zipfile import BadZipFile, ZipFile
 
 
 PRESENTATION_NS = "http://schemas.openxmlformats.org/presentationml/2006/main"
+DRAWING_NS = "http://schemas.openxmlformats.org/drawingml/2006/main"
+
+ENGLISH_DOMAIN_TERMS = re.compile(
+    r"\b(?:budget|cash|cost|forecast|variance|decision|billing|retainage|aging|"
+    r"invoices?|accruals?|townhomes?|draw|ticket|spend|records?|question|response|job)\b",
+    flags=re.IGNORECASE,
+)
+ENGLISH_GRAMMAR_TERMS = re.compile(
+    r"\b(?:the|and|with|when|will|does|within|before|after|higher|more|main|correct)\b",
+    flags=re.IGNORECASE,
+)
+ENGLISH_DURATION = re.compile(r"\b\d+\s*d\b", flags=re.IGNORECASE)
 
 
 class LocalizedDeckIntegrityError(RuntimeError):
@@ -167,10 +179,71 @@ def pptx_structure(path: Path) -> dict[str, Any]:
     return {"slide_size": slide_size, "slides": slides}
 
 
+def pptx_visible_text(path: Path) -> list[dict[str, Any]]:
+    """Extract learner-visible text by slide and shape/table container."""
+    results: list[dict[str, Any]] = []
+    try:
+        with ZipFile(path) as archive:
+            slide_names = sorted(
+                (name for name in archive.namelist() if re.fullmatch(r"ppt/slides/slide\d+\.xml", name)),
+                key=lambda name: int(re.search(r"\d+", name).group()),
+            )
+            for slide_number, name in enumerate(slide_names, start=1):
+                root = ElementTree.fromstring(archive.read(name))
+                containers = [
+                    *root.findall(f".//{{{PRESENTATION_NS}}}sp"),
+                    *root.findall(f".//{{{PRESENTATION_NS}}}graphicFrame"),
+                ]
+                for container in containers:
+                    text = " ".join(
+                        (node.text or "").strip()
+                        for node in container.findall(f".//{{{DRAWING_NS}}}t")
+                        if (node.text or "").strip()
+                    )
+                    if text:
+                        results.append({"slide": slide_number, "text": re.sub(r"\s+", " ", text).strip()})
+    except (BadZipFile, KeyError, ElementTree.ParseError, OSError) as error:
+        raise LocalizedDeckIntegrityError(f"Presentation text is unreadable: {path.name}.") from error
+    return results
+
+
+def untranslated_english_findings(path: Path) -> list[dict[str, Any]]:
+    """Return high-confidence English leakage in a PT-BR or ES-419 PPTX."""
+    findings: list[dict[str, Any]] = []
+    for item in pptx_visible_text(path):
+        text = item["text"]
+        domain_hits = sorted({match.group(0).lower() for match in ENGLISH_DOMAIN_TERMS.finditer(text)})
+        grammar_hits = sorted({match.group(0).lower() for match in ENGLISH_GRAMMAR_TERMS.finditer(text)})
+        duration_hits = sorted({match.group(0).lower() for match in ENGLISH_DURATION.finditer(text)})
+        if domain_hits or len(grammar_hits) >= 2 or duration_hits:
+            findings.append(
+                {
+                    "slide": item["slide"],
+                    "text": text,
+                    "hits": [*domain_hits, *grammar_hits, *duration_hits],
+                }
+            )
+    return findings
+
+
+def assert_no_untranslated_english(path: Path) -> None:
+    findings = untranslated_english_findings(path)
+    if not findings:
+        return
+    preview = "; ".join(
+        f"slide {item['slide']}: {item['text'][:120]} (matched: {', '.join(item['hits'])})"
+        for item in findings[:5]
+    )
+    raise LocalizedDeckIntegrityError(
+        "The localized presentation contains likely untranslated English learner-visible text: " + preview
+    )
+
+
 def validate_localized_deck(run: Path, lesson_tag: str, localized_deck: Path) -> dict[str, str]:
     localized_deck = localized_deck.resolve()
     if not localized_deck.is_file():
         raise LocalizedDeckIntegrityError("The localized presentation file is missing.")
+    operator_approved = localized_approval_matches(run, lesson_tag, localized_deck)
     approved_deck, source_spec_path, source = approved_deck_source(run, lesson_tag)
     localized_spec_path_value = localized_spec_path(run, lesson_tag, localized_deck)
     if not localized_spec_path_value.is_file():
@@ -225,6 +298,11 @@ def validate_localized_deck(run: Path, lesson_tag: str, localized_deck: Path) ->
         raise LocalizedDeckIntegrityError(
             "The localized PPTX does not preserve the approved presentation's slide structure."
         )
+    # Automatic content rules can become stricter over time. An explicit
+    # operator approval remains the final content decision for that exact file;
+    # provenance and structural integrity checks above still apply.
+    if not operator_approved:
+        assert_no_untranslated_english(localized_deck)
     return {
         "approved_deck_path": approved_relative,
         "approved_deck_sha256": actual_source_hash,

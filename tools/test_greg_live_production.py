@@ -45,6 +45,41 @@ def deck_decision(medium: str = "native-diagram") -> dict:
     }
 
 
+def complete_deck_slide(layout: str, index: int) -> dict:
+    slide = {
+        "layout": layout,
+        "title": f"Use project evidence to improve decision {index}",
+        "bottom_line": "Convert the evidence into one owned operating change.",
+        **deck_decision(),
+    }
+    items = [
+        {"title": "Result", "body": "Compare the planned result with the actual result."},
+        {"title": "Cause", "body": "Trace the controllable cause behind the important variance."},
+        {"title": "Action", "body": "Assign one improvement to the next project playbook."},
+    ]
+    if layout in {"card_sequence", "process_flow", "row_list", "checklist_rows"}:
+        slide["items"] = items
+    elif layout == "comparison":
+        slide["left"] = {"title": "Weak review", "body": "Record the outcome without tracing its cause."}
+        slide["right"] = {"title": "Useful review", "body": "Trace the cause and assign a repeatable change."}
+    elif layout == "planned_actual":
+        slide["left"] = {"title": "Planned result", "body": "The approved budget protected the expected gross margin."}
+        slide["right"] = {"title": "Actual result", "body": "Unpriced changes reduced the final gross margin."}
+    elif layout == "schedule_bar_chart":
+        slide["schedule_rows"] = [
+            {"activity": "Close cost records", "start": 0, "duration": 2, "status": "complete"},
+            {"activity": "Review variances", "start": 1, "duration": 3, "status": "in-progress"},
+            {"activity": "Assign changes", "start": 3, "duration": 2, "status": "planned"},
+        ]
+    elif layout == "activity_network":
+        slide["network_paths"] = [{"label": "Learning loop", "activities": [
+            {"title": "Measure result", "duration": "1d"},
+            {"title": "Trace cause", "duration": "1d"},
+            {"title": "Change system", "duration": "1d"},
+        ]}]
+    return slide
+
+
 class GregLiveProductionTests(unittest.TestCase):
     def test_json_request_retries_incomplete_output_with_compaction_instruction(self) -> None:
         responses = [
@@ -61,6 +96,48 @@ class GregLiveProductionTests(unittest.TestCase):
         self.assertEqual([], result["slides"])
         self.assertEqual(2, request.call_count)
         self.assertIn("substantially shorter string values", request.call_args_list[1].args[2])
+
+    def test_visible_deck_content_rejects_an_empty_layout_payload(self) -> None:
+        slides = [
+            {"layout": "cover", "title": "Turn Projects into Better Business", "subtitle": "Use project evidence to improve the next job", "topics": ["Review", "Trust", "Leadership"]},
+            *[
+                {
+                    "layout": "row_list",
+                    "title": "Use the project record to improve decisions",
+                    "items": [
+                        {"title": "Result", "body": "Compare the planned outcome with the actual outcome."},
+                        {"title": "Cause", "body": "Trace the controllable cause behind the important variance."},
+                        {"title": "Action", "body": "Assign one change to the next project playbook."},
+                    ],
+                    "bottom_line": "Close the loop by changing the next decision.",
+                }
+                for _ in range(8)
+            ],
+            {"layout": "takeaway", "title": "Every completed job should improve the next one", "body": "Review financial results, preserve client trust, and turn field evidence into a repeatable leadership habit for the business.", "final_line": "Convert one lesson into one owned operating change."},
+        ]
+        slides[4]["items"] = []
+        with self.assertRaisesRegex(RuntimeError, "row-list slide needs 3-5"):
+            production.validate_deck_visible_content(slides)
+
+    def test_visible_deck_content_accepts_complete_layout_payloads(self) -> None:
+        slides = [
+            {"layout": "cover", "title": "Turn Projects into Better Business", "subtitle": "Use project evidence to improve the next job", "topics": ["Review", "Trust", "Leadership"]},
+            *[
+                {
+                    "layout": "checklist_rows",
+                    "title": "Use the project record to improve decisions",
+                    "items": [
+                        {"title": "Result", "body": "Compare the planned outcome with the actual outcome."},
+                        {"title": "Cause", "body": "Trace the controllable cause behind the important variance."},
+                        {"title": "Action", "body": "Assign one change to the next project playbook."},
+                    ],
+                    "bottom_line": "Close the loop by changing the next decision.",
+                }
+                for _ in range(8)
+            ],
+            {"layout": "takeaway", "title": "Every completed job should improve the next one", "body": "Review financial results, preserve client trust, and turn field evidence into a repeatable leadership habit for the business.", "final_line": "Convert one lesson into one owned operating change."},
+        ]
+        production.validate_deck_visible_content(slides)
 
     def test_video_compatible_deck_rejects_more_than_twenty_mb(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
@@ -145,68 +222,42 @@ class GregLiveProductionTests(unittest.TestCase):
             self.assertEqual(output, result[1])
 
     def test_deck_plan_validates_visual_decisions_and_layout_diversity(self) -> None:
-        decision = deck_decision()
-        slides = [
-            {"layout": "cover", "title": "Buildable Work", "subtitle": "Make the job ready.", "topics": ["Intake", "Scope", "Permits"]},
-            {"layout": "intro_image_bullets", "title": "Start with the site", "intro": "A field visit turns assumptions into decisions.", "bullets": ["Verify access", "Record constraints", "Confirm owners"], "image_source_strategy": "generated-conceptual", "image_prompt": "A residential project manager reviewing a home site plan with a field lead.", "image_alt": "Project manager and field lead review a residential site plan.", **deck_decision("generated-conceptual-image")},
-            {"layout": "card_sequence", "title": "Move facts into action", "items": [], "takeaway": "Sequence creates control."},
-            {"layout": "comparison", "title": "Separate the request from the scope", "left": {"title": "Request", "body": "Starting point"}, "right": {"title": "Scope", "body": "Verified commitment"}, "bottom_line": "Clarify first."},
-            {"layout": "planned_actual", "title": "Test the gap", "left": {"title": "Planned", "body": "What was assumed"}, "right": {"title": "Actual", "body": "What the site allows"}, "bottom_line": "Price the real job."},
-            {"layout": "row_list", "title": "Capture the critical record", "items": [], "bottom_line": "Record what drives decisions."},
-            {"layout": "checklist_rows", "title": "Verify before commitment", "items": [], "bottom_line": "Close the gaps."},
-            {"layout": "image_bullets", "title": "Permit readiness protects the start", "intro": "Authority and scope must match.", "bullets": ["Identify authority", "Assemble package", "Track response"], "bottom_line": "Release only a complete package.", "image_prompt": "A residential permit package organized on a clean desk beside house plans, no readable text.", "image_alt": "Residential permit package and house plans prepared for submittal."},
-            {"layout": "card_sequence", "title": "Keep the handoff visible", "items": [], "takeaway": "A clear handoff prevents rework."},
-            {"layout": "takeaway", "title": "Buildability comes before production", "body": "Verify the job before committing the work.", "final_line": "Make the job buildable first."},
-        ]
-        for slide in slides[2:-1]:
-            slide.update(decision)
-        slides[7]["image_source_strategy"] = "generated-conceptual"
-        slides[7].update(deck_decision("generated-conceptual-image"))
+        layouts = ["intro_image_bullets", "card_sequence", "comparison", "planned_actual", "row_list", "checklist_rows", "image_bullets", "card_sequence"]
+        slides = [{"layout": "cover", "title": "Make Residential Work Buildable", "subtitle": "Verify the project before committing field production", "topics": ["Intake", "Scope", "Permits"]}]
+        for index, layout in enumerate(layouts, start=2):
+            if layout in {"intro_image_bullets", "image_bullets"}:
+                slide = {**complete_deck_slide(layout, index), **deck_decision("generated-conceptual-image")}
+                slide.update({"intro": "A field review turns hidden assumptions into controlled decisions.", "bullets": ["Verify physical site access", "Record the controlling constraints", "Confirm accountable work owners"], "image_source_strategy": "generated-conceptual", "image_prompt": "A residential project manager reviewing a home site plan with a field lead.", "image_alt": "Project manager and field lead review a residential site plan."})
+            else:
+                slide = complete_deck_slide(layout, index)
+            slides.append(slide)
+        slides.append({"layout": "takeaway", "title": "Buildability comes before field production", "body": "Verify the job basis, clear the controlling constraints, and record the responsible owner before crews and commitments move into production.", "final_line": "Make the job buildable before releasing the work."})
         normalized = production.normalize_deck_slides({"slides": slides}, {"title": "Buildability", "learning_goal": "Make the job buildable."})
         self.assertEqual(10, len(normalized))
         self.assertEqual("right", normalized[1]["image_side"])
         self.assertEqual("left", normalized[7]["image_side"])
 
     def test_deck_plan_allows_no_teaching_image_when_strategy_does_not_call_for_one(self) -> None:
-        decision = deck_decision()
-        slides = [{"layout": "cover", "title": "A", "subtitle": "B", "topics": ["One", "Two", "Three"]}]
-        slides.extend({"layout": layout, **decision} for layout in ["card_sequence", "comparison", "planned_actual", "row_list", "checklist_rows", "card_sequence", "comparison", "row_list"])
-        slides.append({"layout": "takeaway"})
+        slides = [{"layout": "cover", "title": "Use Better Project Decisions", "subtitle": "Turn evidence into repeatable construction operating habits", "topics": ["One", "Two", "Three"]}]
+        slides.extend(complete_deck_slide(layout, index) for index, layout in enumerate(["card_sequence", "comparison", "planned_actual", "row_list", "checklist_rows", "card_sequence", "comparison", "row_list"], start=2))
+        slides.append({"layout": "takeaway", "title": "Every project should improve the business", "body": "Review the outcome, identify the controllable cause, and assign one practical operating change before the next project begins.", "final_line": "Turn each lesson into an owned system change."})
         normalized = production.normalize_deck_slides({"slides": slides}, {"title": "Test", "learning_goal": "Test"})
         self.assertEqual(10, len(normalized))
 
     def test_deck_plan_uses_layout_diversity_as_a_floor_not_a_visual_quota(self) -> None:
-        slides = [{"layout": "cover", "title": "A", "subtitle": "B", "topics": ["One", "Two", "Three"]}]
-        slides.extend({"layout": layout, **deck_decision()} for layout in [
+        slides = [{"layout": "cover", "title": "Use Better Project Decisions", "subtitle": "Turn evidence into repeatable construction operating habits", "topics": ["One", "Two", "Three"]}]
+        slides.extend(complete_deck_slide(layout, index) for index, layout in enumerate([
             "card_sequence", "comparison", "planned_actual", "row_list",
             "card_sequence", "comparison", "planned_actual", "row_list",
-        ])
-        slides.append({"layout": "takeaway"})
+        ], start=2))
+        slides.append({"layout": "takeaway", "title": "Every project should improve the business", "body": "Review the outcome, identify the controllable cause, and assign one practical operating change before the next project begins.", "final_line": "Turn each lesson into an owned system change."})
         self.assertEqual(10, len(production.normalize_deck_slides({"slides": slides}, {"title": "Test"})))
 
     def test_deck_plan_accepts_direct_schedule_and_network_demonstrations(self) -> None:
-        slides = [{"layout": "cover", "title": "A", "subtitle": "B", "topics": ["One", "Two", "Three"]}]
-        slides.extend([
-            {"layout": "process_flow", "items": [{"title": "Plan", "body": "Set the sequence"}, {"title": "Release", "body": "Start ready work"}], **deck_decision()},
-            {"layout": "schedule_bar_chart", "schedule_rows": [
-                {"activity": "Layout", "start": 0, "duration": 2, "status": "complete"},
-                {"activity": "Framing", "start": 2, "duration": 4, "status": "in-progress"},
-                {"activity": "Rough-ins", "start": 4, "duration": 3, "status": "planned"},
-            ], **deck_decision()},
-            {"layout": "activity_network", "network_paths": [{"label": "Controlling path", "critical": True, "activities": [
-                {"title": "Excavate", "duration": "2d"}, {"title": "Form", "duration": "3d"}, {"title": "Pour", "duration": "1d"},
-            ]}], **deck_decision()},
-            {"layout": "comparison", **deck_decision()},
-            {"layout": "process_flow", "items": [{"title": "Find", "body": "See the constraint"}, {"title": "Own", "body": "Assign action"}], **deck_decision()},
-            {"layout": "schedule_bar_chart", "schedule_rows": [
-                {"activity": "A", "start": 0, "duration": 1, "status": "complete"},
-                {"activity": "B", "start": 1, "duration": 2, "status": "planned"},
-                {"activity": "C", "start": 2, "duration": 2, "status": "delayed"},
-            ], **deck_decision()},
-            {"layout": "activity_network", "network_paths": [{"label": "Path", "critical": False, "activities": [{"title": "A", "duration": "1d"}, {"title": "B", "duration": "2d"}]}], **deck_decision()},
-            {"layout": "comparison", **deck_decision()},
-        ])
-        slides.append({"layout": "takeaway"})
+        slides = [{"layout": "cover", "title": "Read Residential Schedule Logic", "subtitle": "See sequence, overlap, and controlling project paths", "topics": ["One", "Two", "Three"]}]
+        layouts = ["process_flow", "schedule_bar_chart", "activity_network", "comparison", "process_flow", "schedule_bar_chart", "activity_network", "comparison"]
+        slides.extend(complete_deck_slide(layout, index) for index, layout in enumerate(layouts, start=2))
+        slides.append({"layout": "takeaway", "title": "Schedule logic makes commitments visible", "body": "Use connected activities, time scaled bars, and explicit handoffs to test whether the next residential work package is truly ready.", "final_line": "Release work only when its logic and constraints are visible."})
         normalized = production.normalize_deck_slides({"slides": slides}, {"title": "Test"})
         self.assertEqual("schedule_bar_chart", normalized[2]["layout"])
         self.assertEqual("activity_network", normalized[3]["layout"])

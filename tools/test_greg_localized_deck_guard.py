@@ -6,15 +6,21 @@ import sys
 import tempfile
 import unittest
 from pathlib import Path
+from unittest.mock import patch
 from zipfile import ZIP_DEFLATED, ZipFile
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "tools"))
 
-from greg_localized_deck_guard import LocalizedDeckIntegrityError, validate_localized_deck
+from greg_localized_deck_guard import (
+    LocalizedDeckIntegrityError,
+    assert_no_untranslated_english,
+    validate_localized_deck,
+)
 
 
 PRESENTATION = "http://schemas.openxmlformats.org/presentationml/2006/main"
+DRAWING = "http://schemas.openxmlformats.org/drawingml/2006/main"
 
 
 def write_pptx(path: Path, shape_counts: list[int]) -> None:
@@ -29,6 +35,22 @@ def write_pptx(path: Path, shape_counts: list[int]) -> None:
             archive.writestr(
                 f"ppt/slides/slide{index}.xml",
                 f'<p:sld xmlns:p="{PRESENTATION}"><p:cSld><p:spTree>{shapes}<p:pic/></p:spTree></p:cSld></p:sld>',
+            )
+
+
+def write_text_pptx(path: Path, texts: list[str]) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    with ZipFile(path, "w", ZIP_DEFLATED) as archive:
+        archive.writestr(
+            "ppt/presentation.xml",
+            f'<p:presentation xmlns:p="{PRESENTATION}"><p:sldSz cx="12192000" cy="6858000"/></p:presentation>',
+        )
+        for index, text in enumerate(texts, start=1):
+            archive.writestr(
+                f"ppt/slides/slide{index}.xml",
+                f'<p:sld xmlns:p="{PRESENTATION}" xmlns:a="{DRAWING}"><p:cSld><p:spTree>'
+                f'<p:sp><p:txBody><a:p><a:r><a:t>{text}</a:t></a:r></a:p></p:txBody></p:sp>'
+                f'</p:spTree></p:cSld></p:sld>',
             )
 
 
@@ -74,6 +96,36 @@ def build_run(root: Path, *, localized_shapes: list[int], baseline: str | None =
 
 
 class LocalizedDeckGuardTests(unittest.TestCase):
+    def test_rejects_english_paragraph_in_localized_pptx(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            deck = Path(directory) / "localized.pptx"
+            write_text_pptx(deck, ["Compare the forecast with the authorized budget before approving more spend."])
+
+            with self.assertRaisesRegex(LocalizedDeckIntegrityError, "untranslated English"):
+                assert_no_untranslated_english(deck)
+
+    def test_rejects_residual_english_construction_terms(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            deck = Path(directory) / "localized.pptx"
+            write_text_pptx(deck, ["Enviar o draw do proprietário", "Acabados de la townhome", "Prazo 3d"])
+
+            with self.assertRaisesRegex(LocalizedDeckIntegrityError, "untranslated English"):
+                assert_no_untranslated_english(deck)
+
+    def test_accepts_fully_localized_portuguese_and_spanish_text(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            deck = Path(directory) / "localized.pptx"
+            write_text_pptx(
+                deck,
+                [
+                    "Compare a previsão com o orçamento autorizado antes de aprovar novos gastos.",
+                    "Compara el pronóstico con el presupuesto autorizado antes de aprobar más gastos.",
+                    "Prazo de 3 dias. Plazo de 3 días.",
+                ],
+            )
+
+            assert_no_untranslated_english(deck)
+
     def test_accepts_localized_deck_with_exact_approved_structure(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             run, localized_deck = build_run(Path(directory), localized_shapes=[3, 5])
@@ -112,6 +164,23 @@ class LocalizedDeckGuardTests(unittest.TestCase):
 
             evidence = validate_localized_deck(run, "lesson_05", localized_deck)
 
+            self.assertTrue(evidence["localized_deck_sha256"])
+
+    def test_new_automatic_content_rule_does_not_hide_exact_approved_artifact(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            run, localized_deck = build_run(
+                Path(directory),
+                localized_shapes=[3, 5],
+                approve_localized=True,
+            )
+
+            with patch(
+                "greg_localized_deck_guard.assert_no_untranslated_english",
+                side_effect=LocalizedDeckIntegrityError("new automatic rule"),
+            ) as automatic_check:
+                evidence = validate_localized_deck(run, "lesson_05", localized_deck)
+
+            automatic_check.assert_not_called()
             self.assertTrue(evidence["localized_deck_sha256"])
 
     def test_rejects_unapproved_legacy_localized_deck_without_provenance(self) -> None:

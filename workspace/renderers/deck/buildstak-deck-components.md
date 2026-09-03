@@ -4,6 +4,8 @@ This file defines reusable deck components for Prof Greg PPTX production.
 
 The goal is to stop rebuilding slide layouts ad hoc. Deck generation should choose from these components, fill them with lesson-specific content, render the deck, and run deck QA before delivery.
 
+Components are implementation options, not teaching defaults. Before selecting one, the planner must define the learning job, choose the teaching strategy, compare a native diagram, trusted real image, and generated conceptual image, and state how text will complement the selected medium. If the concept does not fit a component's stated purpose, do not use that component merely for visual consistency.
+
 ## Global Frame
 
 Use on every content slide except the cover:
@@ -61,8 +63,8 @@ Rules:
 
 Purpose:
 
-- soften text-heavy flow;
-- anchor an abstract idea in a concrete visual.
+- let learners inspect a trusted real example; or
+- anchor an abstract idea in a generated conceptual scene when authenticity is not part of the claim.
 
 Layout:
 
@@ -74,6 +76,7 @@ Layout:
 
 Rules:
 
+- use only after the planner selects an image over a native diagram for a content-specific reason;
 - no image caption under the image;
 - slide title carries the teaching point;
 - visible bullets explain what the student should notice.
@@ -96,6 +99,39 @@ Rules:
 - if all items are equal, no item is highlighted;
 - if order matters, numbering may show order without visual emphasis;
 - use this for habits, checklists, documentation fields, and equal categories.
+
+## Component: Direct Process Flow
+
+Purpose:
+
+- show ordered actions, handoffs, or workflow stages with visible direction.
+
+Rules:
+
+- use `process_flow`, not a grouped card sequence, when order changes meaning;
+- preserve the source order and show connectors between every adjacent step.
+
+## Component: Schedule Bar Chart
+
+Purpose:
+
+- show timing, overlap, status, or drift on a shared time scale.
+
+Rules:
+
+- use `schedule_bar_chart` with activity, start, duration, and status values;
+- do not replace the chart with prose that merely describes a schedule.
+
+## Component: Activity Network
+
+Purpose:
+
+- show predecessor/successor logic, parallel paths, and the controlling path.
+
+Rules:
+
+- use `activity_network` with connected activities and visible path distinction;
+- do not replace network logic with a two-column comparison.
 
 ## Component: Escalation Or Decision Trigger Matrix
 

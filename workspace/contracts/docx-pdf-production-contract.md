@@ -111,11 +111,9 @@ Revisioned outputs do not replace the approved student-facing artifact until a h
 
 ## Visual Rules
 
-Visual preference order:
+Choose the teaching medium and asset route deliberately. For every planned visual, record whether an image is required, helpful, or not needed and why. Compare a deterministic diagram, trusted real/source image, and generated conceptual image. When an image wins, choose one route: reuse allowed reference material, search online for a verified attributable asset, generate a conceptual image, or ask the operator after the applicable alternatives are unsuitable or exhausted.
 
-1. Deterministic diagram, chart, process flow, map, or structured visual.
-2. Trusted technical/source-based image with attribution.
-3. Generated conceptual image only as fallback.
+An unresolved operator request must remain visible in the operator-facing course-book draft as a red box in the intended figure position. The box must state the image description, pedagogical reason, and focused search phrase. A draft containing this box is blocked from student release.
 
 Every final visual must have:
 
@@ -161,6 +159,12 @@ Check:
 - text overflow;
 - visual readability;
 - visual distortion, overlaps, missing arrows/symbols, and excessive blank areas.
+- unresolved image requests are rendered as complete red request boxes and never pass final-release QA;
+- every ordered procedure is a real numbered list with one step per visible line;
+- every diagram title, visible label, and caption/explanation describe the same relationship and reading order;
+- every ordered or numbered diagram uses visible direction rather than disconnected cards;
+- every comparison matrix uses one variable column and one dedicated column per compared entity;
+- all text stays inside its visual container, including calculated totals and callout content.
 
 Run the PDF layout checker after text extraction is available:
 

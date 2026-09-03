@@ -81,6 +81,49 @@ class StudyGuideContentCheckTests(unittest.TestCase):
             finding = next(item for item in result["findings"] if item["check"] == "student_facing_intro_metadata")
             self.assertEqual("fail", finding["status"])
 
+    def test_inline_numbered_procedure_fails(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "draft.md"
+            path.write_text(
+                "# Section 01 - One\n\nCorrective action follows this order: 1. Verify the data. 2. Name the cause. 3. Update the forecast.\n",
+                encoding="utf-8",
+            )
+            result = checker.run_checks(path)
+            finding = next(item for item in result["findings"] if item["check"] == "ordered_steps_one_per_line")
+            self.assertEqual("fail", finding["status"])
+
+    def test_numbered_procedure_one_step_per_line_passes_structure(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "draft.md"
+            path.write_text(
+                "# Section 01 - One\n\nCorrective action follows this order:\n\n1. Verify the data.\n2. Name the cause.\n3. Update the forecast.\n",
+                encoding="utf-8",
+            )
+            result = checker.run_checks(path)
+            finding = next(item for item in result["findings"] if item["check"] == "ordered_steps_one_per_line")
+            self.assertEqual("pass", finding["status"])
+
+    def test_hands_on_explanation_without_student_task_fails(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "draft.md"
+            path.write_text(
+                "# Section 01 - One\n\n> **HANDS-ON EXAMPLE**\n> The forecast at completion is the sum of actual cost and remaining work.\n",
+                encoding="utf-8",
+            )
+            result = checker.run_checks(path)
+            finding = next(item for item in result["findings"] if item["check"] == "hands_on_is_student_task")
+            self.assertEqual("fail", finding["status"])
+
+    def test_hands_on_task_with_inputs_and_check_passes_structure(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "draft.md"
+            path.write_text(
+                "# Section 01 - One\n\n> **HANDS-ON EXAMPLE**\n> Using actual cost of $18,000 and remaining work of $24,000, calculate the forecast. Then compare your result with the expected answer of $42,000.\n",
+                encoding="utf-8",
+            )
+            result = checker.run_checks(path)
+            finding = next(item for item in result["findings"] if item["check"] == "hands_on_is_student_task")
+            self.assertEqual("pass", finding["status"])
     def test_professional_use_of_exercise_is_not_a_learner_activity(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             path = Path(tmp) / "draft.md"

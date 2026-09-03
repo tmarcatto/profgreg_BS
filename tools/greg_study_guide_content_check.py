@@ -136,6 +136,7 @@ def callout_blocks(lines: list[str]) -> list[dict]:
                 "section": current_section,
                 "line": start,
                 "paragraph_count": len(paragraphs),
+                "body": body_text,
             }
         )
     return blocks
@@ -293,6 +294,36 @@ def run_checks(draft_path: Path, level: str | None = None) -> dict:
         findings.append(Finding("fail", "callout_length", f"Callouts exceed 3 paragraphs: {long_callouts}."))
     else:
         findings.append(Finding("pass", "callout_length", "Callouts are 3 paragraphs or fewer."))
+
+    hands_on_blocks = [block for block in blocks if block["label"] == "HANDS-ON EXAMPLE"]
+    inactive_hands_on = []
+    hands_on_action = re.compile(
+        r"\b(calculate|compute|identify|compare|decide|check|complete|estimate|forecast|reconcile|mark|write|choose|review|explain|verify)\b",
+        flags=re.IGNORECASE,
+    )
+    hands_on_input = re.compile(r"\b(using|given|start with|from the|assume|based on|figures?|amounts?|values?|report|table|diagram)\b", flags=re.IGNORECASE)
+    hands_on_check = re.compile(r"\b(answer|check|result|should|then|compare your|verify|expected|why)\b", flags=re.IGNORECASE)
+    for block in hands_on_blocks:
+        body = str(block.get("body") or "")
+        if not (hands_on_action.search(body) and hands_on_input.search(body) and hands_on_check.search(body)):
+            inactive_hands_on.append(f"line {block['line']}")
+    if inactive_hands_on:
+        findings.append(Finding("fail", "hands_on_is_student_task", f"HANDS-ON EXAMPLE boxes must give the learner supplied inputs, a concrete action, and a way to check the result: {inactive_hands_on}."))
+    else:
+        findings.append(Finding("pass", "hands_on_is_student_task", "Every HANDS-ON EXAMPLE is an actionable learner task with inputs and a result check, or no HANDS-ON EXAMPLE is used."))
+
+    inline_numbered_sequences = []
+    for line_number, line in enumerate(lines, start=1):
+        stripped = line.strip()
+        if not stripped or stripped.startswith(">"):
+            continue
+        markers = re.findall(r"(?<!\w)(\d{1,2})\.\s+", stripped)
+        if len(markers) >= 2:
+            inline_numbered_sequences.append((line_number, markers[:8]))
+    if inline_numbered_sequences:
+        findings.append(Finding("fail", "ordered_steps_one_per_line", f"Ordered procedures contain multiple numbered steps in one paragraph: {inline_numbered_sequences}. Put each step on its own Markdown list line."))
+    else:
+        findings.append(Finding("pass", "ordered_steps_one_per_line", "Ordered procedures use one numbered step per source line."))
 
     consecutive = []
     for first, second in zip(blocks, blocks[1:]):

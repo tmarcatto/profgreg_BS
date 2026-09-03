@@ -76,6 +76,8 @@ styles.add(ParagraphStyle(name="H2Keep", parent=styles["H2Greg"], keepWithNext=1
 styles.add(ParagraphStyle(name="RefGreg", parent=styles["BodyGreg"], fontSize=8.5, leading=11.5, leftIndent=10, firstLineIndent=-10, spaceAfter=5))
 styles.add(ParagraphStyle(name="CalloutLabel", parent=styles["BodyGreg"], fontName=FONT_BOLD, fontSize=10, leading=12, textColor=NAVY, spaceAfter=0))
 styles.add(ParagraphStyle(name="CalloutBody", parent=styles["BodyGreg"], fontSize=9.5, leading=13, textColor=INK, spaceAfter=0))
+styles.add(ParagraphStyle(name="CalloutBodySpaced", parent=styles["CalloutBody"], spaceAfter=5))
+styles.add(ParagraphStyle(name="CalloutBullet", parent=styles["CalloutBody"], fontSize=9.1, leading=12, leftIndent=0, spaceAfter=1))
 styles.add(ParagraphStyle(name="BridgeLabel", parent=styles["CalloutLabel"], fontSize=9, leading=10))
 styles.add(ParagraphStyle(name="BridgeBody", parent=styles["CalloutBody"], fontSize=8.5, leading=10.5))
 styles.add(ParagraphStyle(name="BridgeLead", parent=styles["BodyGreg"], fontSize=9.2, leading=12, textColor=MUTED, spaceAfter=10))
@@ -268,21 +270,137 @@ class Callout:
         # using a compact, still legible treatment instead of stranding it on
         # a nearly empty page of its own.
         compact_bridge = self.label.upper() in {"BRIDGE", "PONTE", "PUENTE"}
+        label_style = styles["BridgeLabel"] if compact_bridge else styles["CalloutLabel"]
+        body_flowables = callout_body_flowables(self.body, compact=compact_bridge)
+        rows = [
+            [Paragraph(self.label, label_style) if index == 0 else "", flowable]
+            for index, flowable in enumerate(body_flowables)
+        ]
         table = Table(
-            [[Paragraph(self.label, styles["BridgeLabel"] if compact_bridge else styles["CalloutLabel"]), Paragraph(inline(self.body), styles["BridgeBody"] if compact_bridge else styles["CalloutBody"])]],
+            rows,
             colWidths=[1.2 * inch, 5.25 * inch] if compact_bridge else [1.6 * inch, 4.85 * inch],
             hAlign="LEFT",
+            splitByRow=1,
         )
-        table.setStyle(TableStyle([
+        padding = 4 if compact_bridge else 10
+        table_style = [
             ("BOX", (0, 0), (-1, -1), 1.1, border),
             ("BACKGROUND", (0, 0), (-1, -1), fill),
             ("VALIGN", (0, 0), (-1, -1), "TOP"),
             ("LEFTPADDING", (0, 0), (-1, -1), 5 if compact_bridge else 12),
             ("RIGHTPADDING", (0, 0), (-1, -1), 5 if compact_bridge else 12),
-            ("TOPPADDING", (0, 0), (-1, -1), 4 if compact_bridge else 10),
-            ("BOTTOMPADDING", (0, 0), (-1, -1), 4 if compact_bridge else 10),
-        ]))
+        ]
+        for row_index in range(len(rows)):
+            table_style.extend([
+                ("TOPPADDING", (0, row_index), (-1, row_index), padding if row_index == 0 else 0),
+                ("BOTTOMPADDING", (0, row_index), (-1, row_index), padding if row_index == len(rows) - 1 else (1 if compact_bridge else 2)),
+            ])
+        table.setStyle(TableStyle(table_style))
         return KeepTogether([Spacer(1, 3 if compact_bridge else 7), table, Spacer(1, 3 if compact_bridge else 9)])
+
+
+def structured_callout_blocks(body: str) -> list[dict[str, Any]]:
+    """Preserve author formatting and repair common long-callout walls of text."""
+    normalized = body.replace("\r\n", "\n").strip()
+    # Repeated labeled cases are learner inputs, not prose. Older correction
+    # runs often returned them on separate source lines, but the renderer then
+    # flattened those lines. Also recover a legacy single-line Record A/B/C/D
+    # wall deterministically so an unchanged draft still renders readably.
+    record_matches = list(re.finditer(r"(?<!\w)(Record\s+[A-Z0-9]+)\s*:\s*", normalized, flags=re.I))
+    has_explicit_bullets = bool(re.search(r"(?m)^[-*+]\s+\S", normalized))
+    if len(record_matches) >= 3 and not has_explicit_bullets:
+        first = record_matches[0].start()
+        final_start = record_matches[-1].start()
+        tail_match = re.search(r"\s+(?=(?:Classify|Decide|Determine|Check)\b)", normalized[final_start:], flags=re.I)
+        records_end = final_start + tail_match.start() if tail_match else len(normalized)
+        blocks: list[dict[str, Any]] = []
+        if normalized[:first].strip():
+            blocks.append({"type": "paragraph", "text": normalized[:first].strip()})
+        items: list[str] = []
+        for index, match in enumerate(record_matches):
+            if match.start() >= records_end:
+                break
+            end = record_matches[index + 1].start() if index + 1 < len(record_matches) else records_end
+            end = min(end, records_end)
+            text = normalized[match.start():end].strip()
+            text = re.sub(r"^(Record\s+[A-Z0-9]+\s*:)", r"**\1**", text, count=1, flags=re.I)
+            items.append(text)
+        if items:
+            blocks.append({"type": "bullets", "items": items})
+        tail = normalized[records_end:].strip()
+        if tail:
+            check = re.search(r"\bCheck\s*:\s*", tail, flags=re.I)
+            if check and check.start() > 0:
+                blocks.append({"type": "paragraph", "text": tail[:check.start()].strip()})
+                blocks.append({"type": "paragraph", "text": "**Check:** " + tail[check.end():].strip()})
+            else:
+                blocks.append({"type": "paragraph", "text": tail})
+        return blocks
+
+    # A long legacy callout with no author structure still needs a readable
+    # rhythm. Group complete sentences into short paragraphs without changing
+    # or summarizing the student's content. Explicit formatting above always
+    # takes precedence over this fallback.
+    if not has_explicit_bullets and "\n\n" not in normalized and len(normalized) > 520:
+        sentences = [item.strip() for item in re.split(r"(?<=[.!?])\s+", normalized) if item.strip()]
+        chunks: list[str] = []
+        current = ""
+        for sentence in sentences:
+            candidate = f"{current} {sentence}".strip()
+            if current and len(candidate) > 300:
+                chunks.append(current)
+                current = sentence
+            else:
+                current = candidate
+        if current:
+            chunks.append(current)
+        if len(chunks) >= 2:
+            return [{"type": "paragraph", "text": chunk} for chunk in chunks]
+
+    blocks = []
+    paragraphs = re.split(r"\n\s*\n", normalized)
+    for paragraph in paragraphs:
+        source_lines = [line.strip() for line in paragraph.splitlines() if line.strip()]
+        index = 0
+        prose: list[str] = []
+        while index < len(source_lines):
+            if re.match(r"^[-*+]\s+\S", source_lines[index]):
+                if prose:
+                    blocks.append({"type": "paragraph", "text": " ".join(prose)})
+                    prose = []
+                items: list[str] = []
+                while index < len(source_lines) and re.match(r"^[-*+]\s+\S", source_lines[index]):
+                    item = re.sub(r"^[-*+]\s+", "", source_lines[index]).strip()
+                    item = re.sub(r"^(Record\s+[A-Z0-9]+\s*:)", r"**\1**", item, count=1, flags=re.I)
+                    items.append(item)
+                    index += 1
+                blocks.append({"type": "bullets", "items": items})
+                continue
+            prose.append(source_lines[index])
+            index += 1
+        if prose:
+            blocks.append({"type": "paragraph", "text": " ".join(prose)})
+    return blocks or [{"type": "paragraph", "text": normalized}]
+
+
+def callout_body_flowables(body: str, *, compact: bool = False) -> list[Any]:
+    paragraph_style = styles["BridgeBody"] if compact else styles["CalloutBodySpaced"]
+    result: list[Any] = []
+    for block in structured_callout_blocks(body):
+        if block["type"] == "bullets":
+            result.append(ListFlowable(
+                [ListItem(Paragraph(inline(item), styles["BridgeBody"] if compact else styles["CalloutBullet"])) for item in block["items"]],
+                bulletType="bullet",
+                start="•",
+                leftIndent=14,
+                bulletFontName=FONT_REGULAR,
+                bulletFontSize=5.5,
+                spaceBefore=1,
+                spaceAfter=4 if not compact else 1,
+            ))
+        else:
+            result.append(Paragraph(inline(block["text"]), paragraph_style))
+    return result
 
 
 class CardRowDiagram(Flowable):
@@ -1048,8 +1166,7 @@ def parse_markdown(markdown: str, locale: str = "en") -> list[dict[str, Any]]:
             quote_lines: list[str] = []
             while index < len(lines) and lines[index].strip().startswith(">"):
                 stripped = lines[index].strip()[1:].strip()
-                if stripped:
-                    quote_lines.append(stripped)
+                quote_lines.append(stripped)
                 index += 1
             first_line = quote_lines[0] if quote_lines else ""
             callout_names = "|".join(re.escape(value) for value in locale_labels(locale)["callouts"])
@@ -1061,8 +1178,12 @@ def parse_markdown(markdown: str, locale: str = "en") -> list[dict[str, Any]]:
             if known_label:
                 label = (known_label.group(1) or known_label.group(3) or known_label.group(5)).strip().upper()
                 inline_body = known_label.group(2) or known_label.group(4) or ""
-                body = " ".join([inline_body.strip(), *quote_lines[1:]]).strip()
-                body = re.sub(r"\*\*", "", body).strip()
+                # Legacy inline labels sometimes wrap the label and first
+                # sentence in one bold span. Remove only those unmatched
+                # markers; preserve emphasis in the following body lines.
+                inline_body = re.sub(r"\*\*", "", inline_body).strip()
+                body_lines = [*([inline_body.strip()] if inline_body.strip() else []), *quote_lines[1:]]
+                body = "\n".join(body_lines).strip()
             else:
                 blocks.append({"type": "paragraph", "text": " ".join(re.sub(r"^\*\*|\*\*$", "", item) for item in quote_lines)})
                 continue

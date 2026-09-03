@@ -71,6 +71,9 @@ def extract_glossary(markdown: str) -> list[dict[str, str]]:
 
 def visual_structure(visual: dict[str, Any]) -> str:
     visual_type = str(visual.get("visual_type") or visual.get("type") or "")
+    if visual_type in {"deterministic-diagram", "chart", "process-flow", "structured-visual"}:
+        mechanism = str(visual.get("diagram_type") or "").strip()
+        return f"native:{mechanism or 'unspecified'}"
     if visual_type == "card_row":
         cards = visual.get("cards") if isinstance(visual.get("cards"), list) else []
         return f"card_row:{len(cards)}:pill:{bool(visual.get('pill'))}"
@@ -199,20 +202,21 @@ def run_checks(course_slug: str, registry_path: Path | None = None) -> dict[str,
     else:
         findings.append(Finding("pass", "visual_title_registry", "Visual titles/IDs are unique across the course registry."))
 
-    study_structure_rows = [
-        row for row in registry.get("visuals") or [] if row.get("artifact") == "study_guide" and str(row.get("structure", "")).startswith("card_row:")
+    structured_rows = [
+        row for row in registry.get("visuals") or []
+        if str(row.get("structure", "")).startswith(("card_row:", "native:"))
     ]
-    raw_structure_duplicates = duplicate_groups(study_structure_rows, "structure")
+    raw_structure_duplicates = duplicate_groups(structured_rows, "structure")
     structure_duplicates = {}
     for structure, labels in raw_structure_duplicates.items():
-        rows = [row for row in study_structure_rows if row.get("structure") == structure]
+        rows = [row for row in structured_rows if row.get("structure") == structure]
         if all(str(row.get("structure_justification") or "").strip() for row in rows):
             continue
         structure_duplicates[structure] = labels
     if structure_duplicates:
-        findings.append(Finding("warn", "visual_structure_registry", f"Repeated study-guide card-row structures need explicit MECE justification: {structure_duplicates}."))
+        findings.append(Finding("warn", "visual_structure_registry", f"Repeated visual structures need explicit content-specific justification: {structure_duplicates}."))
     else:
-        findings.append(Finding("pass", "visual_structure_registry", "No repeated study-guide card-row structures found."))
+        findings.append(Finding("pass", "visual_structure_registry", "Repeated native visual structures, if any, have content-specific justification."))
 
     claim_duplicates = duplicate_groups([row for row in registry.get("visuals") or [] if row.get("learning_claim")], "learning_claim")
     if claim_duplicates:

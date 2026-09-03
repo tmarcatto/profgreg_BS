@@ -113,7 +113,7 @@ Guidance:
 
 - `KEY TERM`: define terms with real course value.
 - `APPLY IT`: give concrete learner action.
-- `HANDS-ON EXAMPLE`: show worked calculations, workflows, or applied judgment.
+- `HANDS-ON EXAMPLE`: give the learner supplied inputs and one concrete calculation, classification, comparison, or decision to complete, followed by a brief answer/check. Keep ordinary explanation outside the box.
 - `SCENARIO`: use sparingly for meaningful applied situations.
 - `CALLBACK`: use only for real prior-lesson continuity from the Course Map.
 - `BRIDGE`: use once to connect to the next lesson or future course concept.
@@ -130,11 +130,9 @@ Never cite a source that was not verified in the ledger.
 
 ## Visual Planning
 
-Visual preference order:
+For each visual, decide whether an image would materially improve comprehension, inspection, transfer, or recall. Compare a deterministic diagram, trusted real/source image, and generated conceptual image. If an image is selected, choose one acquisition route: reuse an allowed image from supplied reference material, search online for a licensable and attributable real image, generate a conceptual image, or request the image from the operator. Generation is allowed only when authenticity and exact technical fidelity are not the lesson claim.
 
-1. Deterministic diagram, chart, process flow, map, or structured visual.
-2. Trusted technical/source-based image with attribution.
-3. Generated conceptual image only as fallback.
+Ask the operator only after the applicable reference, online-search, and generation routes have been evaluated. The operator-facing course-book draft must retain the planned image position as a red request box that states the required image, the pedagogical reason, and a focused search phrase. The draft remains blocked from student release until the request is resolved and rerendered.
 
 In the draft, include visual placeholders with purpose and source status:
 
@@ -142,7 +140,7 @@ In the draft, include visual placeholders with purpose and source status:
 [FIGURE N.N | diagram | source: S001/S002 or source-needed | description]
 ```
 
-If a visual depends on an unverified source, mark `source-needed` and flag it in Visual QA.
+If a visual depends on an unverified source, select `operator-request`, mark `source-needed`, and flag it in Visual QA.
 
 ## Glossary
 

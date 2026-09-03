@@ -99,7 +99,7 @@ Recommended use:
 
 - `KEY TERM`: vocabulary with course value.
 - `APPLY IT`: concrete learner action.
-- `HANDS-ON EXAMPLE`: worked calculation, workflow, or applied judgment.
+- `HANDS-ON EXAMPLE`: a short learner task with supplied inputs, one concrete calculation, classification, comparison, or decision, and a brief answer/check. Explanatory course-book prose belongs outside the box.
 - `SCENARIO`: sparingly, for a meaningful applied situation.
 - `CALLBACK`: real prior-lesson continuity from the Course Map.
 - `BRIDGE`: one transition to the next lesson or future concept.
@@ -119,6 +119,19 @@ Every figure needs:
 - distinct learning line;
 - source status;
 - pedagogical caption.
+
+Match the diagram mechanism to the content logic:
+
+- ordered or numbered steps require a process flow with visible connectors and preserved order;
+- grouped but unordered concepts may use cards;
+- roles or influence require a relationship map;
+- repeated attributes across alternatives require a comparison matrix with one variable column and one dedicated column for each compared entity;
+- cumulative amounts require a cost stack;
+- timing requires a schedule bar chart;
+- predecessor/successor logic requires an activity network.
+
+Do not use disconnected cards for a process, sequence, workflow, priority order, or numbered procedure.
+Do not combine both sides of a comparison inside one narrative cell. The learner must be able to scan across a row and compare entities directly.
 
 Captions are micro-lessons. They should explain why the visual matters, not merely label it.
 

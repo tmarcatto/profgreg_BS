@@ -24,6 +24,11 @@ DIAGRAM_MECHANISMS = {
     "schedule-bar-chart", "activity-network", "planned-actual", "paired-record-rows",
     "verification-checklist",
 }
+DECK_TEACHING_STRATEGIES = {
+    "activate-prior-knowledge", "anchor-with-scenario", "worked-example", "compare-and-contrast",
+    "trace-a-process", "inspect-evidence", "diagnose-and-decide", "synthesize-and-recall",
+}
+DECK_VISUAL_MEDIA = {"native-diagram", "trusted-source-image", "generated-conceptual-image"}
 BRAND_TYPES = {"brand-mark", "logo"}
 ALLOWED_HIGHLIGHT_REASONS = {
     "exception",
@@ -44,6 +49,35 @@ def load_json(path: Path) -> dict[str, Any]:
 def normalize(text: str) -> str:
     tokens = re.findall(r"[a-z0-9]+", text.lower())
     return " ".join(tokens)
+
+
+ALIGNMENT_STOPWORDS = {
+    "the", "a", "an", "and", "or", "to", "of", "for", "in", "on", "with", "from", "by",
+    "shows", "show", "diagram", "visual", "project", "residential", "construction", "step", "steps",
+}
+
+
+def expected_diagram_mechanism(text: str, numbered_items: int = 0) -> str | None:
+    normalized = normalize(text)
+    if re.search(r"\b(gantt|schedule bar|time scaled|planned timing|overlap|status by period)\b", normalized):
+        return "schedule-bar-chart"
+    if re.search(r"\b(predecessor|successor|parallel path|critical path|controlling path|network logic)\b", normalized):
+        return "activity-network"
+    if re.search(r"\b(cumulative|additive|cost stack|price layers|allowance layers|sum to|builds to a total)\b", normalized):
+        return "cost-stack"
+    if numbered_items >= 2 or re.search(r"\b(step|steps|sequence|order|workflow|process|handoff|phase|first|next|then|finally)\b", normalized):
+        return "process-flow"
+    if re.search(r"\b(planned versus actual|planned vs actual|plan actual|variance|drift|baseline gap)\b", normalized):
+        return "planned-actual"
+    if re.search(r"\b(record field|record fields|paired record|prompt to field|document mapping)\b", normalized):
+        return "paired-record-rows"
+    if re.search(r"\b(field verification|verification checklist|verify before|inspection checklist)\b", normalized):
+        return "verification-checklist"
+    if re.search(r"\b(compare|comparison|versus|difference|differences|alternative|alternatives|same attributes)\b", normalized):
+        return "comparison-matrix"
+    if re.search(r"\b(role|roles|stakeholder|stakeholders|relationship|relationships|influence|responsibility map)\b", normalized):
+        return "relationship-map"
+    return None
 
 
 def visual_label(visual: dict[str, Any], index: int) -> str:
@@ -113,6 +147,9 @@ def run_checks(plan_path: Path) -> dict[str, Any]:
     visual_decision_evidence_gaps = []
     forbidden_generated_real_examples = []
     diagram_mechanisms: dict[str, list[str]] = {}
+    deck_decision_protocol_gaps = []
+    diagram_explanation_gaps = []
+    comparison_matrix_structure_gaps = []
 
     for index, visual in enumerate(visuals):
         label = visual_label(visual, index)
@@ -186,6 +223,35 @@ def run_checks(plan_path: Path) -> dict[str, Any]:
         ):
             visual_decision_evidence_gaps.append(label)
 
+        if artifact_type == "deck":
+            candidates = visual.get("visual_candidates")
+            candidate_media = [
+                str(candidate.get("medium") or "")
+                for candidate in candidates or []
+                if isinstance(candidate, dict)
+            ]
+            selected_media = [
+                str(candidate.get("medium") or "")
+                for candidate in candidates or []
+                if isinstance(candidate, dict) and candidate.get("decision") == "selected"
+            ]
+            medium = str(visual.get("visual_medium") or "")
+            expected_type = {
+                "native-diagram": "deterministic-diagram",
+                "trusted-source-image": "trusted-source-image",
+                "generated-conceptual-image": "generated-conceptual-image",
+            }.get(medium)
+            if (
+                visual.get("teaching_strategy") not in DECK_TEACHING_STRATEGIES
+                or set(candidate_media) != DECK_VISUAL_MEDIA
+                or len(candidate_media) != len(DECK_VISUAL_MEDIA)
+                or selected_media != [medium]
+                or expected_type != kind
+                or any(len(str(candidate.get("reason") or "").split()) < 4 for candidate in candidates or [] if isinstance(candidate, dict))
+                or len(str(visual.get("text_role") or "").split()) < 4
+            ):
+                deck_decision_protocol_gaps.append(label)
+
         if visual.get("highlighted") is True:
             reason = str(visual.get("highlight_reason") or "").strip()
             if not reason:
@@ -205,11 +271,35 @@ def run_checks(plan_path: Path) -> dict[str, Any]:
                 missing_diagram_decisions.append(label)
             else:
                 diagram_mechanisms.setdefault(mechanism, []).append(label)
-                claim_text = normalize(" ".join([purpose, learning_claim]))
-                if mechanism == "comparison-matrix" and re.search(r"\b(sequence|lifecycle|workflow|process|handoff|phase)\b", claim_text):
-                    unsuitable_diagram_decisions.append((label, mechanism, "sequential learning claim"))
+                claim_text = normalize(" ".join([
+                    purpose,
+                    learning_claim,
+                    str(visual.get("diagram_title") or ""),
+                ]))
                 nodes = visual.get("diagram_nodes") or []
+                numbered_nodes = sum(
+                    bool(re.match(r"^\s*\d+[.)]\s+", str(node.get("title") or "")))
+                    for node in nodes
+                )
                 rows = visual.get("diagram_rows") or []
+                expected_mechanism = expected_diagram_mechanism(claim_text, numbered_nodes)
+                if expected_mechanism and mechanism != expected_mechanism:
+                    unsuitable_diagram_decisions.append((label, mechanism, f"content logic requires {expected_mechanism}"))
+                visible_text = " ".join(
+                    [
+                        f"{node.get('title') or ''} {node.get('detail') or ''}"
+                        for node in nodes
+                    ]
+                    + [
+                        " ".join(str(cell) for cell in (row.get("cells") or []))
+                        or f"{row.get('left') or ''} {row.get('right') or ''}"
+                        for row in rows
+                    ]
+                )
+                claim_tokens = set(normalize(" ".join([learning_claim, str(visual.get("diagram_title") or "")])).split()) - ALIGNMENT_STOPWORDS
+                visible_tokens = set(normalize(visible_text).split()) - ALIGNMENT_STOPWORDS
+                if visible_tokens and claim_tokens and not (claim_tokens & visible_tokens):
+                    diagram_explanation_gaps.append(label)
                 if artifact_type != "study-guide":
                     continue
                 if mechanism == "process-flow":
@@ -222,12 +312,25 @@ def run_checks(plan_path: Path) -> dict[str, Any]:
                 elif mechanism == "relationship-map" and not 2 <= len(nodes) <= 6:
                     diagram_capacity_violations.append((label, "relationship-map requires 2-6 visible nodes"))
                 elif mechanism == "comparison-matrix":
+                    columns = [str(column).strip() for column in (visual.get("diagram_columns") or [])]
+                    if not 3 <= len(columns) <= 4:
+                        comparison_matrix_structure_gaps.append((label, "requires one variable column and 2-3 entity columns"))
                     if not 2 <= len(rows) <= 5:
                         diagram_capacity_violations.append((label, "comparison-matrix requires 2-5 visible rows"))
+                    entity_tokens = list(dict.fromkeys(normalize(column).split()[0] for column in columns[1:] if normalize(column)))
                     for row in rows:
-                        if len(str(row.get("left") or "")) > 40 or len(str(row.get("right") or "")) > 130:
-                            diagram_capacity_violations.append((label, "comparison-matrix cell exceeds 40/130 characters"))
+                        cells = [str(cell) for cell in (row.get("cells") or [])]
+                        if len(cells) != len(columns):
+                            comparison_matrix_structure_gaps.append((label, "every row requires one cell per visible column"))
                             break
+                        if any(len(cell) > (45 if index == 0 else 90) for index, cell in enumerate(cells)):
+                            diagram_capacity_violations.append((label, "comparison-matrix criterion/entity cell exceeds 45/90 characters"))
+                            break
+                        for cell in cells[1:]:
+                            mentioned_entities = sum(bool(re.search(rf"\b{re.escape(token)}\b", normalize(cell))) for token in entity_tokens)
+                            if mentioned_entities >= 2:
+                                comparison_matrix_structure_gaps.append((label, "multiple compared entities are packed into one narrative cell"))
+                                break
                 elif mechanism in {"card-sequence", "cost-stack"} and not 2 <= len(nodes) <= 8:
                     diagram_capacity_violations.append((label, f"{mechanism} requires 2-8 visible cards"))
                 elif mechanism == "schedule-bar-chart":
@@ -313,6 +416,11 @@ def run_checks(plan_path: Path) -> dict[str, Any]:
     else:
         findings.append(Finding("pass", "visual_decision_evidence", "Every visual records strategy, real-example importance, evidence, alternatives, and selection reason."))
 
+    if deck_decision_protocol_gaps:
+        findings.append(Finding("fail", "deck_visual_decision_protocol", f"Deck visuals did not choose a teaching strategy, compare all three media, select one matching medium, and define the text role: {deck_decision_protocol_gaps}."))
+    else:
+        findings.append(Finding("pass", "deck_visual_decision_protocol", "Every deck visual chooses pedagogy first, compares all three media, and defines how text supports the selected visual."))
+
     if forbidden_generated_real_examples:
         findings.append(Finding("fail", "generated_real_example_forbidden", f"Generated imagery was selected where a real example is required or generation is unsafe: {forbidden_generated_real_examples}."))
     else:
@@ -337,6 +445,16 @@ def run_checks(plan_path: Path) -> dict[str, Any]:
         findings.append(Finding("fail", "diagram_mechanism_fit", f"Diagram mechanisms do not fit their learning jobs: {unsuitable_diagram_decisions}."))
     else:
         findings.append(Finding("pass", "diagram_mechanism_fit", "Diagram mechanisms fit their stated learning jobs."))
+
+    if diagram_explanation_gaps:
+        findings.append(Finding("fail", "diagram_explanation_alignment", f"Diagram titles/captions share no specific learner-facing terms with their visible labels: {diagram_explanation_gaps}."))
+    else:
+        findings.append(Finding("pass", "diagram_explanation_alignment", "Diagram titles/captions are anchored to their visible labels."))
+
+    if comparison_matrix_structure_gaps:
+        findings.append(Finding("fail", "comparison_matrix_structure", f"Comparison matrices do not separate variables and compared entities: {comparison_matrix_structure_gaps}."))
+    else:
+        findings.append(Finding("pass", "comparison_matrix_structure", "Comparison matrices use one variable column and one dedicated column per compared entity."))
 
     if diagram_capacity_violations:
         findings.append(Finding("fail", "diagram_visible_capacity", f"Diagram content would be omitted or clipped by the renderer: {diagram_capacity_violations}."))

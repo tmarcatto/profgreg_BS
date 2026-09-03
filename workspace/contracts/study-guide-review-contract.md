@@ -144,6 +144,14 @@ Check:
 - visuals match the language of the artifact;
 - any non-English text inside images is translated or replaced;
 - captions teach, not merely label.
+- every visual records whether an image would materially improve learning and why;
+- image-led visuals explicitly choose reuse from reference material, online search, generation, or operator request;
+- online-search selections resolve to a verified attributable asset before production;
+- operator requests are used only after applicable alternatives are unsuitable or exhausted and render a red box containing the image description, pedagogical reason, and focused search phrase;
+- the selected mechanism matches the source logic: process flow for ordered steps, relationship map for roles, comparison matrix for shared attributes, cost stack for cumulative amounts, schedule bars for timing, and activity network for predecessor/successor logic;
+- ordered or numbered content is blocked when rendered as disconnected cards or boxes without visible direction;
+- comparisons across shared variables use one variable column and one dedicated column for each compared entity; both entities must never be packed into one narrative cell;
+- the caption, title, visible labels, and source prose describe the same relationship and preserve the same order.
 - failed arrows, missing symbols, bad spacing, blank areas, distorted images, unreadable text, inconsistent font scale, repeated information, and overlaps are blocking issues unless explicitly accepted as v0 limitations.
 
 Before DOCX/PDF production, create or update:

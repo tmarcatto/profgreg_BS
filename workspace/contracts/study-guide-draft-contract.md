@@ -88,11 +88,13 @@ Do not use callouts in structural sections such as table of contents, summary/ke
 Do not place two callouts back-to-back without explanatory body text between them. If two adjacent callouts serve the same teaching moment, combine them into one callout.
 Callouts should usually be short. One paragraph is typical; more than three paragraphs should be rare and justified by the lesson.
 
+Ordered procedures must use a real Markdown numbered list with one step per source line. Never place multiple numbered steps inside one paragraph.
+
 Recommended use:
 
 - `KEY TERM`: for vocabulary with real course value.
 - `APPLY IT`: for concrete actions learners can try.
-- `HANDS-ON EXAMPLE`: for worked calculations, workflows, or applied judgment.
+- `HANDS-ON EXAMPLE`: for a short learner task using supplied inputs, followed by a brief answer/check. Do not use it as a container for ordinary explanatory prose.
 - `SCENARIO`: for one meaningful applied situation, not every lesson by default.
 - `CALLBACK`: for real prior-lesson continuity from the Course Map.
 - `BRIDGE`: for one clear transition to the next lesson or future course concept.
@@ -107,15 +109,15 @@ Every important factual claim must still be traceable in the source ledger, even
 
 ## Visual Rules
 
-Visual preference order:
+For every planned visual, first decide whether an image is required, helpful, or not needed and state the pedagogical reason. Then compare a deterministic diagram, trusted real/source image, and generated conceptual image. If an image wins, choose one acquisition route: reuse allowed reference material, search online for a verified attributable asset, generate a conceptual image, or ask the operator after the applicable alternatives are unsuitable or exhausted.
 
-1. Deterministic diagram, chart, process flow, map, or structured visual.
-2. Trusted technical/source-based image with attribution.
-3. Generated conceptual image only as fallback.
+An operator request must render in the operator-facing draft as a red box in the intended figure position. The box must contain the image description, pedagogical reason, and focused search phrase. It remains blocked from final student release until the image is supplied and the course book is rerendered.
 
 Visuals must be visible, coherent, and aligned with the artifact language. In translated versions, if the image cannot be regenerated in the target language, captions/subtitles and surrounding explanatory text must be translated.
 
 Every visual must have a clear internal teaching purpose. Do not print "learning line" language in student-facing captions. If a visual does not teach something distinct, remove it.
+
+Diagram selection must follow content logic. Numbered steps, priority order, sequence, workflow, or first/next/then/finally language requires a process flow with visible direction. Unconnected cards are allowed only for unordered groups. A comparison across shared variables requires a matrix with one variable column plus one dedicated column for each compared entity; never pack both entities into one narrative cell. Visual QA must compare the source content, selected mechanism, visible labels, order, matrix structure, and caption before approval.
 
 When the core message depends on reading a real document, symbol, schedule, plan, or technical drawing, prioritize real-source examples or deterministic diagrams based on verified conventions. Do not use generated imagery to fake a real technical example.
 

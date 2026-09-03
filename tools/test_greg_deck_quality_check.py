@@ -2,9 +2,11 @@
 from __future__ import annotations
 
 import importlib.util
+import struct
 import sys
 import tempfile
 import unittest
+import zlib
 from pathlib import Path
 
 
@@ -162,6 +164,47 @@ class DeckQualityCheckTests(unittest.TestCase):
             rendered = Path(tmp) / "rendered_slides_lesson_04_r02"
             rendered.mkdir()
             self.assertEqual(rendered, deck_qa.rendered_slide_dir_for(deck))
+
+    def test_audience_content_rows_excludes_chrome_and_bullet_marks(self) -> None:
+        rows = [
+            {"kind": "textbox", "slide": 2, "name": "eyebrow", "text": "LESSON 15"},
+            {"kind": "textbox", "slide": 2, "name": "bullet-dot-1", "text": "-"},
+            {"kind": "textbox", "slide": 2, "name": "slide-title", "text": "Review the completed job"},
+        ]
+        self.assertEqual([rows[2]], deck_qa.audience_content_rows(rows, 2))
+
+    def test_blank_body_slide_fails_even_when_footer_exists(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            deck = Path(tmp) / "lesson_15_deck_r02.pptx"
+            qa = Path(tmp) / "lesson_15_deck_qa_r02.md"
+            deck.write_bytes(b"placeholder")
+            qa.write_text("MECE\nlast-item\nhighlight\nvisually rechecked\nlesson_15_deck_r02.pptx\n", encoding="utf-8")
+            rows = []
+            for number in range(1, 11):
+                rows.extend([
+                    {"kind": "slide", "slide": number},
+                    {"kind": "textbox", "slide": number, "name": "footer-course", "text": "Course", "bbox": [82, 670, 520, 28], "resolvedFontSize": 13},
+                    {"kind": "textbox", "slide": number, "name": "footer-number", "text": f"{number:02d}", "bbox": [1180, 670, 45, 28], "resolvedFontSize": 13},
+                ])
+            deck_qa.inspect_path_for(deck).write_text("\n".join(__import__("json").dumps(row) for row in rows) + "\n", encoding="utf-8")
+            result = deck_qa.run_checks(deck, qa)
+            self.assertFalse(result["passed"])
+            self.assertTrue(any(item["check"] == "blank_or_thin_slides" and item["status"] == "fail" for item in result["findings"]))
+
+    def test_png_coverage_detects_a_white_render(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "white.png"
+            width, height = 4, 3
+            raw = b"".join(b"\x00" + b"\xff\xff\xff\xff" * width for _ in range(height))
+            def chunk(kind: bytes, payload: bytes) -> bytes:
+                return struct.pack(">I", len(payload)) + kind + payload + struct.pack(">I", zlib.crc32(kind + payload) & 0xFFFFFFFF)
+            path.write_bytes(
+                b"\x89PNG\r\n\x1a\n"
+                + chunk(b"IHDR", struct.pack(">IIBBBBB", width, height, 8, 6, 0, 0, 0))
+                + chunk(b"IDAT", zlib.compress(raw))
+                + chunk(b"IEND", b"")
+            )
+            self.assertEqual(0.0, deck_qa.png_nonwhite_fraction(path))
 
     def test_missing_fit_metadata_fails_a_rendered_deck(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:

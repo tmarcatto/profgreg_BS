@@ -44,6 +44,53 @@ class RenderStudyGuideFromSpecTests(unittest.TestCase):
         blocks = pdf_renderer.parse_markdown("> **ESCENARIO:** Situación.", locale="es")
         self.assertEqual({"type": "callout", "label": "ESCENARIO", "body": "Situación."}, blocks[0])
 
+    def test_callout_preserves_paragraphs_and_bullets(self) -> None:
+        if pdf_renderer is None:
+            self.skipTest("ReportLab is not installed in this Python environment.")
+        blocks = pdf_renderer.parse_markdown(
+            "> **HANDS-ON EXAMPLE**\n"
+            "> Apply the rule.\n"
+            ">\n"
+            "> - Record A: Complete.\n"
+            "> - Record B: Missing owner.\n"
+            ">\n"
+            "> **Check:** Publish A and return B.\n"
+        )
+        self.assertIn("\n\n- Record A", blocks[0]["body"])
+        structured = pdf_renderer.structured_callout_blocks(blocks[0]["body"])
+        self.assertEqual(["paragraph", "bullets", "paragraph"], [item["type"] for item in structured])
+        self.assertEqual(2, len(structured[1]["items"]))
+
+    def test_explicit_record_bullets_are_not_reparsed_as_a_legacy_wall(self) -> None:
+        if pdf_renderer is None:
+            self.skipTest("ReportLab is not installed in this Python environment.")
+        body = "Apply the rule.\n\n- Record A: Ready.\n- Record B: Return.\n- Record C: Return.\n- Record D: Return.\n\nCheck the result."
+        structured = pdf_renderer.structured_callout_blocks(body)
+        self.assertEqual(["paragraph", "bullets", "paragraph"], [item["type"] for item in structured])
+        self.assertEqual("**Record A:** Ready.", structured[1]["items"][0])
+
+    def test_legacy_record_wall_is_repaired_into_bullets(self) -> None:
+        if pdf_renderer is None:
+            self.skipTest("ReportLab is not installed in this Python environment.")
+        body = (
+            "Apply this rule. Record A: Ready. Record B: Wrong revision. "
+            "Record C: Missing location. Record D: Dark photo. "
+            "Classify each record. Check: Publish A and return B, C, and D."
+        )
+        structured = pdf_renderer.structured_callout_blocks(body)
+        self.assertEqual(["paragraph", "bullets", "paragraph", "paragraph"], [item["type"] for item in structured])
+        self.assertEqual(4, len(structured[1]["items"]))
+        self.assertTrue(structured[1]["items"][0].startswith("**Record A:**"))
+
+    def test_long_unstructured_callout_gets_short_paragraphs(self) -> None:
+        if pdf_renderer is None:
+            self.skipTest("ReportLab is not installed in this Python environment.")
+        sentence = "This sentence explains one complete field decision with enough detail for the learner to act safely."
+        structured = pdf_renderer.structured_callout_blocks(" ".join([sentence] * 8))
+        self.assertGreaterEqual(len(structured), 2)
+        self.assertTrue(all(item["type"] == "paragraph" for item in structured))
+        self.assertTrue(all(len(item["text"]) <= 300 for item in structured))
+
     def test_markdown_table_becomes_a_table_block_not_a_paragraph(self) -> None:
         if pdf_renderer is None:
             self.skipTest("ReportLab is not installed in this Python environment.")

@@ -21,13 +21,13 @@ Steps:
   Warnings: 3
   
   Metrics:
-  - tool_files: 72
-  - non_test_tool_files: 38
-  - active_files_scanned: 76
+  - tool_files: 84
+  - non_test_tool_files: 42
+  - active_files_scanned: 88
   
   Findings:
-  - WARN tool_file_count: Tool file count is high: 72; consider grouping commands by domain.
-  - WARN non_test_tool_file_count: Active non-test tool count is high: 38; consolidation would help.
+  - WARN tool_file_count: Tool file count is high: 84; consider grouping commands by domain.
+  - WARN non_test_tool_file_count: Active non-test tool count is high: 42; consolidation would help.
   ...
 - PASS environment QA
   Prof Greg environment QA passed: yes
@@ -41,7 +41,7 @@ Steps:
   - DEEPSEEK_API_KEY: set length=35 (optional)
   - SEMANTIC_SCHOLAR_API_KEY: missing length=0 (optional)
   - OPENALEX_API_KEY: missing length=0 (optional)
-  - OPENAI_BASE_URL: missing length=0 (optional)
+  - AISTUDIOS_APP_ID: set length=29 (optional)
   ...
 - PASS model routing QA
   Model routing QA passed: yes
@@ -97,7 +97,7 @@ Steps:
   Warnings: 0
   
   Findings:
-  - PASS scripts_found: Scanned 74 renderer/tool scripts.
+  - PASS scripts_found: Scanned 86 renderer/tool scripts.
   - PASS reusable_targets_present: Core reusable operator/QA targets exist.
   - PASS absolute_paths: No hardcoded local absolute paths found.
   - PASS course_tied_scripts: No course-tied scripts found outside Greg tools.
@@ -105,8 +105,8 @@ Steps:
   - PASS one_off_builders: No obvious one-off build scripts found.
   - PASS hardcoded_outputs: No hardcoded output constants found.
 - PASS unit tests
-  ...................................................................................ss...ss.......................................................................
+  ...............................................................................................................................................................................................................sssssssssssssss..sss.s.ss..s.sssssss.........................................................................................................................
   ----------------------------------------------------------------------
-  Ran 161 tests in 0.867s
+  Ran 364 tests in 0.635s
   
-  OK (skipped=4)
+  OK (skipped=29)

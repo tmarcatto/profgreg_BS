@@ -23,12 +23,30 @@ const ROOT = process.cwd();
 
 function localizedLabels() {
   if (currentSpec?.locale === "pt_br") {
-    return { lesson: "LIÇÃO", topics: "Principais tópicos abordados", takeaway: "CONCLUSÃO DA LIÇÃO" };
+    return {
+      lesson: "LIÇÃO",
+      topics: "Principais tópicos abordados",
+      takeaway: "CONCLUSÃO DA LIÇÃO",
+      baselineSchedule: "CRONOGRAMA-BASE",
+      lookaheadPlan: "PLANO DE CURTO PRAZO",
+    };
   }
   if (currentSpec?.locale === "es") {
-    return { lesson: "LECCIÓN", topics: "Temas principales", takeaway: "CONCLUSIÓN DE LA LECCIÓN" };
+    return {
+      lesson: "LECCIÓN",
+      topics: "Temas principales",
+      takeaway: "CONCLUSIÓN DE LA LECCIÓN",
+      baselineSchedule: "CRONOGRAMA BASE",
+      lookaheadPlan: "PLAN DE CORTO PLAZO",
+    };
   }
-  return { lesson: "LESSON", topics: "Main topics covered", takeaway: "LESSON TAKEAWAY" };
+  return {
+    lesson: "LESSON",
+    topics: "Main topics covered",
+    takeaway: "LESSON TAKEAWAY",
+    baselineSchedule: "BASELINE SCHEDULE",
+    lookaheadPlan: "LOOKAHEAD PLAN",
+  };
 }
 
 function assertInsideRoot(resolvedPath, originalValue) {

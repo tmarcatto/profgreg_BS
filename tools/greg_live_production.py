@@ -1056,6 +1056,7 @@ Pedagogical requirements:
 - Format every ordered procedure as a real Markdown numbered list with exactly one step per source line. Never embed `1. ... 2. ... 3. ...` in one paragraph.
 - Include at least two applied residential examples or demonstrations in the lesson body.
 - Use exactly 2-4 callouts. Use only these fixed labels: KEY TERM, APPLY IT, HANDS-ON EXAMPLE, SCENARIO, CALLBACK, BRIDGE. Never invent a callout label. Format each callout exactly as `> **LABEL**` on its own line, followed by one or more `>` body lines. Never write `LABEL: body` as ordinary prose.
+- Keep callouts scannable. Separate the setup, learner task, and answer/check with blank quoted lines (`>`). When a callout contains three or more parallel records, cases, options, or examples, format each one as its own quoted Markdown bullet (`> - Record A: ...`), never as continuous prose. A long callout must use short paragraphs or bullets instead of a wall of text.
 - A HANDS-ON EXAMPLE must be something the learner does, not a box of explanatory course-book prose. Supply the figures or information, ask for one concrete calculation, classification, comparison, or decision, and include a brief answer/check after the task. Keep explanatory teaching in the normal body text.
 - Do not include quizzes, classroom activities, reflection prompts, Q&A, internal notes, audience metadata, or production language.
 - Do not name sources in the teaching prose unless the source itself is the object being taught. Keep student-facing references in the References section.
@@ -1459,6 +1460,7 @@ Revision contract:
 - Preserve every numbered section heading in the exact form `# Section NN - Name`. The spaced hyphen is a required template separator, not prose punctuation.
 - Do not add a Lesson Roadmap, H3 headings, invented callout labels, em dashes, en dashes, or spaced hyphens in prose.
 - Keep exactly 2-4 callouts and normalize every callout to the canonical form `> **LABEL**` followed by `>` body lines. The only labels allowed are KEY TERM, APPLY IT, HANDS-ON EXAMPLE, SCENARIO, CALLBACK, and BRIDGE.
+- Preserve readable internal callout structure. Separate setup, task, and answer/check with blank quoted lines. When three or more parallel records, cases, options, or examples appear, put each on its own quoted Markdown bullet line (`> - ...`). Never return a long callout as one continuous paragraph.
 - Remove every fenced ASCII diagram, Markdown table used as a figure, and visual source block. Final figures are created separately by the visual renderer.
 - When seven or more cost, category, quantity, or status items share the same attributes, use a concise Markdown table instead of repeating them as prose bullets. After a table, add only interpretation, a decision rule, or an exception; do not restate its rows in prose.
 - Keep the chapter MECE: each paragraph, table, and visual must have a distinct teaching job. Do not repeat a table's facts unless the surrounding prose adds a new inference, consequence, or learner decision.
@@ -1604,6 +1606,7 @@ The first line must be exactly: {heading}
 Do not add any other level-one or level-two heading.
 Do not add any level-three or deeper heading, References block, source list, or bibliography inside the section.
 Keep the student-facing tone, apply only the relevant revision requests, and preserve facts that do not require correction.
+Preserve intentional paragraph breaks and Markdown lists. For a long callout, separate setup, task, and answer/check with blank quoted lines; format three or more parallel records, cases, options, or examples as one quoted Markdown bullet per source line.
 The complete chapter must remain below {maximum_words:,} words.
 The complete replacement section must not exceed {target_words:,} words. Finish every sentence and reserve output space for the ending.
 
@@ -3410,38 +3413,89 @@ DECK_LAYOUT_MECHANISMS = {
 }
 
 
-def request_normalized_initial_deck(
-    course_slug: str,
-    lesson: dict[str, Any],
-    prompt: str,
-) -> list[dict[str, Any]]:
-    """Recover a malformed first deck response instead of failing the worker job.
+def _deck_text(value: Any) -> str:
+    """Return normalized audience-facing deck copy."""
+    return re.sub(r"\s+", " ", str(value or "")).strip()
 
-    The deck model occasionally chooses a supported mechanism but omits its
-    renderer-specific collection (for example ``items`` or ``network_paths``).
-    Revision requests already know how to correct those shapes, so route the
-    first validation failure through the same bounded recovery path.
-    """
-    plan = request_json_with_retry(
-        course_slug,
-        "technical_content",
-        prompt,
-        max_tokens=12000,
-    )
-    try:
-        return normalize_deck_slides(plan, lesson)
-    except RuntimeError as error:
-        return request_normalized_deck_revision(
-            course_slug,
-            lesson,
-            plan.get("slides") if isinstance(plan.get("slides"), list) else [],
-            (
-                "Correct only the invalid presentation structure reported below. "
-                "Preserve every valid slide and all compliant student-visible content.\n\n"
-                f"Structure failure:\n{error}"
-            ),
+
+def _require_deck_text(value: Any, message: str, *, minimum_words: int = 1) -> str:
+    text = _deck_text(value)
+    if len(re.findall(r"[A-Za-z0-9]+(?:['-][A-Za-z0-9]+)?", text)) < minimum_words:
+        raise RuntimeError(message)
+    if text.lower() in {"none", "null", "n/a", "tbd", "placeholder"}:
+        raise RuntimeError(message)
+    return text
+
+
+def _require_deck_items(slide: dict[str, Any], *, minimum: int, maximum: int, layout: str) -> None:
+    items = slide.get("items")
+    if not isinstance(items, list) or not minimum <= len(items) <= maximum:
+        raise RuntimeError(f"A {layout} slide needs {minimum}-{maximum} complete teaching items.")
+    for item in items:
+        if not isinstance(item, dict):
+            raise RuntimeError(f"Every {layout} item needs a title and explanation.")
+        _require_deck_text(item.get("title"), f"Every {layout} item needs a visible title.")
+        _require_deck_text(item.get("body"), f"Every {layout} item needs a meaningful explanation.", minimum_words=3)
+
+
+def validate_deck_visible_content(slides: list[dict[str, Any]]) -> None:
+    """Reject structurally valid JSON that would render as blank or loose text."""
+    cover = slides[0]
+    _require_deck_text(cover.get("title"), "Presentation cover needs a visible title.", minimum_words=3)
+    _require_deck_text(cover.get("subtitle"), "Presentation cover needs a meaningful subtitle.", minimum_words=4)
+
+    for number, slide in enumerate(slides[1:-1], start=2):
+        layout = str(slide.get("layout") or "")
+        _require_deck_text(slide.get("title"), f"Slide {number} needs a visible teaching title.", minimum_words=3)
+        if layout in {"intro_image_bullets", "image_bullets"}:
+            _require_deck_text(slide.get("intro"), f"Slide {number} image layout needs explanatory copy.", minimum_words=5)
+            bullets = slide.get("bullets")
+            if not isinstance(bullets, list) or not 2 <= len(bullets) <= 4:
+                raise RuntimeError(f"Slide {number} image layout needs 2-4 teaching bullets.")
+            for bullet in bullets:
+                _require_deck_text(bullet, f"Slide {number} contains a blank teaching bullet.", minimum_words=3)
+        elif layout in {"card_sequence", "process_flow"}:
+            _require_deck_items(slide, minimum=2, maximum=6, layout=layout.replace("_", "-"))
+        elif layout in {"row_list", "checklist_rows"}:
+            _require_deck_items(slide, minimum=3, maximum=5, layout=layout.replace("_", "-"))
+        elif layout == "comparison":
+            if slide.get("left") is not None or slide.get("right") is not None:
+                for side in ("left", "right"):
+                    panel = slide.get(side)
+                    if not isinstance(panel, dict):
+                        raise RuntimeError(f"Slide {number} comparison needs both complete sides.")
+                    _require_deck_text(panel.get("title"), f"Slide {number} comparison {side} side needs a title.")
+                    _require_deck_text(panel.get("body"), f"Slide {number} comparison {side} side needs an explanation.", minimum_words=4)
+            else:
+                _require_deck_items(slide, minimum=3, maximum=5, layout="comparison")
+                if any("|" not in str(item.get("body") or "") for item in slide["items"]):
+                    raise RuntimeError(f"Slide {number} comparison rows must contain two clearly separated values using `|`.")
+        elif layout == "planned_actual":
+            for side in ("left", "right"):
+                lane = slide.get(side)
+                if not isinstance(lane, dict):
+                    raise RuntimeError(f"Slide {number} planned-versus-actual layout needs both lanes.")
+                _require_deck_text(lane.get("title"), f"Slide {number} {side} lane needs a title.")
+                _require_deck_text(lane.get("body"), f"Slide {number} {side} lane needs explanatory evidence.", minimum_words=5)
+        elif layout == "schedule_bar_chart":
+            for row in slide.get("schedule_rows") or []:
+                _require_deck_text(row.get("activity"), f"Slide {number} schedule contains a blank activity.")
+        elif layout == "activity_network":
+            for network_path in slide.get("network_paths") or []:
+                _require_deck_text(network_path.get("label"), f"Slide {number} network path needs a visible label.")
+                for activity in network_path.get("activities") or []:
+                    _require_deck_text(activity.get("title"), f"Slide {number} network contains a blank activity.")
+                    _require_deck_text(activity.get("duration"), f"Slide {number} network activity needs a visible duration.")
+        _require_deck_text(
+            slide.get("bottom_line") or slide.get("takeaway"),
+            f"Slide {number} needs a clear learner takeaway tied to its visual.",
+            minimum_words=5,
         )
 
+    takeaway = slides[-1]
+    _require_deck_text(takeaway.get("title"), "Final slide needs a visible takeaway title.", minimum_words=3)
+    _require_deck_text(takeaway.get("body"), "Final slide needs a meaningful synthesis.", minimum_words=12)
+    _require_deck_text(takeaway.get("final_line"), "Final slide needs a clear closing action or decision rule.", minimum_words=5)
 
 def deck_prompt(seed, lesson: dict[str, Any], book: str, visual_plan: dict[str, Any], feedback: str) -> str:
     return f"""Return JSON only for a 10-slide English presentation that teaches Lesson {lesson['lesson_number']}: {lesson['title']} from {seed.title}.
@@ -3461,6 +3515,8 @@ Consciously adapt the resolved visual strategy to presentation scale. For every 
 For every image layout, supply `image_alt` and `image_source_strategy` as `trusted-source` or `generated-conceptual`. A generated image also requires `image_prompt`. A trusted-source image requires `source_id` or a reusable `course_book_visual_id`; never provide an image prompt as a substitute. If `real_example_importance` is `required` or `generation_suitability` is `unsafe`, generation is forbidden. If the required verified asset is unavailable, preserve the request rather than silently substituting a generic scene. Generated conceptual images must depict a realistic U.S. residential construction setting when people or a jobsite appear, represent the workforce respectfully, and contain no visible text, labels, logos, watermarks, or UI.
 
 Across slides 2-9, use at least four distinct layouts, do not place the same layout on adjacent slides, and do not use one body layout more than twice. This is only an anti-repetition floor. Visual variety must come from different learning jobs; never choose a weaker medium or mechanism merely to increase variety. Never highlight a last item merely because it is last.
+
+Every visible layout payload is mandatory. Never return an empty `items`, `bullets`, `left`, `right`, `schedule_rows`, or `network_paths` structure. Every body slide needs a meaningful title, a complete visual payload, and a `bottom_line` that explains the learner decision. The final takeaway needs a substantive `body` and `final_line`. A slide with only a title, subtitle, footer, or isolated text is invalid.
 
 Required JSON schema:
 {{"slides":[{{"layout":"cover","title":"...","subtitle":"...","topics":["...","...","...","..."]}},{{"layout":"card_sequence|process_flow|comparison|planned_actual|row_list|checklist_rows","title":"...","subtitle":"...","learning_job":"specific learner change","teaching_strategy":"activate-prior-knowledge|anchor-with-scenario|worked-example|compare-and-contrast|trace-a-process|inspect-evidence|diagnose-and-decide|synthesize-and-recall","visual_medium":"native-diagram","visual_candidates":[{{"medium":"native-diagram","decision":"selected|rejected","reason":"specific fit"}},{{"medium":"trusted-source-image","decision":"selected|rejected","reason":"specific fit"}},{{"medium":"generated-conceptual-image","decision":"selected|rejected","reason":"specific fit"}}],"text_role":"what the words add to the visual","course_map_visual_id":"L01V01 or empty only when not mapped","pedagogical_strategy":"explain-with-diagram","real_example_importance":"required|preferred|not-needed","generation_suitability":"safe|unsafe","source_strategy":"deterministic","evidence_considered":[{{"locator":"filename/page or URL","relevance":"..."}}],"alternatives_considered":["trusted real image because...","generated conceptual image because..."],"selection_reason":"presentation-specific reason","items":[{{"title":"...","body":"..."}}],"bottom_line":"..."}},{{"layout":"schedule_bar_chart","title":"...","subtitle":"...","schedule_rows":[{{"activity":"...","start":0,"duration":3,"status":"planned|complete|in-progress|delayed"}}],"bottom_line":"...","learning_job":"...","teaching_strategy":"trace-a-process","visual_medium":"native-diagram","visual_candidates":[{{"medium":"native-diagram","decision":"selected","reason":"Time-scaled bars reveal timing and overlap directly."}},{{"medium":"trusted-source-image","decision":"rejected","reason":"A source screenshot would add irrelevant project detail."}},{{"medium":"generated-conceptual-image","decision":"rejected","reason":"A scene cannot show time-scaled schedule logic."}}],"text_role":"...","pedagogical_strategy":"explain-with-diagram","real_example_importance":"not-needed","generation_suitability":"safe","source_strategy":"deterministic","evidence_considered":[{{"locator":"...","relevance":"..."}}],"alternatives_considered":["...","..."],"selection_reason":"..."}},{{"layout":"activity_network","title":"...","subtitle":"...","network_paths":[{{"label":"...","critical":true,"activities":[{{"title":"...","duration":"3d"}}]}}],"bottom_line":"...","learning_job":"...","teaching_strategy":"trace-a-process","visual_medium":"native-diagram","visual_candidates":[{{"medium":"native-diagram","decision":"selected","reason":"Connected nodes expose predecessor and path logic directly."}},{{"medium":"trusted-source-image","decision":"rejected","reason":"A source screenshot would obscure the target relationship."}},{{"medium":"generated-conceptual-image","decision":"rejected","reason":"A scene cannot show controlling path logic."}}],"text_role":"...","pedagogical_strategy":"explain-with-diagram","real_example_importance":"not-needed","generation_suitability":"safe","source_strategy":"deterministic","evidence_considered":[{{"locator":"...","relevance":"..."}}],"alternatives_considered":["...","..."],"selection_reason":"..."}},{{"layout":"intro_image_bullets|image_bullets","title":"...","subtitle":"...","intro":"...","bullets":["...","...","..."],"learning_job":"...","teaching_strategy":"...","visual_medium":"trusted-source-image|generated-conceptual-image","visual_candidates":[{{"medium":"native-diagram","decision":"selected|rejected","reason":"..."}},{{"medium":"trusted-source-image","decision":"selected|rejected","reason":"..."}},{{"medium":"generated-conceptual-image","decision":"selected|rejected","reason":"..."}}],"text_role":"...","course_map_visual_id":"...","course_book_visual_id":"...","pedagogical_strategy":"inspect-real-example|orient-with-conceptual-image","real_example_importance":"preferred|not-needed|required","generation_suitability":"safe|unsafe","source_strategy":"trusted-source|generated-fallback","evidence_considered":[{{"locator":"...","relevance":"..."}}],"alternatives_considered":["..."],"selection_reason":"...","image_source_strategy":"trusted-source|generated-conceptual","source_id":"required for an operator source when applicable","image_side":"left|right","image_alt":"...","image_prompt":"only for generated-conceptual"}},{{"layout":"takeaway","title":"...","body":"...","final_line":"..."}}]}}
@@ -3695,6 +3751,8 @@ def normalize_deck_slides(data: dict[str, Any], lesson: dict[str, Any]) -> list[
         slide["image_prompt"] = str(slide.get("image_prompt") or "").strip()[:1800]
         slide["image_alt"] = str(slide["image_alt"]).strip()[:300]
         slide["image_name"] = f"teaching-image-{index}"
+    if lesson.get("learning_goal"):
+        validate_deck_visible_content(slides)
     return slides
 
 
@@ -3739,6 +3797,28 @@ def request_normalized_deck_revision(
             if attempt == 3:
                 raise RuntimeError(f"Presentation revision remained invalid after three attempts: {last_error}") from error
     raise RuntimeError("Presentation revision could not be normalized.")
+
+
+def request_normalized_initial_deck(
+    course_slug: str,
+    lesson: dict[str, Any],
+    prompt: str,
+) -> list[dict[str, Any]]:
+    """Recover an incomplete first deck through the bounded revision path."""
+    candidate = request_json_with_retry(course_slug, "technical_content", prompt, max_tokens=12000)
+    try:
+        return normalize_deck_slides(candidate, lesson)
+    except RuntimeError as error:
+        return request_normalized_deck_revision(
+            course_slug,
+            lesson,
+            candidate.get("slides") if isinstance(candidate.get("slides"), list) else [],
+            (
+                "Correct only the invalid presentation structure reported below. "
+                "Preserve every valid slide and all compliant student-visible content.\n\n"
+                f"Structure failure:\n{error}"
+            ),
+        )
 
 
 def deck_visual_plan_from_slides(slides: list[dict[str, Any]], lesson: dict[str, Any]) -> dict[str, Any]:

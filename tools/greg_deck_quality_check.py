@@ -5,6 +5,8 @@ import argparse
 import json
 import math
 import re
+import struct
+import zlib
 from collections import Counter, defaultdict
 from dataclasses import asdict, dataclass
 from pathlib import Path
@@ -209,6 +211,80 @@ def empty_or_placeholder_diagram_slides(rows: list[dict], slide_count: int) -> l
         if missing_bodies or planned_actual_empty or repeated_placeholders:
             failures.append(slide)
     return failures
+
+
+def audience_content_rows(rows: list[dict], slide: int) -> list[dict]:
+    ignored_names = {
+        "eyebrow", "footer-course", "footer-number", "brand", "brand-icon",
+        "brand-negative", "course", "lesson", "topics", "lesson-label",
+    }
+    return [
+        row
+        for row in rows
+        if int(row.get("slide", 0) or 0) == slide
+        and row.get("kind") == "textbox"
+        and row.get("name") not in ignored_names
+        and not str(row.get("name") or "").startswith("bullet-dot")
+    ]
+
+
+def meaningful_word_count(text: str) -> int:
+    return len(re.findall(r"[A-Za-z0-9]+(?:['-][A-Za-z0-9]+)?", text))
+
+
+def png_nonwhite_fraction(path: Path) -> float | None:
+    """Measure visible ink in ordinary non-interlaced RGB/RGBA slide PNGs."""
+    data = path.read_bytes()
+    if not data.startswith(b"\x89PNG\r\n\x1a\n"):
+        return None
+    cursor = 8
+    width = height = color_type = bit_depth = interlace = None
+    compressed = bytearray()
+    while cursor + 12 <= len(data):
+        length = struct.unpack(">I", data[cursor : cursor + 4])[0]
+        kind = data[cursor + 4 : cursor + 8]
+        payload = data[cursor + 8 : cursor + 8 + length]
+        cursor += 12 + length
+        if kind == b"IHDR" and len(payload) == 13:
+            width, height, bit_depth, color_type, _compression, _filter, interlace = struct.unpack(">IIBBBBB", payload)
+        elif kind == b"IDAT":
+            compressed.extend(payload)
+        elif kind == b"IEND":
+            break
+    channels = {2: 3, 6: 4}.get(color_type)
+    if not width or not height or bit_depth != 8 or interlace != 0 or not channels:
+        return None
+    raw = zlib.decompress(bytes(compressed))
+    stride = width * channels
+    previous = bytearray(stride)
+    offset = 0
+    nonwhite = 0
+    for _row in range(height):
+        filter_type = raw[offset]
+        offset += 1
+        scan = bytearray(raw[offset : offset + stride])
+        offset += stride
+        for index in range(stride):
+            left = scan[index - channels] if index >= channels else 0
+            up = previous[index]
+            upper_left = previous[index - channels] if index >= channels else 0
+            if filter_type == 1:
+                scan[index] = (scan[index] + left) & 255
+            elif filter_type == 2:
+                scan[index] = (scan[index] + up) & 255
+            elif filter_type == 3:
+                scan[index] = (scan[index] + ((left + up) // 2)) & 255
+            elif filter_type == 4:
+                predictor = left + up - upper_left
+                distances = (abs(predictor - left), abs(predictor - up), abs(predictor - upper_left))
+                scan[index] = (scan[index] + (left if distances[0] <= distances[1] and distances[0] <= distances[2] else up if distances[1] <= distances[2] else upper_left)) & 255
+            elif filter_type != 0:
+                return None
+        for index in range(0, stride, channels):
+            if min(scan[index], scan[index + 1], scan[index + 2]) < 245:
+                nonwhite += 1
+        previous = scan
+    return nonwhite / (width * height)
 
 
 def bbox(row: dict) -> tuple[float, float, float, float] | None:
@@ -419,6 +495,45 @@ def run_checks(deck_path: Path, qa_path: Path | None = None) -> dict:
     else:
         findings.append(Finding("pass", "diagram_content", "Every rendered diagram region contains distinct explanatory content."))
 
+    blank_or_thin_slides = []
+    empty_content_boxes = []
+    loose_text_slides = []
+    for slide in range(1, slide_count + 1):
+        content_rows = audience_content_rows(rows, slide)
+        content_text = " ".join(str(row.get("text") or "").strip() for row in content_rows)
+        minimum_words = 12 if slide in {1, slide_count} else 20
+        if meaningful_word_count(content_text) < minimum_words:
+            blank_or_thin_slides.append((slide, meaningful_word_count(content_text)))
+        empty_content_boxes.extend(
+            (slide, row.get("name"))
+            for row in content_rows
+            if not str(row.get("text") or "").strip()
+        )
+        if 1 < slide < slide_count:
+            structured = [
+                row
+                for row in rows
+                if int(row.get("slide", 0) or 0) == slide
+                and (
+                    (row.get("kind") == "image" and not is_brand_or_background(row))
+                    or (row.get("kind") == "shape" and not is_brand_or_background(row))
+                )
+            ]
+            if not structured:
+                loose_text_slides.append(slide)
+    if blank_or_thin_slides:
+        findings.append(Finding("fail", "blank_or_thin_slides", f"Slides lack meaningful audience-facing content: {blank_or_thin_slides}."))
+    else:
+        findings.append(Finding("pass", "blank_or_thin_slides", "Every slide contains a meaningful audience-facing teaching payload."))
+    if empty_content_boxes:
+        findings.append(Finding("fail", "empty_content_boxes", f"Empty audience-facing text boxes were rendered: {empty_content_boxes[:12]}."))
+    else:
+        findings.append(Finding("pass", "empty_content_boxes", "No empty audience-facing text boxes were rendered."))
+    if loose_text_slides:
+        findings.append(Finding("fail", "loose_text_without_visual_structure", f"Body slides contain text without a teaching visual or container: {loose_text_slides}."))
+    else:
+        findings.append(Finding("pass", "loose_text_without_visual_structure", "Every body slide has visible teaching structure beyond loose text."))
+
     similar_pairs = []
     duplicate_function_pairs = []
     for i in range(1, slide_count + 1):
@@ -476,6 +591,20 @@ def run_checks(deck_path: Path, qa_path: Path | None = None) -> dict:
 
     image_slides = sorted(generated_like_by_slide)
     visual_slides = sorted(slide for slide, count in structured_visual_by_slide.items() if count >= 2)
+    rendered_dir = rendered_slide_dir_for(deck_path)
+    rendered_pngs = sorted(rendered_dir.glob("slide-*.png")) if rendered_dir else []
+    suspicious_renders = [
+        path.name
+        for path in rendered_pngs
+        if path.stat().st_size < 20_000
+        or ((coverage := png_nonwhite_fraction(path)) is not None and coverage < 0.02)
+    ]
+    if not rendered_dir or len(rendered_pngs) != slide_count:
+        findings.append(Finding("fail", "rendered_slide_set", f"Expected {slide_count} rendered slide PNGs; found {len(rendered_pngs)}."))
+    elif suspicious_renders:
+        findings.append(Finding("fail", "rendered_slide_set", f"Rendered slides are suspiciously blank or incomplete: {suspicious_renders}."))
+    else:
+        findings.append(Finding("pass", "rendered_slide_set", "Every slide has a substantive rendered PNG for visual QA."))
     if image_slides:
         findings.append(Finding("pass", "teaching_image_present", f"Teaching image appears on slide(s): {image_slides}."))
     else:

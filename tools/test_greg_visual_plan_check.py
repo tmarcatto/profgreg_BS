@@ -40,7 +40,15 @@ class VisualPlanCheckTests(unittest.TestCase):
                                 "context_focus": "U.S. residential construction",
                                 "depicts_people": True,
                                 "workforce_representation": "Respectfully represents American-born and immigrant construction workers.",
+                                "teaching_strategy": "anchor-with-scenario",
                                 "pedagogical_strategy": "orient-with-conceptual-image",
+                                "visual_medium": "generated-conceptual-image",
+                                "visual_candidates": [
+                                    {"medium": "native-diagram", "decision": "rejected", "reason": "A diagram would not establish the field context."},
+                                    {"medium": "trusted-source-image", "decision": "rejected", "reason": "Authentic technical detail is not required here."},
+                                    {"medium": "generated-conceptual-image", "decision": "selected", "reason": "A conceptual scene safely anchors the scenario."},
+                                ],
+                                "text_role": "Text states the decision learners should notice.",
                                 "real_example_importance": "not-needed",
                                 "generation_suitability": "safe",
                                 "evidence_considered": [{"source_type": "course-map", "locator": "Lesson 1 visual strategy"}],
@@ -59,7 +67,15 @@ class VisualPlanCheckTests(unittest.TestCase):
                                 "context_focus": "U.S. residential construction",
                                 "internal_text": True,
                                 "internal_text_position": "inside",
+                                "teaching_strategy": "compare-and-contrast",
                                 "pedagogical_strategy": "explain-with-diagram",
+                                "visual_medium": "native-diagram",
+                                "visual_candidates": [
+                                    {"medium": "native-diagram", "decision": "selected", "reason": "A diagram aligns shared comparison dimensions directly."},
+                                    {"medium": "trusted-source-image", "decision": "rejected", "reason": "A real artifact would add irrelevant detail."},
+                                    {"medium": "generated-conceptual-image", "decision": "rejected", "reason": "A scene cannot expose abstract responsibility boundaries."},
+                                ],
+                                "text_role": "Text names the responsibility distinction inside each region.",
                                 "real_example_importance": "not-needed",
                                 "generation_suitability": "safe",
                                 "evidence_considered": [{"source_type": "course-map", "locator": "Lesson 1 visual strategy"}],
@@ -102,6 +118,84 @@ class VisualPlanCheckTests(unittest.TestCase):
             self.assertFalse(result["passed"])
             self.assertTrue(any(item["check"] == "diagram_mechanism_fit" and item["status"] == "fail" for item in result["findings"]))
 
+    def test_numbered_steps_fail_when_rendered_as_disconnected_cards(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "visual_plan.json"
+            path.write_text(json.dumps({"artifact_type":"study-guide","visuals":[{
+                "visual_id":"V1",
+                "visual_type":"deterministic-diagram",
+                "placement":"Section 03",
+                "purpose":"Shows the six-step order for acting on a variance.",
+                "learning_claim":"Corrective action follows six ordered steps before the forecast is published.",
+                "source_status":"not-required",
+                "context_focus":"U.S. residential construction",
+                "diagram_type":"card-sequence",
+                "diagram_rationale":"Six cards display all corrective action steps clearly.",
+                "diagram_title":"Six-Step Order for Acting on a Variance",
+                "diagram_nodes":[{"title":f"{number}. Step {number}","detail":"Action"} for number in range(1, 7)],
+            }]}), encoding="utf-8")
+            result = checker.run_checks(path)
+            self.assertFalse(result["passed"])
+            finding = next(item for item in result["findings"] if item["check"] == "diagram_mechanism_fit")
+            self.assertEqual("fail", finding["status"])
+            self.assertIn("content logic requires process-flow", finding["note"])
+
+    def test_content_logic_selects_mechanism_before_layout(self) -> None:
+        self.assertEqual("process-flow", checker.expected_diagram_mechanism("Six-step order for corrective action", 6))
+        self.assertEqual("comparison-matrix", checker.expected_diagram_mechanism("Compare cost control versus cash-flow control"))
+        self.assertEqual("relationship-map", checker.expected_diagram_mechanism("Stakeholder roles and relationships"))
+        self.assertEqual("cost-stack", checker.expected_diagram_mechanism("Additive cost layers build to a total"))
+        self.assertEqual("schedule-bar-chart", checker.expected_diagram_mechanism("Time-scaled schedule bar shows planned timing"))
+        self.assertEqual("activity-network", checker.expected_diagram_mechanism("Predecessor and successor network logic"))
+
+    def test_comparison_matrix_requires_one_column_per_entity(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "visual_plan.json"
+            path.write_text(json.dumps({"artifact_type":"study-guide","visuals":[{
+                "visual_id":"V1",
+                "visual_type":"deterministic-diagram",
+                "placement":"Section 04",
+                "purpose":"Compares cost control and cash-flow control across shared variables.",
+                "learning_claim":"Cost control and cash-flow control answer different questions and use different records.",
+                "source_status":"not-required",
+                "context_focus":"U.S. residential construction",
+                "diagram_type":"comparison-matrix",
+                "diagram_rationale":"A matrix supports direct row-by-row comparison across shared variables.",
+                "diagram_title":"Cost Control vs. Cash-Flow Control",
+                "diagram_columns":["Concept", "Field meaning"],
+                "diagram_rows":[
+                    {"cells":["Question it answers", "Cost: final cost? Cash: when money moves?"]},
+                    {"cells":["Records", "Cost: budget. Cash: billing dates."]},
+                ],
+            }]}), encoding="utf-8")
+            result = checker.run_checks(path)
+            finding = next(item for item in result["findings"] if item["check"] == "comparison_matrix_structure")
+            self.assertEqual("fail", finding["status"])
+
+    def test_true_comparison_matrix_has_variable_and_entity_columns(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "visual_plan.json"
+            path.write_text(json.dumps({"artifact_type":"study-guide","visuals":[{
+                "visual_id":"V1",
+                "visual_type":"deterministic-diagram",
+                "placement":"Section 04",
+                "purpose":"Compares cost control and cash-flow control across shared variables.",
+                "learning_claim":"Cost control and cash-flow control use different timing records and responses.",
+                "source_status":"not-required",
+                "context_focus":"U.S. residential construction",
+                "diagram_type":"comparison-matrix",
+                "diagram_rationale":"A matrix supports direct row-by-row comparison across shared variables.",
+                "diagram_title":"Cost Control vs. Cash-Flow Control",
+                "diagram_columns":["Variable", "Cost control", "Cash-flow control"],
+                "diagram_rows":[
+                    {"cells":["Question", "Will the job finish within budget?", "When will money arrive and leave?"]},
+                    {"cells":["Records", "Budget, commitments, actuals", "Billings, collections, due dates"]},
+                ],
+            }]}), encoding="utf-8")
+            result = checker.run_checks(path)
+            finding = next(item for item in result["findings"] if item["check"] == "comparison_matrix_structure")
+            self.assertEqual("pass", finding["status"])
+
     def test_generated_deck_caption_fails(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             path = Path(tmp) / "visual_plan.json"
@@ -129,6 +223,27 @@ class VisualPlanCheckTests(unittest.TestCase):
             )
             result = checker.run_checks(path)
             self.assertFalse(result["passed"])
+
+    def test_deck_plan_fails_when_it_does_not_compare_all_three_media(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "visual_plan.json"
+            path.write_text(json.dumps({
+                "artifact_type": "deck",
+                "visuals": [{
+                    "visual_id": "V01", "visual_type": "deterministic-diagram", "slide": 2,
+                    "purpose": "Shows a planned versus actual decision gap.",
+                    "learning_claim": "A schedule gap requires an explicit field decision.",
+                    "source_status": "not-required", "context_focus": "U.S. residential construction",
+                    "diagram_type": "planned-actual", "diagram_rationale": "The paired view exposes the consequential variance directly.",
+                    "pedagogical_strategy": "explain-with-diagram", "real_example_importance": "not-needed",
+                    "generation_suitability": "safe", "evidence_considered": [{"locator": "Course Map"}],
+                    "alternatives_considered": ["real image", "generated image"],
+                    "selection_reason": "The variance relationship is the concept learners must understand.",
+                }],
+            }), encoding="utf-8")
+            result = checker.run_checks(path)
+            finding = next(item for item in result["findings"] if item["check"] == "deck_visual_decision_protocol")
+            self.assertEqual("fail", finding["status"])
 
     def test_diagram_visible_capacity_fails_before_renderer_truncation(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
@@ -184,6 +299,14 @@ class VisualPlanCheckTests(unittest.TestCase):
                                     "evidence_considered": [{"source_type": "course-map", "locator": "Lesson visual strategy"}],
                                     "alternatives_considered": ["A photograph would hide the decision relationship."],
                                     "selection_reason": "The structured visual makes the decision relationship explicit.",
+                                    "teaching_strategy": "diagnose-and-decide",
+                                    "visual_medium": "native-diagram",
+                                    "visual_candidates": [
+                                        {"medium": "native-diagram", "decision": "selected", "reason": "The diagram exposes the decision relationship directly."},
+                                        {"medium": "trusted-source-image", "decision": "rejected", "reason": "A source image would obscure the abstract relationship."},
+                                        {"medium": "generated-conceptual-image", "decision": "rejected", "reason": "A generated scene cannot show the decision structure."},
+                                    ],
+                                    "text_role": "The labels name the evidence and required response.",
                                 }
                             ],
                         }

@@ -1383,7 +1383,7 @@ def ui_shell(default_course: str) -> str:
         <div class="operator-tool">
           <div><label for="operatorLesson">Lesson</label><select id="operatorLesson"></select></div>
           <div><label for="operatorTarget">File or image request</label><select id="operatorTarget"></select></div>
-          <div><label for="operatorAction">Action</label><select id="operatorAction"><option value="approve">Approve</option><option value="request_edits">Request edits</option><option value="retry_revision">Retry requested revision</option><option value="attach_images">Attach requested images</option></select></div>
+          <div><label for="operatorAction">Action</label><select id="operatorAction"><option value="approve">Approve</option><option value="request_edits">Request edits</option></select></div>
           <div class="operator-tool-details" id="operatorToolDetails"></div>
           <div class="operator-result" id="operatorResult" role="status" aria-live="polite"></div>
           <div class="operator-tool-actions"><button class="primary" id="applyOperatorAction">Apply action</button></div>
@@ -1697,8 +1697,15 @@ def ui_shell(default_course: str) -> str:
       const details = document.getElementById('operatorToolDetails');
       if (!target) {{ action.disabled = true; details.innerHTML = '<div class="notice">Generated files will appear in the lesson table and become available here only after automatic QA passes.</div>'; return; }}
       action.disabled = false;
-      if (resetAction) action.value = target.kind === 'image' ? 'attach_images' : target.kind === 'revision' ? 'retry_revision' : (target.status === 'approved' ? 'request_edits' : 'approve');
-      [...action.options].forEach(option => option.disabled = target.kind === 'image' ? option.value !== 'attach_images' : target.kind === 'revision' ? option.value !== 'retry_revision' : ['attach_images', 'retry_revision'].includes(option.value));
+      const actionOptions = target.kind === 'image'
+        ? [['attach_images', 'Attach requested images']]
+        : target.kind === 'revision'
+          ? [['retry_revision', 'Retry requested revision']]
+          : [['approve', 'Approve'], ['request_edits', 'Request edits']];
+      const previousAction = action.value;
+      action.innerHTML = actionOptions.map(([value, label]) => `<option value="${{value}}">${{label}}</option>`).join('');
+      const defaultAction = target.kind === 'image' ? 'attach_images' : target.kind === 'revision' ? 'retry_revision' : (target.status === 'approved' ? 'request_edits' : 'approve');
+      action.value = !resetAction && actionOptions.some(([value]) => value === previousAction) ? previousAction : defaultAction;
       if (target.kind === 'image') {{
         const requestList = target.requests.map(request => `<li><strong>${{esc(request.visual_id)}}</strong> · ${{esc(request.learning_claim || request.purpose || '')}}</li>`).join('');
         details.innerHTML = `<div class="notice"><strong>Lesson ${{String(target.lesson).padStart(2, '0')}} technical image batch</strong><ul>${{requestList}}</ul></div><label>Image files</label><input id="operatorImageFiles" type="file" multiple accept=".png,.jpg,.jpeg,.webp"><label>Sources and URLs</label><textarea id="operatorImageSources" placeholder="filename.ext | source or attribution | https://source-url\nOne line per file, in the same order as the requests above."></textarea>`;

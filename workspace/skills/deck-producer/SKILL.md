@@ -79,12 +79,19 @@ Component rule:
 Visual plan rule:
 
 - before rendering, create `deck/lesson_[NN]_visual_plan.json`;
+- for every body slide, decide in this order: learning job, teaching strategy, whether an image would materially improve learning, visual medium, asset-acquisition strategy, layout, and the role of supporting text;
+- compare `native-diagram`, `trusted-source-image`, and `generated-conceptual-image` for every body slide; record a concrete fit or rejection reason for all three and select exactly one;
+- record `image_need` as `required`, `helpful`, or `not-needed` with a concrete pedagogical reason; unused space alone is never an image need;
+- when an image is selected, choose exactly one `asset_strategy`: `reuse-reference`, `search-online`, `generate`, or `operator-request`; use `native-diagram` when an image is not selected;
+- inspect reusable reference material first, search online only for a source-safe real asset, generate only when authenticity is not part of the claim, and ask the operator only after the other applicable routes are unsuitable or exhausted;
+- an operator request must carry an image description, pedagogical reason, and focused search phrase, and the rendered request draft must show those fields in a conspicuous red box where the image will go;
+- use direct process-flow, schedule-bar-chart, or activity-network layouts when the learning job depends on visible sequence, time scale, overlap, dependencies, parallel paths, or the controlling path;
 - every non-brand visual needs a purpose and distinct learning claim;
 - every non-brand visual needs `context_focus`, defaulting to `U.S. residential construction`;
 - people-centered visuals need `workforce_representation`, confirming respectful representation of the U.S. construction workforce, including American-born and immigrant workers when appropriate;
-- every deck includes at least one image-plus-teaching-bullets slide, with the image taking one half of the teaching area and related content on the other half;
+- use an image-plus-teaching-bullets slide only when a trusted real image or generated conceptual image is the strongest instructional medium; never add an image to satisfy a quota;
 - generated images are fallback, never consecutive, never captioned/subtitled on deck slides, and never larger than half the slide;
-- across slides 2-9, use at least six distinct layouts; never repeat the same layout on adjacent slides or use one body layout more than twice;
+- across slides 2-9, use at least four distinct layouts as an anti-repetition floor; never repeat the same layout on adjacent slides or use one body layout more than twice; never choose a weaker visual merely to increase variety;
 - real examples are required when the lesson teaches real documents, plans, schedules, symbols, or technical drawings unless the visual plan explicitly marks `visual_curation_required`;
 - highlighted visuals require a valid reason: exception, warning, decision point, risk threshold, contrast, or lesson emphasis.
 
@@ -95,3 +102,6 @@ QA tool:
 - fix failures before delivery;
 - warnings require either a correction or a note in the QA file explaining why the deck still passes;
 - if the QA tool flags slide similarity, either merge/rewrite the slides or document the MECE distinction between them.
+- never release a slide that contains only chrome, a title, or isolated text; every body slide must have a complete layout payload plus a learner-facing takeaway;
+- treat empty renderer fields, missing rendered slide PNGs, suspiciously tiny renders, and text without a non-brand visual/container as hard failures, not warnings.
+- never approve or release a presentation containing an unresolved red image-request box; it is an operator-facing draft only.
