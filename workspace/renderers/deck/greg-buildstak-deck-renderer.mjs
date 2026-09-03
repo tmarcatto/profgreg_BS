@@ -493,7 +493,7 @@ async function renderActivityNetwork(deck, slideSpec) {
   paths.forEach((networkPath, pathIndex) => {
     const activities = (networkPath.activities || []).slice(0, 4);
     const y = 254 + pathIndex * 170;
-    addText(slide, `network-path-${pathIndex + 1}-label`, networkPath.label || `Path ${pathIndex + 1}`, 70, y + 28, 142, 70, {
+    addText(slide, `network-path-${pathIndex + 1}-label`, networkPath.path_name || networkPath.label || `Path ${pathIndex + 1}`, 70, y + 28, 142, 70, {
       fontSize: 16, bold: true, color: networkPath.critical ? C.orange : C.navy,
     });
     const x0 = 224;
@@ -506,7 +506,7 @@ async function renderActivityNetwork(deck, slideSpec) {
     activities.forEach((activity, i) => {
       const x = x0 + i * (w + gap);
       addShape(slide, `network-${pathIndex + 1}-node-${i + 1}`, "roundRect", x, y, w, 116, networkPath.critical ? C.paleOrange : C.light, networkPath.critical ? C.orange : C.line, 1.4);
-      addText(slide, `network-${pathIndex + 1}-title-${i + 1}`, activity.title, x + 14, y + 18, w - 28, 44, { fontSize: 16, bold: true, color: C.navy, alignment: "center" });
+      addText(slide, `network-${pathIndex + 1}-title-${i + 1}`, activity.title, x + 14, y + 12, w - 28, 54, { fontSize: 14, bold: true, color: C.navy, alignment: "center" });
       addText(slide, `network-${pathIndex + 1}-duration-${i + 1}`, activity.duration || "", x + 18, y + 72, w - 36, 24, { fontSize: 15, color: C.gray, alignment: "center" });
     });
   });
