@@ -1740,7 +1740,7 @@ def ui_shell(default_course: str) -> str:
             ? 'The request was accepted and the corrected file is being produced. It will appear here when every automatic check passes.'
             : 'The request was accepted. No active production job is visible, so you can safely retry it.';
         const baselineLink = isDownloadablePath(target.path) ? `<div><a class="download-link" href="/artifact?path=${{encodeURIComponent(target.path)}}" target="_blank" rel="noopener">Open approved baseline</a></div>` : '';
-        details.innerHTML = `<div class="notice"><strong>${{target.failed ? 'Revision needs attention' : target.active ? 'Revision in progress' : 'Revision accepted'}}</strong><div>${{statusText}}</div>${{requestItems ? `<ol>${{requestItems}}</ol>` : ''}}</div><div><strong>Communication history</strong></div>${{history}}${{baselineLink}}`;
+        details.innerHTML = `<div class="notice"><strong>${{target.failed ? 'Revision failed' : target.active ? 'Revision in progress' : 'Revision pending'}}</strong><div>${{statusText}}</div>${{requestItems ? `<ol>${{requestItems}}</ol>` : ''}}</div><div><strong>Communication history</strong></div>${{history}}${{baselineLink}}`;
         action.disabled = target.active;
       }} else {{
         const group = target.group;

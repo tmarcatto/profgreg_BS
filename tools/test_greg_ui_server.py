@@ -453,7 +453,8 @@ class GregUiServerTests(unittest.TestCase):
     def test_ui_exposes_revision_acknowledgement_retry_and_corrected_states(self) -> None:
         html = ui.ui_shell("demo")
         self.assertIn("Retry requested revision", html)
-        self.assertIn("Revision accepted", html)
+        self.assertIn("Revision pending", html)
+        self.assertIn("Revision failed", html)
         self.assertIn("Requested corrections applied", html)
         self.assertIn("Communication history", html)
         self.assertIn("Worker problem", html)
@@ -538,32 +539,45 @@ class GregUiServerTests(unittest.TestCase):
         self.assertEqual(ui.expected_lesson_count("Advanced"), 15)
         self.assertEqual(ui.expected_lesson_count("Advanced", 18), 18)
 
-    def test_operator_visible_jobs_hides_superseded_failures(self) -> None:
+    def test_operator_visible_jobs_hides_only_failures_superseded_for_same_work(self) -> None:
         jobs = [
             {
                 "job_id": "job_old_failed",
                 "course_slug": "demo",
-                "request_type": "course_start",
+                "request_type": "production_stage",
+                "lesson": 14,
+                "payload": {"stage": "study_guide", "lessons": [14]},
                 "state": "failed",
                 "updated_at": "2026-08-16T10:00:00Z",
             },
             {
-                "job_id": "job_new_success",
+                "job_id": "job_other_lesson_success",
                 "course_slug": "demo",
-                "request_type": "course_start",
+                "request_type": "production_stage",
+                "lesson": 15,
+                "payload": {"stage": "pt_br_book", "lessons": [15]},
                 "state": "completed",
                 "updated_at": "2026-08-16T11:00:00Z",
             },
             {
-                "job_id": "job_current_failed",
+                "job_id": "job_retry_success",
                 "course_slug": "demo",
-                "request_type": "study_guide",
-                "state": "failed",
+                "request_type": "production_stage",
+                "lesson": 14,
+                "payload": {"stage": "study_guide", "lessons": [14]},
+                "state": "completed",
                 "updated_at": "2026-08-16T12:00:00Z",
             },
         ]
         visible = ui.operator_visible_jobs(jobs)
-        self.assertEqual([job["job_id"] for job in visible], ["job_new_success", "job_current_failed"])
+        self.assertEqual([job["job_id"] for job in visible], ["job_other_lesson_success", "job_retry_success"])
+
+    def test_operator_visible_jobs_keeps_lesson_failure_when_other_work_succeeds(self) -> None:
+        jobs = [
+            {"job_id": "lesson14", "course_slug": "demo", "request_type": "production_stage", "lesson": 14, "payload": {"stage": "study_guide", "lessons": [14]}, "state": "failed", "updated_at": "2026-08-16T10:00:00Z"},
+            {"job_id": "lesson15", "course_slug": "demo", "request_type": "production_stage", "lesson": 15, "payload": {"stage": "pt_br_book", "lessons": [15]}, "state": "completed", "updated_at": "2026-08-16T11:00:00Z"},
+        ]
+        self.assertEqual([job["job_id"] for job in ui.operator_visible_jobs(jobs)], ["lesson14", "lesson15"])
 
     def test_selected_lessons_remain_independently_queued(self) -> None:
         (ROOT / "tmp" / "jobs").mkdir(parents=True, exist_ok=True)
