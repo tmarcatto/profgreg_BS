@@ -97,6 +97,25 @@ class GregMarketingTests(unittest.TestCase):
         self.assertNotIn(self.marketing["landing_page_url"], page_text[4])
         self.assertTrue(any(link.get("/A", {}).get("/URI") == self.marketing["landing_page_url"] for link in page_five_links))
 
+    @unittest.skipUnless(importlib.util.find_spec("pypdf"), "pypdf is required for PDF integration checks")
+    def test_render_upgrades_legacy_marketing_with_lesson_details(self) -> None:
+        from pypdf import PdfReader
+
+        with tempfile.TemporaryDirectory() as tmp:
+            runs = Path(tmp) / "runs"
+            course = runs / "demo-course"
+            (course / "course_map").mkdir(parents=True)
+            (course / "course_map" / "course_map.json").write_text(json.dumps(self.course_map), encoding="utf-8")
+            (course / "marketing").mkdir()
+            legacy = {key: value for key, value in self.marketing.items() if key != "lesson_details"}
+            (course / "marketing" / "marketing.json").write_text(json.dumps(legacy), encoding="utf-8")
+            with patch.object(marketing, "RUNS", runs):
+                brochure = marketing.render_brochure("demo-course")
+                page_four = PdfReader(str(brochure)).pages[3].extract_text() or ""
+        self.assertIn("Lesson topic 1", page_four)
+        self.assertIn("Plan topic 1", page_four)
+        self.assertIn("Practice topic 1", page_four)
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -300,9 +300,12 @@ def render_brochure(course_slug: str, data: dict[str, Any] | None = None) -> Pat
     from reportlab.pdfgen import canvas
 
     slug = slugify(course_slug)
-    marketing = data or read_json(marketing_json_path(slug))
-    if not marketing:
+    raw_marketing = data or read_json(marketing_json_path(slug))
+    if not raw_marketing:
         raise ValueError("Generate or save marketing content before creating the brochure.")
+    # Always normalize at render time so brochures created from legacy saved
+    # marketing files receive lesson details derived from the approved Course Map.
+    marketing = normalize_marketing(raw_marketing, course_map_for(slug))
     target = brochure_path(slug)
     target.parent.mkdir(parents=True, exist_ok=True)
     c = canvas.Canvas(str(target), pagesize=letter)
