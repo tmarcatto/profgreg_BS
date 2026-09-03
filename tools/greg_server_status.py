@@ -8,6 +8,7 @@ import io
 import json
 import os
 import re
+import signal
 import subprocess
 import tarfile
 import time
@@ -69,8 +70,30 @@ def read_text(path: Path) -> str:
     return path.read_text(encoding="utf-8", errors="replace") if path.exists() else ""
 
 
-def run_command(command: list[str], cwd: Path, *, timeout_seconds: int | None = None) -> tuple[int, str]:
+def run_command(command: list[str], cwd: Path, *, timeout_seconds: int | None = None, cancel_requested: Any = None) -> tuple[int, str]:
     """Run a worker command without allowing one stalled child to block the queue forever."""
+    if cancel_requested is not None:
+        process = subprocess.Popen(command, cwd=cwd, text=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE, start_new_session=True)
+        started = time.monotonic()
+        while process.poll() is None:
+            cancelled = bool(cancel_requested())
+            timed_out = timeout_seconds is not None and time.monotonic() - started >= timeout_seconds
+            if cancelled or timed_out:
+                os.killpg(process.pid, signal.SIGTERM)
+                try:
+                    stdout, stderr = process.communicate(timeout=5)
+                except subprocess.TimeoutExpired:
+                    os.killpg(process.pid, signal.SIGKILL)
+                    stdout, stderr = process.communicate()
+                output = "\n".join(part for part in [(stdout or "").strip(), (stderr or "").strip()] if part)
+                if cancelled:
+                    return 130, "\n".join(part for part in ["Worker stopped by the operator; the lane queue was cleared.", output] if part)
+                limit = f" after {timeout_seconds // 60} minutes" if timeout_seconds else ""
+                return 124, "\n".join(part for part in [f"Worker safety timeout: production did not finish{limit}.", output] if part)
+            time.sleep(0.25)
+        stdout, stderr = process.communicate()
+        output = "\n".join(part for part in [(stdout or "").strip(), (stderr or "").strip()] if part)
+        return int(process.returncode or 0), output
     try:
         result = subprocess.run(command, cwd=cwd, text=True, capture_output=True, check=False, timeout=timeout_seconds)
     except subprocess.TimeoutExpired as error:
@@ -196,6 +219,46 @@ def safe_job_id(value: str) -> str:
     return value
 
 
+def worker_pause_path(job_root: Path, worker_lane: str) -> Path:
+    root = safe_job_root(job_root)
+    if worker_lane not in {"content", "delivery", "video"}:
+        raise ValueError(f"Unsupported stoppable worker lane: {worker_lane}")
+    return root / f".worker-{worker_lane}-paused.json"
+
+
+def worker_lane_paused(job_root: Path, worker_lane: str) -> bool:
+    return worker_pause_path(job_root, worker_lane).is_file()
+
+
+def worker_control_status(job_root: Path) -> dict[str, bool]:
+    return {lane: worker_lane_paused(job_root, lane) for lane in ("content", "delivery", "video")}
+
+
+def pause_worker_lane(job_root: Path, worker_lane: str, *, note: str = "operator stopped worker and cleared queue") -> dict[str, Any]:
+    root = safe_job_root(job_root)
+    pause_path = worker_pause_path(root, worker_lane)
+    root.mkdir(parents=True, exist_ok=True)
+    lock_path = root / ".worker-claim.lock"
+    lock_path.touch(exist_ok=True)
+    cancelled: list[str] = []
+    with lock_path.open("a+", encoding="utf-8") as lock:
+        fcntl.flock(lock.fileno(), fcntl.LOCK_EX)
+        try:
+            pause_path.write_text(json.dumps({"lane": worker_lane, "paused_at": iso_now(), "note": compact_error_note(note)}, indent=2) + "\n", encoding="utf-8")
+            for job in list_jobs(root):
+                if job_lane(job) == worker_lane and job.get("state") in {"queued", "running"}:
+                    transition_job(root, str(job["job_id"]), "cancelled", note=note)
+                    cancelled.append(str(job["job_id"]))
+        finally:
+            fcntl.flock(lock.fileno(), fcntl.LOCK_UN)
+    return {"lane": worker_lane, "paused": True, "cancelled_jobs": cancelled, "cancelled_count": len(cancelled)}
+
+
+def resume_worker_lane(job_root: Path, worker_lane: str) -> dict[str, Any]:
+    worker_pause_path(job_root, worker_lane).unlink(missing_ok=True)
+    return {"lane": worker_lane, "paused": False}
+
+
 def job_event(job_dir: Path, event_type: str, payload: dict[str, Any]) -> None:
     line = json.dumps({"at": iso_now(), "event": event_type, **payload}, ensure_ascii=False)
     with (job_dir / "events.jsonl").open("a", encoding="utf-8") as handle:
@@ -301,6 +364,9 @@ def create_job(
         "last_error": None,
         "payload": payload or {},
     }
+    lane = job_lane(data)
+    if lane in {"content", "delivery", "video"} and worker_lane_paused(root, lane):
+        raise RuntimeError(f"{lane.title()} worker is stopped. Resume it before adding new work.")
     write_job(job_dir, data)
     job_event(job_dir, "created", {"state": "queued", "request_type": request_type})
     return data
@@ -459,6 +525,8 @@ def enqueue_approved_video_jobs(job_root: Path) -> list[dict[str, Any]]:
 def next_queued_job(job_root: Path, *, worker_lane: str = "all") -> dict[str, Any] | None:
     if worker_lane not in WORKER_LANES:
         raise ValueError(f"Unsupported worker lane: {worker_lane}")
+    if worker_lane != "all" and worker_lane_paused(job_root, worker_lane):
+        return None
     for job in list_jobs(job_root):
         if job.get("state") == "queued" and (worker_lane == "all" or job_lane(job) == worker_lane):
             return job
@@ -480,7 +548,7 @@ def claim_queued_job(job_root: Path, *, worker_lane: str) -> dict[str, Any] | No
             fcntl.flock(lock.fileno(), fcntl.LOCK_UN)
 
 
-def execute_worker_job(job_root: Path, job: dict[str, Any], *, backup_root: Path, dry_run: bool = False) -> dict[str, Any]:
+def execute_worker_job(job_root: Path, job: dict[str, Any], *, backup_root: Path, dry_run: bool = False, worker_lane: str = "all") -> dict[str, Any]:
     request_type = job.get("request_type")
     if request_type == "backup":
         result = create_backup(ROOT, backup_root=backup_root, label=job["job_id"], dry_run=dry_run)
@@ -496,11 +564,11 @@ def execute_worker_job(job_root: Path, job: dict[str, Any], *, backup_root: Path
         if dry_run:
             return update_job(job_root, job, artifacts=[], last_error=None)
         command = ["python3", "tools/greg_live_production.py", str(course_slug), "--stage", "course_map"]
-        code, output = run_command(command, ROOT)
+        code, output = run_command(command, ROOT, cancel_requested=lambda: worker_lane != "all" and worker_lane_paused(job_root, worker_lane))
         if code != 0:
             raise RuntimeError(output or f"course_start Course Map failed with exit code {code}")
         command[-1] = "sources"
-        code, output = run_command(command, ROOT)
+        code, output = run_command(command, ROOT, cancel_requested=lambda: worker_lane != "all" and worker_lane_paused(job_root, worker_lane))
         if code != 0:
             raise RuntimeError(output or f"course_start source research failed with exit code {code}")
         artifacts = [{"kind": "course_map", "path": f"runs/{course_slug}/course_map/course_map.md", "created": True}, {"kind": "source_ledger", "path": f"runs/{course_slug}/sources/source_ledger.json", "created": True}]
@@ -525,6 +593,7 @@ def execute_worker_job(job_root: Path, job: dict[str, Any], *, backup_root: Path
                 "--write-report",
             ],
             ROOT,
+            cancel_requested=lambda: worker_lane != "all" and worker_lane_paused(job_root, worker_lane),
         )
         if code != 0:
             raise RuntimeError(output or f"lesson_lifecycle failed with exit code {code}")
@@ -550,6 +619,7 @@ def execute_worker_job(job_root: Path, job: dict[str, Any], *, backup_root: Path
                 "--write-report",
             ],
             ROOT,
+            cancel_requested=lambda: worker_lane != "all" and worker_lane_paused(job_root, worker_lane),
         )
         if code != 0:
             raise RuntimeError(output or f"stage_next failed with exit code {code}")
@@ -577,6 +647,7 @@ def execute_worker_job(job_root: Path, job: dict[str, Any], *, backup_root: Path
             command,
             ROOT,
             timeout_seconds=production_stage_timeout_seconds(stage, len(lessons)),
+            cancel_requested=lambda: worker_lane != "all" and worker_lane_paused(job_root, worker_lane),
         )
         if code != 0:
             raise RuntimeError(output or f"production_stage failed with exit code {code}")
@@ -613,7 +684,7 @@ def execute_worker_job(job_root: Path, job: dict[str, Any], *, backup_root: Path
             "--presentation", str(source),
             "--title", title,
         ]
-        code, output = run_command(command, ROOT, timeout_seconds=65 * 60)
+        code, output = run_command(command, ROOT, timeout_seconds=65 * 60, cancel_requested=lambda: worker_lane != "all" and worker_lane_paused(job_root, worker_lane))
         if code != 0:
             raise RuntimeError(output or f"video_generation failed with exit code {code}")
         state_path = f"runs/{course_slug}/video_generator/lesson_{lesson:02d}_{locale}.json"
@@ -655,7 +726,10 @@ def process_one_worker_job(
         queue_wait_ms = round((started_at - created_at).total_seconds() * 1000) if created_at and started_at else None
         running = update_job(root, running, timing={"queue_wait_ms": queue_wait_ms})
         execution_started = time.perf_counter()
-        executed = execute_worker_job(root, running, backup_root=backup_root, dry_run=dry_run)
+        executed = execute_worker_job(root, running, backup_root=backup_root, dry_run=dry_run, worker_lane=worker_lane)
+        current = next((item for item in list_jobs(root) if item.get("job_id") == job_id), running)
+        if current.get("state") == "cancelled":
+            return {"processed": True, "job_id": job_id, "state": "cancelled", "artifacts": []}
         completed = transition_job(root, job_id, "completed", note="worker completed job")
         timing = dict(executed.get("timing") or {})
         timing["queue_wait_ms"] = queue_wait_ms
@@ -680,10 +754,11 @@ def process_one_worker_job(
         except Exception as state_error:
             state_note = summarize_worker_error(state_error)
             message = compact_error_note(f"{message}; worker could not persist failed state: {state_note}")
+        current_state = current.get("state") if "current" in locals() else None
         return {
             "processed": True,
             "job_id": job_id,
-            "state": "failed",
+            "state": "cancelled" if current_state == "cancelled" else "failed",
             "error": message,
             "failure_recorded": failure_recorded,
         }
@@ -703,6 +778,12 @@ def run_worker_loop(
     results: list[dict[str, Any]] = []
     processed = 0
     while True:
+        if worker_lane != "all" and worker_lane_paused(job_root, worker_lane):
+            results.append({"processed": False, "job_id": None, "state": "paused"})
+            if once:
+                return results
+            time.sleep(poll_interval)
+            continue
         if auto_video and worker_lane in {"all", "video"} and not dry_run:
             enqueue_approved_video_jobs(job_root)
         result = process_one_worker_job(job_root, backup_root=backup_root, dry_run=dry_run, worker_lane=worker_lane)
@@ -719,6 +800,8 @@ def recover_interrupted_jobs(job_root: Path, *, worker_lane: str = "all") -> lis
     root = safe_job_root(job_root)
     if worker_lane not in WORKER_LANES:
         raise ValueError(f"Unsupported worker lane: {worker_lane}")
+    if worker_lane != "all" and worker_lane_paused(root, worker_lane):
+        return []
     recovered: list[str] = []
     for job in list_jobs(root):
         if job.get("state") != "running" or (worker_lane != "all" and job_lane(job) != worker_lane):

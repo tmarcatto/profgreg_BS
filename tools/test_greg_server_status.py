@@ -21,6 +21,16 @@ spec.loader.exec_module(checker)
 
 
 class GregServerStatusTests(unittest.TestCase):
+    def test_cancellable_worker_command_terminates_active_child(self) -> None:
+        code, output = checker.run_command(
+            [sys.executable, "-c", "import time; time.sleep(30)"],
+            ROOT,
+            timeout_seconds=60,
+            cancel_requested=lambda: True,
+        )
+        self.assertEqual(130, code)
+        self.assertIn("stopped by the operator", output)
+
     def test_jobs_created_in_same_second_have_unique_ids(self) -> None:
         (ROOT / "tmp" / "jobs").mkdir(parents=True, exist_ok=True)
         with tempfile.TemporaryDirectory(dir=ROOT / "tmp" / "jobs") as tmp:
@@ -170,6 +180,27 @@ class GregServerStatusTests(unittest.TestCase):
             self.assertEqual(claimed["job_id"], book["job_id"])
             self.assertIsNone(checker.next_queued_job(root, worker_lane="content"))
             self.assertEqual(checker.next_queued_job(root, worker_lane="delivery")["job_id"], deck["job_id"])
+
+    def test_stop_worker_pauses_lane_and_clears_its_entire_queue(self) -> None:
+        (ROOT / "tmp" / "jobs").mkdir(parents=True, exist_ok=True)
+        with tempfile.TemporaryDirectory(dir=ROOT / "tmp" / "jobs") as tmp:
+            root = Path(tmp)
+            running = checker.create_job(job_root=root, request_type="production_stage", course_slug="demo", payload={"stage": "deck", "lessons": [13]})
+            queued = checker.create_job(job_root=root, request_type="production_stage", course_slug="demo", payload={"stage": "es_deck", "lessons": [14]})
+            untouched = checker.create_job(job_root=root, request_type="production_stage", course_slug="demo", payload={"stage": "study_guide", "lessons": [15]})
+            checker.transition_job(root, running["job_id"], "running", note="claimed")
+            stopped = checker.pause_worker_lane(root, "delivery")
+            states = {job["job_id"]: job["state"] for job in checker.list_jobs(root)}
+            self.assertTrue(stopped["paused"])
+            self.assertEqual(2, stopped["cancelled_count"])
+            self.assertEqual("cancelled", states[running["job_id"]])
+            self.assertEqual("cancelled", states[queued["job_id"]])
+            self.assertEqual("queued", states[untouched["job_id"]])
+            self.assertIsNone(checker.next_queued_job(root, worker_lane="delivery"))
+            self.assertIsNotNone(checker.next_queued_job(root, worker_lane="content"))
+            with self.assertRaisesRegex(RuntimeError, "Delivery worker is stopped"):
+                checker.create_job(job_root=root, request_type="production_stage", course_slug="demo", payload={"stage": "deck", "lessons": [1]})
+            self.assertFalse(checker.resume_worker_lane(root, "delivery")["paused"])
 
     def test_invalid_job_transition_fails(self) -> None:
         (ROOT / "tmp" / "jobs").mkdir(parents=True, exist_ok=True)

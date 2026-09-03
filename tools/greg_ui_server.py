@@ -17,7 +17,7 @@ from urllib.parse import parse_qs, unquote, urlparse
 
 from greg_operator import course_status, default_job_root, enqueue_job, handle_request
 from greg_record_approval import record_approval
-from greg_server_status import list_jobs, safe_job_root
+from greg_server_status import list_jobs, pause_worker_lane, resume_worker_lane, safe_job_root, worker_control_status
 from greg_create_run import create_run, slugify
 from greg_localized_deck_guard import LocalizedDeckIntegrityError, localized_deck_context, validate_localized_deck
 from greg_marketing import marketing_status, save_marketing
@@ -972,6 +972,7 @@ def ui_shell(default_course: str) -> str:
     .worker-lane {{ border: 1px solid var(--line); border-radius: 8px; padding: 12px; background: #fff; box-shadow: var(--shadow); }}
     .worker-lane strong {{ display: block; color: var(--navy); margin-bottom: 4px; }}
     .worker-lane .lane-note {{ color: var(--muted); font-size: 12px; margin-bottom: 7px; }}
+    .worker-control {{ width: 100%; margin-top: 8px; }}
     .worker-tasks {{ margin: 10px 0 0; padding: 9px 0 0 18px; border-top: 1px solid var(--line); color: var(--muted); font-size: 12px; line-height: 1.4; }}
     .worker-tasks li + li {{ margin-top: 5px; }}
     .progress-card {{
@@ -1224,9 +1225,9 @@ def ui_shell(default_course: str) -> str:
       <span id="currentActivity">Idle.</span>
     </div>
     <div class="worker-lanes" aria-label="Production worker lanes">
-      <div class="worker-lane"><strong>Content worker</strong><div class="lane-note">Course maps, marketing kits, course books, and book translations</div><span id="contentLaneStatus" class="muted">Checking…</span><ul id="contentLaneTasks" class="worker-tasks"><li>Checking task list…</li></ul></div>
-      <div class="worker-lane"><strong>Delivery worker</strong><div class="lane-note">Presentations, deck translations, and operational tasks</div><span id="deliveryLaneStatus" class="muted">Checking…</span><ul id="deliveryLaneTasks" class="worker-tasks"><li>Checking task list…</li></ul></div>
-      <div class="worker-lane"><strong>Video worker</strong><div class="lane-note">AI Studios video requests, independent of material production</div><span id="videoLaneStatus" class="muted">Checking…</span><ul id="videoLaneTasks" class="worker-tasks"><li>Checking task list…</li></ul></div>
+      <div class="worker-lane"><strong>Content worker</strong><div class="lane-note">Course maps, marketing kits, course books, and book translations</div><span id="contentLaneStatus" class="muted">Checking…</span><ul id="contentLaneTasks" class="worker-tasks"><li>Checking task list…</li></ul><button type="button" class="danger worker-control" id="contentLaneControl" onclick="controlWorker('content')">Stop &amp; clear queue</button></div>
+      <div class="worker-lane"><strong>Delivery worker</strong><div class="lane-note">Presentations, deck translations, and operational tasks</div><span id="deliveryLaneStatus" class="muted">Checking…</span><ul id="deliveryLaneTasks" class="worker-tasks"><li>Checking task list…</li></ul><button type="button" class="danger worker-control" id="deliveryLaneControl" onclick="controlWorker('delivery')">Stop &amp; clear queue</button></div>
+      <div class="worker-lane"><strong>Video worker</strong><div class="lane-note">AI Studios video requests, independent of material production</div><span id="videoLaneStatus" class="muted">Checking…</span><ul id="videoLaneTasks" class="worker-tasks"><li>Checking task list…</li></ul><button type="button" class="danger worker-control" id="videoLaneControl" onclick="controlWorker('video')">Stop &amp; clear queue</button></div>
     </div>
     <div class="progress-card">
       <div class="progress-top">
@@ -1495,6 +1496,8 @@ def ui_shell(default_course: str) -> str:
     const expectedLessonsByLevel = {{ Basic: 10, Intermediate: 15, Advanced: 15 }};
     let currentStatus = null;
     let currentJobs = [];
+    let currentWorkerControls = {{content: false, delivery: false, video: false}};
+    const workerControlInFlight = new Set();
     let currentMarketing = null;
     let operatorTargetMap = {{}};
     let operatorTargetsByLesson = {{}};
@@ -2006,6 +2009,7 @@ def ui_shell(default_course: str) -> str:
     function resetWorkspace(showMessage = true) {{
       currentStatus = null;
       currentJobs = [];
+      currentWorkerControls = {{content: false, delivery: false, video: false}};
       currentMarketing = null;
       operatorTargetMap = {{}};
       operatorTargetsByLesson = {{}};
@@ -2095,6 +2099,7 @@ def ui_shell(default_course: str) -> str:
         currentStatus = await api('/api/status?course=' + encodeURIComponent(course.value));
         const jobs = await api('/api/jobs?course=' + encodeURIComponent(course.value));
         currentJobs = jobs.jobs || [];
+        currentWorkerControls = jobs.worker_controls || currentWorkerControls;
         renderJobs();
         renderWorkerErrors(jobs.worker_errors || []);
         const uploads = await api('/api/uploads?course=' + encodeURIComponent(course.value));
@@ -2166,10 +2171,14 @@ def ui_shell(default_course: str) -> str:
       for (const lane of ['content', 'delivery', 'video']) {{
         const holder = document.getElementById(lane + 'LaneStatus');
         const taskHolder = document.getElementById(lane + 'LaneTasks');
+        const control = document.getElementById(lane + 'LaneControl');
+        const paused = Boolean(currentWorkerControls[lane]);
         const jobs = currentJobs.filter(job => String(job.lane || '') === lane && ['queued', 'running'].includes(job.state));
         const running = jobs.find(job => job.state === 'running');
         const queued = jobs.filter(job => job.state === 'queued').length;
-        if (running) {{
+        if (paused) {{
+          holder.innerHTML = '<span class="state failed">Stopped</span> · Queue is paused';
+        }} else if (running) {{
           holder.innerHTML = `<span class="state running">Working</span> · ${{esc(activeJobMessage(running))}}${{queued ? ` · ${{queued}} queued` : ''}}`;
         }} else if (queued) {{
           holder.innerHTML = `<span class="state queued">Ready</span> · ${{queued}} job${{queued === 1 ? '' : 's'}} queued`;
@@ -2179,6 +2188,24 @@ def ui_shell(default_course: str) -> str:
         taskHolder.innerHTML = jobs.length
           ? jobs.map(job => `<li><span class="state ${{esc(job.state)}}">${{esc(job.state)}}</span> · ${{esc(activeJobMessage(job))}}</li>`).join('')
           : '<li>No pending tasks.</li>';
+        control.textContent = paused ? 'Resume worker' : 'Stop & clear queue';
+        control.classList.toggle('danger', !paused);
+        control.classList.toggle('primary', paused);
+        control.disabled = workerControlInFlight.has(lane);
+      }}
+    }}
+    async function controlWorker(lane) {{
+      if (workerControlInFlight.has(lane)) return;
+      const paused = Boolean(currentWorkerControls[lane]);
+      if (!paused && !confirm(`Stop the ${{lane}} worker and cancel every queued or running job in this lane? Approved files will not be changed.`)) return;
+      workerControlInFlight.add(lane);
+      renderWorkerLanes();
+      try {{
+        const data = await post('/api/worker-control', {{lane, action: paused ? 'resume' : 'stop'}});
+        msg.textContent = data.message;
+      }} finally {{
+        workerControlInFlight.delete(lane);
+        renderWorkerLanes();
       }}
     }}
     function activeJobMessage(job) {{
@@ -2663,7 +2690,7 @@ class GregUiHandler(BaseHTTPRequestHandler):
                     jobs = [job for job in jobs if str(job.get("course_slug") or "") == slugify(course)]
                 worker_errors = recent_worker_errors(jobs)
                 jobs = operator_visible_jobs(jobs)
-                self.send_json(HTTPStatus.OK, {"jobs": jobs, "worker_errors": worker_errors})
+                self.send_json(HTTPStatus.OK, {"jobs": jobs, "worker_errors": worker_errors, "worker_controls": worker_control_status(job_root)})
                 return
             if parsed.path == "/api/uploads":
                 course = parse_qs(parsed.query).get("course", [getattr(self.server, "default_course", DEFAULT_COURSE)])[0]
@@ -2702,6 +2729,26 @@ class GregUiHandler(BaseHTTPRequestHandler):
             return
         parsed = urlparse(self.path)
         try:
+            if parsed.path == "/api/worker-control":
+                body = read_request_body(self)
+                lane = str(body.get("lane") or "")
+                action = str(body.get("action") or "")
+                if lane not in {"content", "delivery", "video"}:
+                    self.send_json(HTTPStatus.BAD_REQUEST, {"error": "Choose a valid worker."})
+                    return
+                job_root = getattr(self.server, "job_root")
+                if action == "stop":
+                    result = pause_worker_lane(job_root, lane)
+                    count = int(result["cancelled_count"])
+                    noun = "job" if count == 1 else "jobs"
+                    self.send_json(HTTPStatus.OK, {**result, "message": f"{lane.title()} worker stopped; {count} active {noun} cancelled and the queue cleared."})
+                    return
+                if action == "resume":
+                    result = resume_worker_lane(job_root, lane)
+                    self.send_json(HTTPStatus.OK, {**result, "message": f"{lane.title()} worker resumed and is ready for new work."})
+                    return
+                self.send_json(HTTPStatus.BAD_REQUEST, {"error": "Choose stop or resume."})
+                return
             if parsed.path == "/api/delete-course":
                 body = read_request_body(self)
                 result = delete_course_workspace(
