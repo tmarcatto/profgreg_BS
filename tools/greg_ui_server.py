@@ -20,6 +20,7 @@ from greg_record_approval import record_approval
 from greg_server_status import list_jobs, safe_job_root
 from greg_create_run import create_run, slugify
 from greg_localized_deck_guard import LocalizedDeckIntegrityError, localized_deck_context, validate_localized_deck
+from greg_marketing import marketing_status, save_marketing
 from greg_revision_history import append_interaction, read_state, utc_now
 
 
@@ -1016,6 +1017,14 @@ def ui_shell(default_course: str) -> str:
       gap: 18px;
       align-items: start;
     }}
+    .marketing-grid {{ display: grid; grid-template-columns: minmax(0, 1.25fr) minmax(280px, .75fr); gap: 18px; align-items: start; }}
+    .marketing-column {{ display: grid; gap: 14px; }}
+    .marketing-field textarea {{ min-height: 112px; }}
+    .marketing-field textarea.tall {{ min-height: 220px; }}
+    .marketing-field .field-note {{ color: var(--muted); font-size: 12px; margin-top: 5px; }}
+    .marketing-actions {{ display: flex; flex-wrap: wrap; gap: 10px; align-items: center; margin-top: 18px; padding-top: 16px; border-top: 1px solid var(--line); }}
+    .marketing-status {{ border-left: 4px solid var(--navy); background: #f7f9fc; padding: 12px 14px; border-radius: 5px; line-height: 1.45; }}
+    .marketing-status.ready {{ border-left-color: var(--ok); background: #f4fbf6; }}
     .field-grid {{
       display: grid;
       grid-template-columns: 1fr 160px 160px;
@@ -1155,7 +1164,7 @@ def ui_shell(default_course: str) -> str:
     .hidden {{ display: none !important; }}
     code {{ font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; font-size: 12px; }}
     @media (max-width: 980px) {{
-      .topbar, .workspace-bar, .brief-grid, .field-grid, .progress-steps, .status-summary, .upload-controls, .log-tools, .operator-tool {{ grid-template-columns: 1fr; }}
+      .topbar, .workspace-bar, .brief-grid, .marketing-grid, .field-grid, .progress-steps, .status-summary, .upload-controls, .log-tools, .operator-tool {{ grid-template-columns: 1fr; }}
       .field-grid {{ grid-template-columns: 1fr !important; }}
       .operator-tool-details {{ grid-column: 1; }}
       .segmented {{ grid-template-columns: 1fr; }}
@@ -1215,7 +1224,7 @@ def ui_shell(default_course: str) -> str:
       <span id="currentActivity">Idle.</span>
     </div>
     <div class="worker-lanes" aria-label="Production worker lanes">
-      <div class="worker-lane"><strong>Content worker</strong><div class="lane-note">Course maps, course books, and book translations</div><span id="contentLaneStatus" class="muted">Checking…</span><ul id="contentLaneTasks" class="worker-tasks"><li>Checking task list…</li></ul></div>
+      <div class="worker-lane"><strong>Content worker</strong><div class="lane-note">Course maps, marketing kits, course books, and book translations</div><span id="contentLaneStatus" class="muted">Checking…</span><ul id="contentLaneTasks" class="worker-tasks"><li>Checking task list…</li></ul></div>
       <div class="worker-lane"><strong>Delivery worker</strong><div class="lane-note">Presentations, deck translations, and operational tasks</div><span id="deliveryLaneStatus" class="muted">Checking…</span><ul id="deliveryLaneTasks" class="worker-tasks"><li>Checking task list…</li></ul></div>
       <div class="worker-lane"><strong>Video worker</strong><div class="lane-note">AI Studios video requests, independent of material production</div><span id="videoLaneStatus" class="muted">Checking…</span><ul id="videoLaneTasks" class="worker-tasks"><li>Checking task list…</li></ul></div>
     </div>
@@ -1229,7 +1238,7 @@ def ui_shell(default_course: str) -> str:
     </div>
 
     <section id="costs" class="card">
-      <div class="section-head"><div class="title-row"><div class="step-num">7</div><div><h2>AI Costs</h2><div class="hint">Every provider call made for this course workspace is listed separately. Totals use the configured API rate card.</div></div></div></div>
+      <div class="section-head"><div class="title-row"><div class="step-num">8</div><div><h2>AI Costs</h2><div class="hint">Every provider call made for this course workspace is listed separately. Totals use the configured API rate card.</div></div></div></div>
       <div class="body">
         <div class="status-summary" id="costSummary"><div class="metric"><div class="label">Total estimated investment</div><div class="value">Loading…</div></div></div>
         <div class="cost-provider-list">Complete calculation for this course</div>
@@ -1321,13 +1330,50 @@ def ui_shell(default_course: str) -> str:
         </div>
       </div>
     </section>
+
+    <section id="marketing" class="card">
+      <div class="section-head">
+        <div class="title-row">
+          <div class="step-num">3</div>
+          <div><h2>Marketing</h2><div class="hint">Turn the approved Course Map into website copy and a five-page BuildStak brochure. Market claims include traceable sources and remain editable.</div></div>
+        </div>
+      </div>
+      <div class="body">
+        <div id="marketingStatus" class="marketing-status">Generate and approve the Course Map first. Marketing uses the final learning journey, not the draft syllabus.</div>
+        <div id="marketingSources" class="field-note" style="margin-top:8px"></div>
+        <div class="marketing-grid" style="margin-top:16px">
+          <div class="marketing-column">
+            <div class="marketing-field"><label class="required" for="marketingTitle">Course title</label><input id="marketingTitle" placeholder="Market-facing course title"></div>
+            <div class="marketing-field"><label class="required" for="marketingShort">Short description</label><textarea id="marketingShort" placeholder="Exactly two sentences for the course hero or card."></textarea><div class="field-note">Two sentences, ready for the website.</div></div>
+            <div class="marketing-field"><label class="required" for="marketingFull">Full description</label><textarea id="marketingFull" class="tall" placeholder="Market context, learner problem, practical value, and career relevance."></textarea></div>
+            <div class="marketing-field"><label class="required" for="marketingLearn">What you will learn</label><textarea id="marketingLearn" placeholder="One outcome per line; exactly five."></textarea></div>
+          </div>
+          <div class="marketing-column">
+            <div class="marketing-field"><label for="marketingPositioning">Brochure positioning</label><textarea id="marketingPositioning" placeholder="One strong, credible cover promise."></textarea></div>
+            <div class="marketing-field"><label for="marketingHighlights">Market highlights</label><textarea id="marketingHighlights" placeholder="One evidence-backed market observation per line."></textarea></div>
+            <div class="marketing-field"><label class="required" for="marketingSkills">Skills / tags</label><textarea id="marketingSkills" placeholder="One tag per line; exactly three."></textarea></div>
+            <div class="marketing-field"><label for="marketingRequirements">Requirements</label><textarea id="marketingRequirements" placeholder="One requirement per line."></textarea></div>
+            <div class="marketing-field"><label for="marketingAudience">Who this is for</label><textarea id="marketingAudience"></textarea></div>
+            <div class="marketing-field"><label for="marketingCareer">Career relevance</label><textarea id="marketingCareer" placeholder="One careful, non-guaranteed outcome per line."></textarea></div>
+            <div class="marketing-field"><label for="marketingCta">Call to action</label><input id="marketingCta" placeholder="Short enrollment-oriented next step"></div>
+            <div class="marketing-field"><label for="marketingUrl">Course page URL</label><input id="marketingUrl" type="url" placeholder="https://learn.buildstak.com/courses/..."></div>
+          </div>
+        </div>
+        <div class="marketing-actions">
+          <button class="primary" id="generateMarketing">Generate website copy + brochure</button>
+          <button id="saveMarketing">Save edits + update brochure</button>
+          <a id="downloadBrochure" class="download-link hidden" target="_blank" rel="noopener">Download 5-page brochure</a>
+          <span class="muted">Brochure format: US Letter PDF, using the BuildStak brand system.</span>
+        </div>
+      </div>
+    </section>
     </div>
 
     <div class="console-page" data-page="sections-3-4">
     <section id="course-map" class="card">
       <div class="section-head">
         <div class="title-row">
-          <div class="step-num">3</div>
+          <div class="step-num">4</div>
           <div><h2>Course Map</h2><div class="hint">When the course brief is ready and you have added any optional source materials, choose when to start the Course Map. It appears here for review and download.</div></div>
         </div>
       </div>
@@ -1343,7 +1389,7 @@ def ui_shell(default_course: str) -> str:
     <section id="pipeline" class="card">
       <div class="section-head">
         <div class="title-row">
-          <div class="step-num">4</div>
+          <div class="step-num">5</div>
           <div><h2>Lesson Production</h2><div class="hint">Select one, several, or all lessons. Produced files appear in this table when they are ready to review.</div></div>
         </div>
         <div class="muted" id="approvalCount">0 approvals</div>
@@ -1398,7 +1444,7 @@ def ui_shell(default_course: str) -> str:
     <section id="approvals" class="card">
       <div class="section-head">
         <div class="title-row">
-          <div class="step-num">5</div>
+          <div class="step-num">6</div>
           <div><h2>Operator Action</h2><div class="hint">Choose a lesson first, then select its file or image request to approve it, request edits, or attach requested images. Files remain managed in the lesson table.</div></div>
         </div>
       </div>
@@ -1425,7 +1471,7 @@ def ui_shell(default_course: str) -> str:
     <section id="video-generator" class="card">
       <div class="section-head">
         <div class="title-row">
-          <div class="step-num">6</div>
+          <div class="step-num">7</div>
           <div><h2>Video Generator</h2><div class="hint">Each approved presentation enters its own English, Portuguese, or Spanish video lane. A revised approved PPTX always creates a new video record. Completed exports provide a direct video download URL.</div></div>
         </div>
       </div>
@@ -1449,6 +1495,7 @@ def ui_shell(default_course: str) -> str:
     const expectedLessonsByLevel = {{ Basic: 10, Intermediate: 15, Advanced: 15 }};
     let currentStatus = null;
     let currentJobs = [];
+    let currentMarketing = null;
     let operatorTargetMap = {{}};
     let operatorTargetsByLesson = {{}};
     let workspaceLoadInFlight = false;
@@ -1607,7 +1654,7 @@ def ui_shell(default_course: str) -> str:
     const stageActionLabels = {{
       study_guide:'Generate course book', deck:'Generate presentation',
       translations_book:'Translate course book', translations_deck:'Translate presentation',
-      course_map:'Generate Course Map', video:'Generate video'
+      course_map:'Generate Course Map', marketing:'Generate marketing kit', video:'Generate video'
     }};
     function workerErrorAction(job) {{
       const stage = String(job?.payload?.stage || '');
@@ -1652,6 +1699,86 @@ def ui_shell(default_course: str) -> str:
       }}
       const mapName = `${{cleanFilenamePart(course.value)}} - Course Map.md`;
       panel.innerHTML = `<strong>Course Map approved by automatic QA.</strong> <a class="download-link" href="/artifact?path=${{encodeURIComponent(map.path)}}&filename=${{encodeURIComponent(mapName)}}" target="_blank" rel="noopener">Download Course Map</a>`;
+    }}
+    function marketingLines(value) {{
+      return Array.isArray(value) ? value.join('\\n') : '';
+    }}
+    function marketingList(id) {{
+      return document.getElementById(id).value.split(/\\n+/).map(item => item.replace(/^[-•]\\s*/, '').trim()).filter(Boolean);
+    }}
+    function marketingPayload() {{
+      const existing = currentMarketing?.marketing || {{}};
+      return Object.assign({{}}, existing, {{
+        course_title: document.getElementById('marketingTitle').value.trim(),
+        short_description: document.getElementById('marketingShort').value.trim(),
+        full_description: document.getElementById('marketingFull').value.trim(),
+        value_proposition: document.getElementById('marketingPositioning').value.trim(),
+        market_highlights: marketingList('marketingHighlights'),
+        skills: marketingList('marketingSkills'),
+        what_you_will_learn: marketingList('marketingLearn'),
+        requirements: marketingList('marketingRequirements'),
+        audience: document.getElementById('marketingAudience').value.trim(),
+        career_outcomes: marketingList('marketingCareer'),
+        call_to_action: document.getElementById('marketingCta').value.trim(),
+        landing_page_url: document.getElementById('marketingUrl').value.trim()
+      }});
+    }}
+    function renderMarketing(report) {{
+      currentMarketing = report || {{ready:false, marketing:{{}}, brochure_ready:false}};
+      const data = currentMarketing.marketing || {{}};
+      document.getElementById('marketingTitle').value = data.course_title || '';
+      document.getElementById('marketingShort').value = data.short_description || '';
+      document.getElementById('marketingFull').value = data.full_description || '';
+      document.getElementById('marketingPositioning').value = data.value_proposition || '';
+      document.getElementById('marketingHighlights').value = marketingLines(data.market_highlights);
+      document.getElementById('marketingSkills').value = marketingLines(data.skills);
+      document.getElementById('marketingLearn').value = marketingLines(data.what_you_will_learn);
+      document.getElementById('marketingRequirements').value = marketingLines(data.requirements);
+      document.getElementById('marketingAudience').value = data.audience || '';
+      document.getElementById('marketingCareer').value = marketingLines(data.career_outcomes);
+      document.getElementById('marketingCta').value = data.call_to_action || '';
+      document.getElementById('marketingUrl').value = data.landing_page_url || '';
+      const active = currentJobs.some(job => job.request_type === 'production_stage' && job?.payload?.stage === 'marketing' && ['queued', 'running'].includes(job.state));
+      const mapReady = currentStatus?.course_map_ready === true;
+      const generate = document.getElementById('generateMarketing');
+      const save = document.getElementById('saveMarketing');
+      generate.disabled = !mapReady || active;
+      save.disabled = !currentMarketing.ready || active;
+      generate.textContent = active ? 'Creating marketing kit...' : (currentMarketing.ready ? 'Regenerate from Course Map' : 'Generate website copy + brochure');
+      const status = document.getElementById('marketingStatus');
+      status.classList.toggle('ready', Boolean(currentMarketing.ready));
+      status.innerHTML = active
+        ? '<strong>Marketing research and brochure production are in progress.</strong> Current U.S. market sources are being checked before the copy is released.'
+        : currentMarketing.ready
+          ? `<strong>Marketing kit ready.</strong> Edit the website fields below, then save to update the brochure.${{(data.market_sources || []).length ? ` ${{data.market_sources.length}} market source(s) are retained with the kit.` : ''}}`
+          : mapReady
+            ? '<strong>Course Map ready.</strong> Generate the marketing kit when you are ready to create public-facing copy.'
+            : '<strong>Course Map required.</strong> Marketing is generated from the approved learning journey, not the draft syllabus.';
+      const sources = data.market_sources || [];
+      document.getElementById('marketingSources').innerHTML = sources.length
+        ? '<strong>Market evidence:</strong> ' + sources.map((item, index) => item.url ? `<a href="${{esc(item.url)}}" target="_blank" rel="noopener">${{index + 1}}. ${{esc(item.organization || item.title || 'Source')}}</a>` : `${{index + 1}}. ${{esc(item.organization || item.title || 'Source')}}`).join(' · ')
+        : '';
+      const download = document.getElementById('downloadBrochure');
+      download.classList.toggle('hidden', !currentMarketing.brochure_ready);
+      if (currentMarketing.brochure_ready) {{
+        const filename = `${{cleanFilenamePart(data.course_title || course.value)}} - BuildStak Course Brochure.pdf`;
+        download.href = `/artifact?path=${{encodeURIComponent(currentMarketing.brochure_path)}}&filename=${{encodeURIComponent(filename)}}`;
+      }}
+    }}
+    async function generateMarketing() {{
+      if (!course.value || currentStatus?.course_map_ready !== true) {{
+        msg.textContent = 'Generate and approve the Course Map before creating marketing content.';
+        return;
+      }}
+      await post('/api/marketing-generate', {{course: course.value}});
+      renderMarketing(currentMarketing);
+    }}
+    async function saveMarketingEdits() {{
+      try {{
+        const data = await api('/api/marketing-save', {{method:'POST', body:JSON.stringify({{course:course.value, marketing:marketingPayload()}})}});
+        msg.textContent = data.message || 'Marketing content and brochure updated.';
+        renderMarketing(data);
+      }} catch (error) {{ msg.textContent = error.message; }}
     }}
     function renderOperatorTool() {{
       const select = document.getElementById('operatorTarget');
@@ -1879,6 +2006,7 @@ def ui_shell(default_course: str) -> str:
     function resetWorkspace(showMessage = true) {{
       currentStatus = null;
       currentJobs = [];
+      currentMarketing = null;
       operatorTargetMap = {{}};
       operatorTargetsByLesson = {{}};
       course.value = '';
@@ -1890,6 +2018,7 @@ def ui_shell(default_course: str) -> str:
       document.getElementById('referencePolicy').value = 'context_only';
       document.getElementById('uploadLesson').value = '1';
       document.getElementById('files').value = '';
+      renderMarketing(null);
       uploadQueue = [];
       renderUploadQueue();
       setLevel('Basic');
@@ -1970,6 +2099,8 @@ def ui_shell(default_course: str) -> str:
         renderWorkerErrors(jobs.worker_errors || []);
         const uploads = await api('/api/uploads?course=' + encodeURIComponent(course.value));
         renderUploadTables(uploads.uploads || []);
+        const marketing = await api('/api/marketing?course=' + encodeURIComponent(course.value));
+        renderMarketing(marketing);
         renderPipeline();
         renderLessonSelection();
         renderVideoGenerator();
@@ -2071,6 +2202,7 @@ def ui_shell(default_course: str) -> str:
       const lessonCount = Math.max(1, (job?.payload?.lessons || []).length || Number(job?.lesson || 1));
       const minutesByStage = {{
         course_start: 6,
+        marketing: 12,
         study_guide: 25,
         deck: 6,
         translations_book: 16,
@@ -2447,6 +2579,8 @@ def ui_shell(default_course: str) -> str:
     document.getElementById('uploadScope').onchange = toggleLessonInput;
     document.getElementById('files').onchange = event => setUploadQueue(event.target.files);
     document.getElementById('upload').onclick = uploadFiles;
+    document.getElementById('generateMarketing').onclick = generateMarketing;
+    document.getElementById('saveMarketing').onclick = saveMarketingEdits;
     document.getElementById('operatorLesson').onchange = () => {{
       renderOperatorTargetsForLesson();
       renderOperatorToolDetails();
@@ -2538,6 +2672,10 @@ class GregUiHandler(BaseHTTPRequestHandler):
             if parsed.path == "/api/costs":
                 course = parse_qs(parsed.query).get("course", [getattr(self.server, "default_course", DEFAULT_COURSE)])[0]
                 self.send_json(HTTPStatus.OK, course_cost_report(course))
+                return
+            if parsed.path == "/api/marketing":
+                course = parse_qs(parsed.query).get("course", [getattr(self.server, "default_course", DEFAULT_COURSE)])[0]
+                self.send_json(HTTPStatus.OK, marketing_status(course))
                 return
             if parsed.path == "/artifact":
                 query = parse_qs(parsed.query)
@@ -2709,6 +2847,34 @@ class GregUiHandler(BaseHTTPRequestHandler):
                     summary="operator started Course Map and source research",
                 )
                 self.send_json(HTTPStatus.OK, {"message": result.message, "job": result.job})
+                return
+            if parsed.path == "/api/marketing-generate":
+                course = slugify(str(body.get("course") or getattr(self.server, "default_course", DEFAULT_COURSE)))
+                status = course_status(course)
+                if status.get("course_map_ready") is not True:
+                    self.send_json(HTTPStatus.CONFLICT, {"error": "Generate and approve the Course Map before creating marketing content."})
+                    return
+                active = next((job for job in list_jobs(job_root) if str(job.get("course_slug") or "") == course and job.get("state") in {"queued", "running"} and str((job.get("payload") or {}).get("stage") or "") == "marketing"), None)
+                if active:
+                    self.send_json(HTTPStatus.OK, {"message": "Marketing production is already in progress.", "job": active})
+                    return
+                result = enqueue_job(
+                    job_root=job_root,
+                    request_type="production_stage",
+                    course_slug=course,
+                    summary="operator requested website marketing copy and a five-page brochure",
+                    payload={"stage": "marketing", "lessons": []},
+                )
+                self.send_json(HTTPStatus.OK, {"message": "Marketing research and brochure production queued.", "job": result.job})
+                return
+            if parsed.path == "/api/marketing-save":
+                course = slugify(str(body.get("course") or getattr(self.server, "default_course", DEFAULT_COURSE)))
+                marketing = body.get("marketing")
+                if not isinstance(marketing, dict):
+                    self.send_json(HTTPStatus.BAD_REQUEST, {"error": "Marketing fields are required."})
+                    return
+                saved = save_marketing(course, marketing, render=True)
+                self.send_json(HTTPStatus.OK, {**marketing_status(course), "marketing": saved, "message": "Marketing content saved and the five-page brochure updated."})
                 return
             if parsed.path == "/api/produce":
                 course = str(body.get("course") or getattr(self.server, "default_course", DEFAULT_COURSE))

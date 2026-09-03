@@ -102,4 +102,6 @@ On the server, access it through an SSH tunnel instead of opening a public port.
 
 The UI can create a course intake and upload one or multiple source materials at once. Uploaded files are stored outside Git under `/srv/profgreg/uploads/[course-slug]/` on the server, with editable metadata for scope, reference policy, image-use permission, size, and SHA-256 hash. Operators can delete incorrect uploads before production uses them.
 
+After Course Map approval, the intake's Marketing section can research and generate editable website copy, skills, learning outcomes, requirements, career positioning, and a five-page BuildStak-branded PDF brochure. Saving edited copy rebuilds the brochure so the public-facing page and downloadable marketing material stay aligned.
+
 Course intake defaults are level-aware: Basic starts around 10 lessons; Intermediate and Advanced start around 15 lessons unless the operator or Greg's Course Map rationale changes that count.

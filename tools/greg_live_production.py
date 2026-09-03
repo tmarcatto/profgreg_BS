@@ -5153,6 +5153,14 @@ def run_stage(course_slug: str, stage: str, lessons: list[int] | None = None) ->
             return produce_course_map(course_slug)
         if stage == "sources":
             return produce_source_ledger(course_slug)
+        if stage == "marketing":
+            from greg_marketing import brochure_path, generate_marketing, marketing_json_path
+
+            generate_marketing(course_slug)
+            return [
+                f"Marketing copy created: {rel(marketing_json_path(course_slug))}",
+                f"Five-page brochure created: {rel(brochure_path(course_slug))}",
+            ]
         if stage == "study_guide":
             results: list[str] = []
             for lesson in lessons or [1]:
@@ -5187,7 +5195,7 @@ def run_stage(course_slug: str, stage: str, lessons: list[int] | None = None) ->
 def main() -> int:
     parser = argparse.ArgumentParser(description="Run one real Prof Greg production stage.")
     parser.add_argument("course_slug")
-    parser.add_argument("--stage", choices=["course_map", "sources", "study_guide", "deck", "translations_book", "translations_deck", "pt_br_book", "pt_br_deck", "es_book", "es_deck"], required=True)
+    parser.add_argument("--stage", choices=["course_map", "sources", "marketing", "study_guide", "deck", "translations_book", "translations_deck", "pt_br_book", "pt_br_deck", "es_book", "es_deck"], required=True)
     parser.add_argument("--lessons", default="", help="Comma-separated lesson numbers for study-guide production.")
     parser.add_argument("--timing-file", help="Optional JSONL timing trace written without prompts, outputs, or credentials.")
     args = parser.parse_args()

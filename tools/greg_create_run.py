@@ -16,6 +16,7 @@ RUNS = ROOT / "runs"
 RUN_DIRS = [
     "input",
     "course_map",
+    "marketing",
     "sources",
     "lesson_draft",
     "review",

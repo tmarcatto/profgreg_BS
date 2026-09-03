@@ -91,6 +91,7 @@ def run_command(command: list[str], cwd: Path, *, timeout_seconds: int | None = 
 def production_stage_timeout_seconds(stage: str, lesson_count: int) -> int:
     """Return a generous, finite deadline for a single queued production request."""
     per_lesson_minutes = {
+        "marketing": 15,
         "study_guide": 45,
         "deck": 20,
         "translations_book": 90,
@@ -559,7 +560,7 @@ def execute_worker_job(job_root: Path, job: dict[str, Any], *, backup_root: Path
         payload = job.get("payload") or {}
         stage = str(payload.get("stage") or "")
         lessons = [int(value) for value in (payload.get("lessons") or [])]
-        if not course_slug or stage not in {"course_map", "sources", "study_guide", "deck", "translations_book", "translations_deck", "pt_br_book", "pt_br_deck", "es_book", "es_deck"}:
+        if not course_slug or stage not in {"course_map", "sources", "marketing", "study_guide", "deck", "translations_book", "translations_deck", "pt_br_book", "pt_br_deck", "es_book", "es_deck"}:
             raise ValueError("production_stage job requires a course and supported stage.")
         if dry_run:
             return update_job(
