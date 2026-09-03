@@ -2556,7 +2556,7 @@ Course Map visual insertion brief (mandatory learning jobs):
 Attached-source visual candidates available for confirmation:
 {json.dumps(source_visual_candidates, ensure_ascii=False)}
 
-Use 2-4 distinct instructional visuals, roughly one visual per three content pages. Every visual must teach a unique claim. Place each visual after the exact section that teaches its learning claim; do not distribute visuals by ordinal position merely to create cadence. Prefer deterministic diagrams for structures, roles, responsibilities, comparisons, and processes. A trusted real image may be required only when students must inspect a fidelity-sensitive technical object such as an actual plan, schedule, specification page, code table, contract form, technical symbol set, equipment detail, or inspection record. Job descriptions, role maps, stakeholder maps, workflows, generic jobsite scenes, and conceptual comparisons are never operator-image requests: use a deterministic diagram or generated conceptual image. Generated conceptual images must be residential-construction focused and may not occupy over half a page. When people appear, respectfully show a mixed American-born and immigrant U.S. construction workforce. Never repeat a visual or its learning claim.
+Use 2-4 distinct instructional visuals, roughly one visual per three content pages. Every visual must teach a unique claim. Place each visual after the exact section that teaches its learning claim; do not distribute visuals by ordinal position merely to create cadence. For every visual, first state `image_need` as required, helpful, or not-needed and explain the pedagogical reason. Then select `asset_strategy`: native-diagram, reuse-reference, search-online, generate, or operator-request. Inspect allowed attached reference material first. Treat online search as selected only when a concrete attributable asset has been verified; an intention to search is not a resolved asset. Generate only when authenticity and exact technical fidelity are not the claim. Ask the operator only after applicable reference, search, and generation routes are unsuitable or exhausted, and populate the full `request_box`. Prefer deterministic diagrams for structures, roles, responsibilities, comparisons, and processes. A trusted real image may be required only when students must inspect a fidelity-sensitive technical object such as an actual plan, schedule, specification page, code table, contract form, technical symbol set, equipment detail, or inspection record. Job descriptions, role maps, stakeholder maps, workflows, generic jobsite scenes, and conceptual comparisons are never operator-image requests: use a deterministic diagram or generated conceptual image. Generated conceptual images must be residential-construction focused and may not occupy over half a page. When people appear, respectfully show a mixed American-born and immigrant U.S. construction workforce. Never repeat a visual or its learning claim.
 
 Implement every Course Map insertion that materially applies to this lesson. The map's `pedagogical_strategy`, `real_example_importance`, evidence record, and final source strategy are the instruction you receive, not a vague suggestion. Confirm the strategy against the completed lesson prose and available assets. Preserve it unless the lesson creates a concrete conflict; if you change it, record a specific `strategy_change_reason` and keep the same learning job. Do not conduct broad inspiration search here. Use only the map's targeted evidence, the attached-source candidates, and directly relevant operator responses. If `direct_demonstration` is true, render the object itself. For example, a `schedule-bar-chart` must visibly contain time-scaled activity bars, and an `activity-network` must visibly contain connected activity nodes. Never replace either with a comparison matrix that only talks about the view. If `real_example_importance` is `required`, a generated image is forbidden. If no verified reusable asset is available, set it up for operator escalation instead of silently substituting prose or a fictional image.
 
@@ -2589,7 +2589,7 @@ Design within the renderer's visible capacity. Never rely on omitted or hidden i
 The diagram title, learning claim, caption, visible nodes/cards/rows, and lesson prose must agree exactly. Do not promise a lifecycle endpoint, responsibility, role, comparison attribute, or item that the visible diagram omits.
 
 Return:
-{{"artifact_type":"study-guide","visual_curation_required":false,"visuals":[{{"visual_id":"L{int(lesson['lesson_number']):02d}V01","visual_type":"deterministic-diagram|generated-conceptual-image|trusted-source-image","placement":"after Section 01 - exact heading","purpose":"at least four words","learning_claim":"at least five words and unique","pedagogical_strategy":"inspect-real-example|explain-with-diagram|orient-with-conceptual-image","real_example_importance":"required|preferred|not-needed","generation_suitability":"safe|unsafe","source_status":"not-required|verified|source-needed","source_id":"","source_url":"","attribution":"","evidence_considered":[{{"source_type":"attached-pdf|authoritative-web|course-map","locator":"filename and page or URL","observed_visual":"what it shows","relevance":"why it matters","use_decision":"adapt-principle|use-with-attribution|reject"}}],"alternatives_considered":["specific alternative"],"selection_reason":"final pedagogical reason","strategy_change_reason":"empty when map strategy is preserved","prompt":"detailed English image prompt when generated","google_search_phrase":"the Course Map targeted query only","diagram_type":"process-flow|relationship-map|comparison-matrix|card-sequence|cost-stack|schedule-bar-chart|activity-network","diagram_rationale":"why this mechanism teaches this claim better than the alternatives","diagram_title":"short student-facing title","diagram_total":"final calculated total only for a cost-stack; otherwise empty","diagram_nodes":[{{"title":"short label","detail":"short explanation"}}],"diagram_columns":["Variable","Compared entity A","Compared entity B"],"diagram_rows":[{{"cells":["shared variable","A value","B value"]}}],"schedule_rows":[{{"activity":"short activity","start":0,"duration":3,"status":"planned|complete|in-progress|delayed"}}],"network_paths":[{{"label":"path label","critical":true,"activities":[{{"title":"short activity","duration":"3d"}}]}}],"context_focus":"U.S. residential construction","depicts_people":false,"workforce_representation":"","core_message_depends_on_real_example":false,"technical_fidelity_required":false,"technical_object_type":"","max_area_percent":45,"highlighted":false,"highlight_reason":"exception|warning|decision-point|risk-threshold|contrast|lesson-emphasis, required only when highlighted is true","internal_text":false,"internal_text_position":"top"}}]}}"""
+{{"artifact_type":"study-guide","visual_curation_required":false,"visuals":[{{"visual_id":"L{int(lesson['lesson_number']):02d}V01","visual_type":"deterministic-diagram|generated-conceptual-image|trusted-source-image","placement":"after Section 01 - exact heading","purpose":"at least four words","learning_claim":"at least five words and unique","image_need":"required|helpful|not-needed","image_need_reason":"specific pedagogical reason","asset_strategy":"native-diagram|reuse-reference|search-online|generate|operator-request","asset_strategy_reason":"specific feasibility and pedagogy reason","request_box":{{"image_description":"required for operator-request","pedagogical_reason":"required for operator-request","search_phrase":"required for operator-request"}},"pedagogical_strategy":"inspect-real-example|explain-with-diagram|orient-with-conceptual-image","real_example_importance":"required|preferred|not-needed","generation_suitability":"safe|unsafe","source_status":"not-required|verified|source-needed","source_id":"","source_url":"","attribution":"","evidence_considered":[{{"source_type":"attached-pdf|authoritative-web|course-map","locator":"filename and page or URL","observed_visual":"what it shows","relevance":"why it matters","use_decision":"adapt-principle|use-with-attribution|reject"}}],"alternatives_considered":["specific alternative"],"selection_reason":"final pedagogical reason","strategy_change_reason":"empty when map strategy is preserved","prompt":"detailed English image prompt when generated","google_search_phrase":"the Course Map targeted query only","diagram_type":"process-flow|relationship-map|comparison-matrix|card-sequence|cost-stack|schedule-bar-chart|activity-network","diagram_rationale":"why this mechanism teaches this claim better than the alternatives","diagram_title":"short student-facing title","diagram_total":"final calculated total only for a cost-stack; otherwise empty","diagram_nodes":[{{"title":"short label","detail":"short explanation"}}],"diagram_columns":["Variable","Compared entity A","Compared entity B"],"diagram_rows":[{{"cells":["shared variable","A value","B value"]}}],"schedule_rows":[{{"activity":"short activity","start":0,"duration":3,"status":"planned|complete|in-progress|delayed"}}],"network_paths":[{{"label":"path label","critical":true,"activities":[{{"title":"short activity","duration":"3d"}}]}}],"context_focus":"U.S. residential construction","depicts_people":false,"workforce_representation":"","core_message_depends_on_real_example":false,"technical_fidelity_required":false,"technical_object_type":"","max_area_percent":45,"highlighted":false,"highlight_reason":"exception|warning|decision-point|risk-threshold|contrast|lesson-emphasis, required only when highlighted is true","internal_text":false,"internal_text_position":"top"}}]}}"""
 
 
 def visual_semantic_review_prompt(seed, lesson: dict[str, Any], draft: str, plan: dict[str, Any]) -> str:
@@ -2700,6 +2700,10 @@ def normalize_visual_strategy(visual: dict[str, Any]) -> dict[str, Any]:
     normalized["visual_type"] = "deterministic-diagram" if DIAGRAM_VISUAL_TERMS.search(description) else "generated-conceptual-image"
     normalized["source_status"] = "not-required"
     normalized["technical_fidelity_required"] = False
+    normalized["asset_strategy"] = "native-diagram" if normalized["visual_type"] == "deterministic-diagram" else "generate"
+    normalized["asset_strategy_reason"] = "The selected replacement route communicates the learning claim without requiring authentic technical evidence."
+    normalized["image_need"] = "not-needed" if normalized["visual_type"] == "deterministic-diagram" else "helpful"
+    normalized["image_need_reason"] = "The selected medium makes the lesson relationship concrete without substituting for real evidence."
     return normalized
 
 
@@ -2735,6 +2739,10 @@ def visual_plan_has_decision_evidence(plan: dict[str, Any]) -> bool:
             or not (visual.get("evidence_considered") or [])
             or not (visual.get("alternatives_considered") or [])
             or len(str(visual.get("selection_reason") or "").split()) < 6
+            or visual.get("image_need") not in {"required", "helpful", "not-needed"}
+            or len(str(visual.get("image_need_reason") or "").split()) < 5
+            or visual.get("asset_strategy") not in {"native-diagram", "reuse-reference", "search-online", "generate", "operator-request"}
+            or len(str(visual.get("asset_strategy_reason") or "").split()) < 5
         ):
             return False
     return True
@@ -2784,6 +2792,10 @@ def complete_targeted_visual_decision_evidence(plan: dict[str, Any]) -> dict[str
             str(visual.get("diagram_rationale") or visual.get("purpose") or "")
             or "The selected medium directly expresses the stated learning claim with the least ambiguity.",
         )
+        visual.setdefault("image_need", "not-needed" if strategy == "explain-with-diagram" else "helpful")
+        visual.setdefault("image_need_reason", "The selected medium is required to make the stated learning relationship concrete and inspectable.")
+        visual.setdefault("asset_strategy", "native-diagram" if strategy == "explain-with-diagram" else "reuse-reference" if strategy == "inspect-real-example" else "generate")
+        visual.setdefault("asset_strategy_reason", "The selected route matches the planned medium and preserves the approved teaching purpose.")
     return completed
 
 
@@ -2797,14 +2809,15 @@ def visual_request_document(seed, lesson: dict[str, Any], visuals: list[dict[str
         "",
     ]
     for visual in visuals:
+        request_box = visual.get("request_box") or {}
         lines.extend([
             f"## {visual.get('visual_id')}: {visual.get('learning_claim')}",
             "",
-            f"Technical object: {visual.get('technical_object_type') or 'Technical source image'}",
+            f"Image description: {request_box.get('image_description') or visual.get('technical_object_type') or visual.get('purpose') or 'Technical source image'}",
             "",
-            f"Purpose: {visual.get('purpose')}",
+            f"Pedagogical reason: {request_box.get('pedagogical_reason') or visual.get('image_need_reason') or visual.get('purpose')}",
             "",
-            f"Suggested search: `{visual.get('google_search_phrase') or visual.get('prompt') or seed.title}`",
+            f"Suggested search: `{request_box.get('search_phrase') or visual.get('google_search_phrase') or visual.get('prompt') or seed.title}`",
             "",
         ])
     return "\n".join(lines)
@@ -2950,6 +2963,7 @@ def create_visual_assets(seed, lesson: dict[str, Any], draft: str, run: Path, le
         kind = str(visual.get("visual_type") or "")
         if kind == "deterministic-diagram":
             visual["source_status"] = "not-required"
+            visual["asset_strategy"] = "native-diagram"
             diagram_type = infer_diagram_type(visual)
             visual["diagram_type"] = diagram_type
             visual.setdefault("diagram_rationale", f"The {diagram_type} mechanism matches the visual learning claim and avoids decorative repetition.")
@@ -2992,6 +3006,7 @@ def create_visual_assets(seed, lesson: dict[str, Any], draft: str, run: Path, le
                     rendered["total"] = str(visual.get("diagram_total") or "")
             render_visuals.append(rendered)
         elif kind == "generated-conceptual-image":
+            visual["asset_strategy"] = "generate"
             image_path = run / "review" / "visual_assets" / f"{visual['visual_id']}.png"
             try:
                 request_image(seed.slug, str(visual.get("prompt") or visual.get("purpose") or lesson["title"]), image_path)
@@ -3013,11 +3028,25 @@ def create_visual_assets(seed, lesson: dict[str, Any], draft: str, run: Path, le
                 visual["path"] = rel(image_path)
                 visual["source_url"] = match.get("source_url") or ""
                 visual["attribution"] = match.get("source_label") or match.get("filename")
+                visual["asset_strategy"] = "reuse-reference"
                 render_visuals.append({"after_heading": str(visual.get("placement") or "").removeprefix("after ").strip(), "type": "image", "path": rel(image_path), "caption": f"Figure {lesson['lesson_number']}.{index + 1}. {visual.get('learning_claim')} Source: {visual.get('attribution')}", "max_height": 3.7})
             else:
                 if not technical_visual_requires_operator(visual):
                     raise RuntimeError("A non-technical visual reached operator escalation after visual normalization.")
                 visual["source_status"] = "source-needed"
+                visual["asset_strategy"] = "operator-request"
+                visual["asset_strategy_reason"] = str(visual.get("asset_strategy_reason") or "") or "No permitted reference or verified online asset is available, and generation would compromise required technical fidelity."
+                visual["request_box"] = {
+                    "image_description": str((visual.get("request_box") or {}).get("image_description") or visual.get("technical_object_type") or visual.get("purpose") or "Required technical source image"),
+                    "pedagogical_reason": str((visual.get("request_box") or {}).get("pedagogical_reason") or visual.get("image_need_reason") or visual.get("learning_claim") or "Learners need authentic evidence to inspect the technical condition."),
+                    "search_phrase": str((visual.get("request_box") or {}).get("search_phrase") or visual.get("google_search_phrase") or visual.get("purpose") or seed.title),
+                }
+                render_visuals.append({
+                    "after_heading": str(visual.get("placement") or "").removeprefix("after ").strip(),
+                    "type": "image_request",
+                    "visual_id": visual["visual_id"],
+                    **visual["request_box"],
+                })
                 requests.append(visual)
     plan["visuals"] = visuals
     plan["visual_curation_required"] = bool(requests)
@@ -3035,7 +3064,7 @@ def create_visual_assets(seed, lesson: dict[str, Any], draft: str, run: Path, le
         request_md = run / "review" / f"{lesson_tag}_image_requests.md"
         write_json(request_json, {"course_slug": seed.slug, "lesson_number": int(lesson["lesson_number"]), "status": "waiting_images", "requests": requests})
         write_text(request_md, visual_request_document(seed, lesson, requests))
-        return [], True
+        return render_visuals, True
     if not qa["passed"]:
         raise RuntimeError("Visual plan automatic QA failed; no student PDF was released.")
     for path in [run / "review" / f"{lesson_tag}_image_requests.json", run / "review" / f"{lesson_tag}_image_requests.md"]:
@@ -3044,7 +3073,7 @@ def create_visual_assets(seed, lesson: dict[str, Any], draft: str, run: Path, le
     return render_visuals, False
 
 
-def render_reviewed_study_guide(seed, lesson: dict[str, Any], draft_path: Path, revision: int, render_visuals: list[dict[str, Any]]) -> list[str]:
+def render_reviewed_study_guide(seed, lesson: dict[str, Any], draft_path: Path, revision: int, render_visuals: list[dict[str, Any]], *, operator_request_draft: bool = False) -> list[str]:
     run = RUNS / seed.slug
     lesson_number = int(lesson["lesson_number"])
     lesson_tag = lid(lesson_number)
@@ -3063,6 +3092,7 @@ def render_reviewed_study_guide(seed, lesson: dict[str, Any], draft_path: Path, 
         "metadata": {"course_title": seed.title, "lesson_number": str(lesson_number), "lesson_short_title": lesson['title'], "level_label": seed.level if str(seed.level).lower().endswith("level") else f"{seed.level} Level", "quote": f'"{cover_quote["quote"]}"', "quote_author": cover_quote["author"], "quote_verification_url": cover_quote["verification_url"], "icon": BRAND_ICON},
         "output": {"pdf": f"docx_pdf/{pdf_name}", "render_qa": f"docx_pdf/{lesson_tag}_render_qa_r{revision:02d}.md", "layout_qa": f"docx_pdf/{lesson_tag}_pdf_layout_qa_r{revision:02d}.md", "rendered_dir": f"docx_pdf/rendered_pages_{lesson_tag}_r{revision:02d}"},
         "visuals": render_visuals,
+        "visual_curation_required": operator_request_draft,
         "qa_notes": ["Revisioned student artifact; old outputs remain archived.", "Content and layout QA must pass before human review."],
     }
     if baseline:
@@ -3095,6 +3125,13 @@ def render_reviewed_study_guide(seed, lesson: dict[str, Any], draft_path: Path, 
     )
     if not layout["passed"]:
         raise RuntimeError("Study guide layout automatic QA failed; no student PDF was released.")
+    if operator_request_draft:
+        update_canonical_manifest(seed.slug)
+        return [
+            f"Course-book image-request draft created: {rel(run / spec['output']['pdf'])}",
+            f"Image request document: {rel(run / 'review' / f'{lesson_tag}_image_requests.md')}",
+            "The red request box must be resolved before final student release.",
+        ]
     complete_revision_request(run, lesson_tag, "study_guide", pdf_path)
     update_canonical_manifest(seed.slug)
     return [f"Study guide revision r{revision:02d} created: {rel(run / spec['output']['pdf'])}", "All required automatic content, reviewer, visual, MECE, and layout gates passed."]
@@ -3134,8 +3171,7 @@ def produce_study_guide(course_slug: str, lesson_number: int) -> list[str]:
         write_text(draft_path, draft)
         render_visuals, waiting_images = create_visual_assets(seed, lesson, draft, run, lesson_tag)
         if waiting_images:
-            update_canonical_manifest(seed.slug)
-            return [f"Lesson {lesson_number} is still waiting for one or more requested images."]
+            return render_reviewed_study_guide(seed, lesson, draft_path, revision, render_visuals, operator_request_draft=True)
         return render_reviewed_study_guide(seed, lesson, draft_path, revision, render_visuals)
     if prior_drafts and reusable_sources_current:
         draft_path = prior_drafts[-1]
@@ -3146,8 +3182,7 @@ def produce_study_guide(course_slug: str, lesson_number: int) -> list[str]:
             write_text(draft_path, draft)
             render_visuals, waiting_images = create_visual_assets(seed, lesson, draft, run, lesson_tag)
             if waiting_images:
-                update_canonical_manifest(seed.slug)
-                return [f"Lesson {lesson_number} is waiting for one or more requested images."]
+                return render_reviewed_study_guide(seed, lesson, draft_path, revision, render_visuals, operator_request_draft=True)
             return render_reviewed_study_guide(seed, lesson, draft_path, revision, render_visuals)
     try:
         refresh = cached_refresh if lesson_sources_are_adequate(cached_refresh) else lesson_source_refresh(seed, lesson, ledger)
@@ -3365,12 +3400,9 @@ def produce_study_guide(course_slug: str, lesson_number: int) -> list[str]:
     render_visuals, waiting_images = create_visual_assets(seed, lesson, draft, run, lesson_tag)
     archive_review_report(run, lesson_tag, "visual_qa", revision)
     if waiting_images:
+        result = render_reviewed_study_guide(seed, lesson, draft_path, revision, render_visuals, operator_request_draft=True)
         working_path.unlink(missing_ok=True)
-        update_canonical_manifest(seed.slug)
-        return [
-            f"Lesson {lesson_number} passed content review and is waiting for operator images.",
-            f"Image request document: {rel(run / 'review' / f'{lesson_tag}_image_requests.md')}",
-        ]
+        return result
     result = render_reviewed_study_guide(seed, lesson, draft_path, revision, render_visuals)
     working_path.unlink(missing_ok=True)
     return result
@@ -3400,6 +3432,8 @@ DECK_VISUAL_MEDIA = {
     "trusted-source-image",
     "generated-conceptual-image",
 }
+DECK_IMAGE_NEEDS = {"required", "helpful", "not-needed"}
+DECK_ASSET_STRATEGIES = {"native-diagram", "reuse-reference", "search-online", "generate", "operator-request"}
 DECK_IMAGE_LAYOUTS = {"intro_image_bullets", "image_bullets"}
 DECK_LAYOUT_MECHANISMS = {
     "card_sequence": "card-sequence",
@@ -3507,16 +3541,20 @@ The course book below is the single content authority. The Course Map visual dec
 Plan every body slide in this order:
 1. State one `learning_job`: the specific change in learner understanding or judgment.
 2. Choose one `teaching_strategy` from activate-prior-knowledge, anchor-with-scenario, worked-example, compare-and-contrast, trace-a-process, inspect-evidence, diagnose-and-decide, or synthesize-and-recall.
-3. Evaluate all three `visual_candidates`: native-diagram, trusted-source-image, and generated-conceptual-image. Give each a concrete fit or rejection reason, mark exactly one selected, and set `visual_medium` to it. Do not begin from a favorite layout.
-4. Choose the renderer layout only after the medium and teaching strategy are resolved. State `text_role`: what the words add that the visual cannot carry alone, such as directing attention, explaining a decision rule, or naming the takeaway.
+3. State `image_need` as required, helpful, or not-needed and explain the pedagogical reason. Empty space is not a reason to add an image.
+4. Evaluate all three `visual_candidates`: native-diagram, trusted-source-image, and generated-conceptual-image. Give each a concrete fit or rejection reason, mark exactly one selected, and set `visual_medium` to it. Do not begin from a favorite layout.
+5. Select `asset_strategy`: native-diagram, reuse-reference, search-online, generate, or operator-request. Inspect permitted reference material first; select online search only with a verified attributable asset; generate only when authenticity is not the claim; ask the operator only after applicable alternatives are unsuitable or exhausted.
+6. Choose the renderer layout only after the medium and teaching strategy are resolved. State `text_role`: what the words add that the visual cannot carry alone, such as directing attention, explaining a decision rule, or naming the takeaway.
 
 Consciously adapt the resolved visual strategy to presentation scale. For every body slide, provide `course_map_visual_id` when it implements a mapped insertion, plus `pedagogical_strategy`, `real_example_importance`, `generation_suitability`, `source_strategy`, `evidence_considered`, `alternatives_considered`, and `selection_reason`. Do not conduct a broad inspiration search or invent a new source decision. A native diagram should use the mechanism that matches the content logic: `process_flow` for ordered movement or handoffs; `schedule_bar_chart` for time-scaled timing, overlap, status, or drift; `activity_network` for predecessor/successor logic, parallel paths, or the controlling path; `comparison` only for comparable dimensions; `planned_actual` only for a consequential variance that is not itself a time-scaled schedule; paired rows only for records or mappings; and checklist rows only for field verification. `card_sequence` is only for grouped or equal-priority concepts, never an ordered process. Never turn a concept into two generic boxes simply because the layout exists. Use an `intro_image_bullets` or `image_bullets` slide only when the selected medium is a trusted real image or generated conceptual image; an image slide is not mandatory. Its image must teach a specific point, not decorate the slide.
 
-For every image layout, supply `image_alt` and `image_source_strategy` as `trusted-source` or `generated-conceptual`. A generated image also requires `image_prompt`. A trusted-source image requires `source_id` or a reusable `course_book_visual_id`; never provide an image prompt as a substitute. If `real_example_importance` is `required` or `generation_suitability` is `unsafe`, generation is forbidden. If the required verified asset is unavailable, preserve the request rather than silently substituting a generic scene. Generated conceptual images must depict a realistic U.S. residential construction setting when people or a jobsite appear, represent the workforce respectfully, and contain no visible text, labels, logos, watermarks, or UI.
+For every image layout, supply `image_alt` and `image_source_strategy` as `trusted-source`, `generated-conceptual`, or `operator-request`. A generated image also requires `image_prompt`. A trusted-source image requires `source_id` or a reusable `course_book_visual_id`; never provide an image prompt as a substitute. An operator request requires `request_box` with `image_description`, `pedagogical_reason`, and `search_phrase`; the renderer will place this content in a red box where the image belongs. If `real_example_importance` is `required` or `generation_suitability` is `unsafe`, generation is forbidden. If the required verified asset is unavailable, preserve the request rather than silently substituting a generic scene. Generated conceptual images must depict a realistic U.S. residential construction setting when people or a jobsite appear, represent the workforce respectfully, and contain no visible text, labels, logos, watermarks, or UI.
 
 Across slides 2-9, use at least four distinct layouts, do not place the same layout on adjacent slides, and do not use one body layout more than twice. This is only an anti-repetition floor. Visual variety must come from different learning jobs; never choose a weaker medium or mechanism merely to increase variety. Never highlight a last item merely because it is last.
 
 Every visible layout payload is mandatory. Never return an empty `items`, `bullets`, `left`, `right`, `schedule_rows`, or `network_paths` structure. Every body slide needs a meaningful title, a complete visual payload, and a `bottom_line` that explains the learner decision. The final takeaway needs a substantive `body` and `final_line`. A slide with only a title, subtitle, footer, or isolated text is invalid.
+
+Every body-slide object must also contain `image_need`, `image_need_reason`, `asset_strategy`, and `asset_strategy_reason`. When `asset_strategy` is `operator-request`, it must also contain `request_box` with `image_description`, `pedagogical_reason`, and `search_phrase`, and use `image_source_strategy` and `source_strategy` value `operator-request`.
 
 Required JSON schema:
 {{"slides":[{{"layout":"cover","title":"...","subtitle":"...","topics":["...","...","...","..."]}},{{"layout":"card_sequence|process_flow|comparison|planned_actual|row_list|checklist_rows","title":"...","subtitle":"...","learning_job":"specific learner change","teaching_strategy":"activate-prior-knowledge|anchor-with-scenario|worked-example|compare-and-contrast|trace-a-process|inspect-evidence|diagnose-and-decide|synthesize-and-recall","visual_medium":"native-diagram","visual_candidates":[{{"medium":"native-diagram","decision":"selected|rejected","reason":"specific fit"}},{{"medium":"trusted-source-image","decision":"selected|rejected","reason":"specific fit"}},{{"medium":"generated-conceptual-image","decision":"selected|rejected","reason":"specific fit"}}],"text_role":"what the words add to the visual","course_map_visual_id":"L01V01 or empty only when not mapped","pedagogical_strategy":"explain-with-diagram","real_example_importance":"required|preferred|not-needed","generation_suitability":"safe|unsafe","source_strategy":"deterministic","evidence_considered":[{{"locator":"filename/page or URL","relevance":"..."}}],"alternatives_considered":["trusted real image because...","generated conceptual image because..."],"selection_reason":"presentation-specific reason","items":[{{"title":"...","body":"..."}}],"bottom_line":"..."}},{{"layout":"schedule_bar_chart","title":"...","subtitle":"...","schedule_rows":[{{"activity":"...","start":0,"duration":3,"status":"planned|complete|in-progress|delayed"}}],"bottom_line":"...","learning_job":"...","teaching_strategy":"trace-a-process","visual_medium":"native-diagram","visual_candidates":[{{"medium":"native-diagram","decision":"selected","reason":"Time-scaled bars reveal timing and overlap directly."}},{{"medium":"trusted-source-image","decision":"rejected","reason":"A source screenshot would add irrelevant project detail."}},{{"medium":"generated-conceptual-image","decision":"rejected","reason":"A scene cannot show time-scaled schedule logic."}}],"text_role":"...","pedagogical_strategy":"explain-with-diagram","real_example_importance":"not-needed","generation_suitability":"safe","source_strategy":"deterministic","evidence_considered":[{{"locator":"...","relevance":"..."}}],"alternatives_considered":["...","..."],"selection_reason":"..."}},{{"layout":"activity_network","title":"...","subtitle":"...","network_paths":[{{"label":"...","critical":true,"activities":[{{"title":"...","duration":"3d"}}]}}],"bottom_line":"...","learning_job":"...","teaching_strategy":"trace-a-process","visual_medium":"native-diagram","visual_candidates":[{{"medium":"native-diagram","decision":"selected","reason":"Connected nodes expose predecessor and path logic directly."}},{{"medium":"trusted-source-image","decision":"rejected","reason":"A source screenshot would obscure the target relationship."}},{{"medium":"generated-conceptual-image","decision":"rejected","reason":"A scene cannot show controlling path logic."}}],"text_role":"...","pedagogical_strategy":"explain-with-diagram","real_example_importance":"not-needed","generation_suitability":"safe","source_strategy":"deterministic","evidence_considered":[{{"locator":"...","relevance":"..."}}],"alternatives_considered":["...","..."],"selection_reason":"..."}},{{"layout":"intro_image_bullets|image_bullets","title":"...","subtitle":"...","intro":"...","bullets":["...","...","..."],"learning_job":"...","teaching_strategy":"...","visual_medium":"trusted-source-image|generated-conceptual-image","visual_candidates":[{{"medium":"native-diagram","decision":"selected|rejected","reason":"..."}},{{"medium":"trusted-source-image","decision":"selected|rejected","reason":"..."}},{{"medium":"generated-conceptual-image","decision":"selected|rejected","reason":"..."}}],"text_role":"...","course_map_visual_id":"...","course_book_visual_id":"...","pedagogical_strategy":"inspect-real-example|orient-with-conceptual-image","real_example_importance":"preferred|not-needed|required","generation_suitability":"safe|unsafe","source_strategy":"trusted-source|generated-fallback","evidence_considered":[{{"locator":"...","relevance":"..."}}],"alternatives_considered":["..."],"selection_reason":"...","image_source_strategy":"trusted-source|generated-conceptual","source_id":"required for an operator source when applicable","image_side":"left|right","image_alt":"...","image_prompt":"only for generated-conceptual"}},{{"layout":"takeaway","title":"...","body":"...","final_line":"..."}}]}}
@@ -3551,7 +3589,7 @@ Apply only the requested changes. Preserve every unmentioned slide, layout, slid
 
 Supported layouts are: cover, intro_image_bullets, image_bullets, card_sequence, process_flow, schedule_bar_chart, activity_network, comparison, planned_actual, row_list, checklist_rows, and takeaway. When QA requires `process-flow`, use layout `process_flow` with 2-6 ordered `items`. When it requires `schedule-bar-chart`, use `schedule_bar_chart` with 3-7 `schedule_rows`. When it requires `activity-network`, use `activity_network` with 1-2 `network_paths`, each containing 2-4 connected activities. Never spell a layout with hyphens.
 
-For every body slide, preserve or add the internal visual-decision fields required by the current worker: `learning_job`, `teaching_strategy`, `visual_medium`, all three `visual_candidates` with exactly one selected and concrete reasons, `text_role`, `pedagogical_strategy`, `real_example_importance`, `generation_suitability`, `source_strategy`, `evidence_considered`, `alternatives_considered`, and `selection_reason`. Adding missing internal planning metadata is not a student-visible change. The selected medium must match the preserved layout and asset: non-image layouts use `native-diagram`; trusted image assets use `trusted-source-image`; generated assets use `generated-conceptual-image`.
+For every body slide, preserve or add the internal visual-decision fields required by the current worker: `learning_job`, `teaching_strategy`, `image_need`, `image_need_reason`, `visual_medium`, all three `visual_candidates` with exactly one selected and concrete reasons, `asset_strategy`, `asset_strategy_reason`, `text_role`, `pedagogical_strategy`, `real_example_importance`, `generation_suitability`, `source_strategy`, `evidence_considered`, `alternatives_considered`, and `selection_reason`. Adding missing internal planning metadata is not a student-visible change. The selected medium must match the preserved layout and asset: non-image layouts use `native-diagram`; trusted image assets use `trusted-source-image`; generated assets use `generated-conceptual-image`. An unresolved trusted image uses `asset_strategy`, `image_source_strategy`, and `source_strategy` value `operator-request` plus a `request_box` containing `image_description`, `pedagogical_reason`, and `search_phrase`.
 
 Requested changes:
 {feedback}{request_contract}
@@ -3608,6 +3646,13 @@ def normalize_deck_slides(data: dict[str, Any], lesson: dict[str, Any]) -> list[
             raise RuntimeError("Every visual candidate needs a concrete fit or rejection reason.")
         if len(str(slide.get("text_role") or "").split()) < 4:
             raise RuntimeError("Every presentation body slide must explain how text works with the selected visual.")
+        image_need = str(slide.get("image_need") or "")
+        asset_strategy = str(slide.get("asset_strategy") or "")
+        if image_need not in DECK_IMAGE_NEEDS or len(str(slide.get("image_need_reason") or "").split()) < 5:
+            raise RuntimeError("Every presentation body slide must state whether an image improves learning and why.")
+        expected_assets = {"native-diagram": {"native-diagram"}, "trusted-source-image": {"reuse-reference", "search-online", "operator-request"}, "generated-conceptual-image": {"generate"}}[medium]
+        if asset_strategy not in expected_assets or len(str(slide.get("asset_strategy_reason") or "").split()) < 5:
+            raise RuntimeError("Every presentation body slide must choose a compatible, justified asset-acquisition strategy.")
         is_image_layout = slide.get("layout") in DECK_IMAGE_LAYOUTS
         if is_image_layout != (medium in {"trusted-source-image", "generated-conceptual-image"}):
             raise RuntimeError("Presentation layout must follow the selected visual medium.")
@@ -3615,7 +3660,7 @@ def normalize_deck_slides(data: dict[str, Any], lesson: dict[str, Any]) -> list[
             raise RuntimeError("Every presentation body slide must state the importance of a real example.")
         if slide.get("generation_suitability") not in {"safe", "unsafe"}:
             raise RuntimeError("Every presentation body slide must state whether generation is safe.")
-        if slide.get("source_strategy") not in {"deterministic", "trusted-source", "generated-fallback"}:
+        if slide.get("source_strategy") not in {"deterministic", "trusted-source", "online-search", "generated-fallback", "operator-request"}:
             raise RuntimeError("Every presentation body slide needs a resolved source strategy.")
         if not isinstance(slide.get("evidence_considered"), list) or not slide.get("evidence_considered"):
             raise RuntimeError("Every presentation body slide needs evidence for its visual decision.")
@@ -3728,7 +3773,7 @@ def normalize_deck_slides(data: dict[str, Any], lesson: dict[str, Any]) -> list[
                 raise RuntimeError("An activity-network slide needs 1-2 paths with 2-4 connected activities each.")
     for index, slide in enumerate(image_slides, start=1):
         strategy = str(slide.get("image_source_strategy") or "")
-        if strategy not in {"trusted-source", "generated-conceptual"} or not str(slide.get("image_alt") or "").strip():
+        if strategy not in {"trusted-source", "generated-conceptual", "operator-request"} or not str(slide.get("image_alt") or "").strip():
             raise RuntimeError("Every teaching-image slide needs a resolved image source and accessible description.")
         if strategy == "generated-conceptual":
             if slide.get("visual_medium") != "generated-conceptual-image":
@@ -3739,13 +3784,24 @@ def normalize_deck_slides(data: dict[str, Any], lesson: dict[str, Any]) -> list[
                 raise RuntimeError("A required real example or generation-unsafe visual may not be generated.")
             if not str(slide.get("image_prompt") or "").strip():
                 raise RuntimeError("Every generated teaching image needs an image prompt.")
-        else:
+        elif strategy == "trusted-source":
             if slide.get("visual_medium") != "trusted-source-image":
                 raise RuntimeError("Trusted image metadata must match the selected visual medium.")
             if slide.get("source_strategy") != "trusted-source":
                 raise RuntimeError("A trusted teaching image must follow the resolved trusted-source strategy.")
             if not str(slide.get("source_id") or slide.get("course_book_visual_id") or "").strip():
                 raise RuntimeError("A trusted teaching image needs a verified source or reusable course-book visual.")
+        else:
+            if slide.get("visual_medium") != "trusted-source-image" or slide.get("asset_strategy") != "operator-request" or slide.get("source_strategy") != "operator-request":
+                raise RuntimeError("An operator request must remain a trusted-source image with matching request metadata.")
+            request_box = slide.get("request_box") or {}
+            if (
+                not isinstance(request_box, dict)
+                or len(str(request_box.get("image_description") or "").split()) < 5
+                or len(str(request_box.get("pedagogical_reason") or "").split()) < 5
+                or len(str(request_box.get("search_phrase") or "").split()) < 3
+            ):
+                raise RuntimeError("An operator image request needs a description, pedagogical reason, and focused search phrase.")
         requested_side = str(slide.get("image_side") or "")
         slide["image_side"] = requested_side if requested_side in {"left", "right"} else ("left" if index % 2 == 0 else "right")
         slide["image_prompt"] = str(slide.get("image_prompt") or "").strip()[:1800]
@@ -3838,7 +3894,7 @@ def deck_visual_plan_from_slides(slides: list[dict[str, Any]], lesson: dict[str,
             for candidate in candidates
             if isinstance(candidate, dict) and candidate.get("decision") == "rejected"
         ]
-        source_status = "verified" if medium == "trusted-source-image" else "not-required"
+        source_status = "source-needed" if slide.get("asset_strategy") == "operator-request" else "verified" if medium == "trusted-source-image" else "not-required"
         visuals.append({
             "visual_id": f"L{lesson_number:02d}S{slide_number:02d}",
             "visual_type": visual_type,
@@ -3850,6 +3906,11 @@ def deck_visual_plan_from_slides(slides: list[dict[str, Any]], lesson: dict[str,
             "visual_medium": medium,
             "visual_candidates": candidates,
             "text_role": slide["text_role"],
+            "image_need": slide["image_need"],
+            "image_need_reason": slide["image_need_reason"],
+            "asset_strategy": slide["asset_strategy"],
+            "asset_strategy_reason": slide["asset_strategy_reason"],
+            "request_box": slide.get("request_box") or {},
             "real_example_importance": slide["real_example_importance"],
             "generation_suitability": slide["generation_suitability"],
             "source_status": source_status,
@@ -3887,21 +3948,22 @@ def deck_visual_plan_from_slides(slides: list[dict[str, Any]], lesson: dict[str,
             "internal_text_position": "inside",
             "structure_justification": slide["selection_reason"],
         })
-    return {"artifact_type": "deck", "visual_curation_required": False, "visuals": visuals}
+    return {"artifact_type": "deck", "visual_curation_required": any(item.get("asset_strategy") == "operator-request" for item in visuals), "visuals": visuals}
 
 
-def create_deck_visual_assets(seed, lesson: dict[str, Any], slides: list[dict[str, Any]], run: Path, lesson_tag: str) -> None:
+def create_deck_visual_assets(seed, lesson: dict[str, Any], slides: list[dict[str, Any]], run: Path, lesson_tag: str) -> bool:
     """Create or reuse only the teaching images allowed by the resolved strategy."""
     uploads = read_uploads(seed.slug)
     course_book_plan_path = run / "review" / f"{lesson_tag}_visual_plan.json"
     course_book_visuals = (json.loads(course_book_plan_path.read_text(encoding="utf-8")).get("visuals") or []) if course_book_plan_path.exists() else []
     image_index = 0
+    requests: list[dict[str, Any]] = []
     for slide in slides:
         if slide.get("layout") not in {"intro_image_bullets", "image_bullets"}:
             continue
         image_index += 1
         asset = run / "deck" / "assets" / f"{lesson_tag}_teaching_image_{image_index:02d}.png"
-        if slide.get("image_source_strategy") == "trusted-source":
+        if slide.get("image_source_strategy") in {"trusted-source", "operator-request"}:
             source_id = str(slide.get("source_id") or "")
             book_id = str(slide.get("course_book_visual_id") or "")
             source_path: Path | None = None
@@ -3914,9 +3976,25 @@ def create_deck_visual_assets(seed, lesson: dict[str, Any], slides: list[dict[st
                 if book_visual and book_visual.get("path") and (ROOT / str(book_visual["path"])).is_file():
                     source_path = ROOT / str(book_visual["path"])
             if source_path is None:
-                raise RuntimeError(
-                    f"Presentation requires verified image {source_id or book_id}; supply or restore that source before rendering."
-                )
+                request_box = slide.get("request_box") or {}
+                request = {
+                    "visual_id": f"L{int(lesson['lesson_number']):02d}S{slides.index(slide) + 1:02d}",
+                    "learning_claim": slide.get("learning_job") or slide.get("title"),
+                    "purpose": slide.get("learning_job") or slide.get("title"),
+                    "image_need_reason": slide.get("image_need_reason") or "Learners need authentic evidence to inspect the concept.",
+                    "request_box": {
+                        "image_description": request_box.get("image_description") or slide.get("image_alt") or "Required teaching image",
+                        "pedagogical_reason": request_box.get("pedagogical_reason") or slide.get("image_need_reason") or "Learners need authentic evidence to inspect the concept.",
+                        "search_phrase": request_box.get("search_phrase") or slide.get("online_search_phrase") or slide.get("image_alt") or lesson["title"],
+                    },
+                }
+                slide["image_source_strategy"] = "operator-request"
+                slide["source_strategy"] = "operator-request"
+                slide["asset_strategy"] = "operator-request"
+                slide["request_box"] = request["request_box"]
+                slide["image"] = {"request": True, "alt": slide["image_alt"], "name": slide["image_name"], **request["request_box"]}
+                requests.append(request)
+                continue
             asset.parent.mkdir(parents=True, exist_ok=True)
             asset.write_bytes(source_path.read_bytes())
             slide["image"] = {"path": str(asset.relative_to(run)), "alt": slide["image_alt"], "name": slide["image_name"]}
@@ -3932,6 +4010,15 @@ def create_deck_visual_assets(seed, lesson: dict[str, Any], slides: list[dict[st
             except ModelRequestError as error:
                 raise RuntimeError("The required teaching image could not be generated.") from error
         slide["image"] = {"path": str(asset.relative_to(run)), "alt": slide["image_alt"], "name": slide["image_name"]}
+    request_json = run / "deck" / f"{lesson_tag}_image_requests.json"
+    request_md = run / "deck" / f"{lesson_tag}_image_requests.md"
+    if requests:
+        write_json(request_json, {"course_slug": seed.slug, "lesson_number": int(lesson["lesson_number"]), "status": "waiting_images", "requests": requests})
+        write_text(request_md, visual_request_document(seed, lesson, requests))
+    else:
+        request_json.unlink(missing_ok=True)
+        request_md.unlink(missing_ok=True)
+    return bool(requests)
 
 
 VIDEO_SOURCE_MAX_BYTES = 20 * 1024 * 1024
@@ -3957,6 +4044,8 @@ def ready_rendered_deck_spec(run: Path, lesson_tag: str) -> tuple[dict[str, Any]
     if not spec_path:
         return None
     spec = json.loads(spec_path.read_text(encoding="utf-8"))
+    if spec.get("visual_curation_required") is True:
+        return None
     output = run / str((spec.get("output") or {}).get("pptx") or "")
     qa_path = run / str((spec.get("output") or {}).get("qa") or "")
     if not output.is_file() or not qa_path.is_file():
@@ -4056,7 +4145,7 @@ def _produce_deck_impl(course_slug: str, lesson_number: int) -> list[str]:
                 "Do not weaken or bypass the QA rule.\n\n"
                 f"Visual-strategy QA failures:\n{failures}",
             )
-        create_deck_visual_assets(seed, lesson, slides, run, lesson_tag)
+        waiting_images = create_deck_visual_assets(seed, lesson, slides, run, lesson_tag)
     except ModelRequestError as error:
         block(run, "deck", f"Configured technical-content model could not produce Lesson {lesson_number} presentation.\n\nReason: {error}")
         raise RuntimeError(str(error)) from error
@@ -4073,6 +4162,7 @@ def _produce_deck_impl(course_slug: str, lesson_number: int) -> list[str]:
         "assets": {"brand_icon": BRAND_ICON, "negative_wordmark": NEGATIVE_WORDMARK},
         "output": {"pptx": f"deck/{filename}", "qa": f"deck/{lesson_tag}_deck_qa_r{revision:02d}.md", "rendered_dir": f"deck/rendered_slides_{lesson_tag}_r{revision:02d}"},
         "slides": slides,
+        "visual_curation_required": waiting_images,
         "qa_checks": ["10 slides.", "MECE: each slide has a distinct teaching job.", "At least four distinct body layouts, with no adjacent repeat and no layout used more than twice.", "Every body slide chooses a teaching strategy before comparing native diagram, trusted real image, and generated conceptual image.", "Every body slide records how text and visual work together.", "No generated image substitutes for a required real example.", "No automatic last-item highlight.", "Residential-construction-first audience anchor.", "No visible timing or speaker notes."],
         "inspection_notes": ["Live deck copy was generated from the approved course book.", "Visual mechanisms follow the resolved Course Map and course-book evidence trail.", "Image-led slides are used only when the strategy calls for a real or conceptual image.", "Deck plan and images are reused after an interrupted render when available.", "Deck is released for review only after renderer QA passes and is visually rechecked."],
     }
@@ -4095,6 +4185,13 @@ def _produce_deck_impl(course_slug: str, lesson_number: int) -> list[str]:
     qa_path = run / spec["output"]["qa"]
     if not qa_path.exists():
         raise RuntimeError("Presentation automatic QA failed; no deck was released for review.")
+    if waiting_images:
+        update_canonical_manifest(seed.slug)
+        return [
+            f"Presentation image-request draft created: {rel(run / spec['output']['pptx'])}",
+            f"Image request document: {rel(run / 'deck' / f'{lesson_tag}_image_requests.md')}",
+            "The red request box must be resolved before final presentation release.",
+        ]
     complete_revision_request(
         run,
         lesson_tag,

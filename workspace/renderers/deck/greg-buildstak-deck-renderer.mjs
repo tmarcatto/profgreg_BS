@@ -14,6 +14,8 @@ const C = {
   white: "#FFFFFF",
   line: "#CBD3DF",
   softBlue: "#EEF4FA",
+  requestRed: "#B91C1C",
+  requestPale: "#FEF2F2",
 };
 
 const inspectRows = [];
@@ -259,6 +261,22 @@ function card(slide, key, title, body, x, y, w, h, accent = C.navy, fill = C.whi
   });
 }
 
+function addImageRequestBox(slide, request, x, y, w, h) {
+  addShape(slide, "operator-image-request", "roundRect", x, y, w, h, C.requestPale, C.requestRed, 3);
+  addText(slide, "operator-image-request-label", "IMAGE REQUIRED", x + 24, y + 22, w - 48, 34, {
+    fontSize: 20, bold: true, color: C.requestRed, alignment: "center",
+  });
+  addText(slide, "operator-image-description", `Description: ${request.image_description || "Required teaching image"}`, x + 30, y + 74, w - 60, 76, {
+    fontSize: 16, color: C.requestRed,
+  });
+  addText(slide, "operator-image-pedagogy", `Pedagogical reason: ${request.pedagogical_reason || "This image is required for the planned learning task."}`, x + 30, y + 156, w - 60, 88, {
+    fontSize: 16, color: C.requestRed,
+  });
+  addText(slide, "operator-image-search", `Suggested search: ${request.search_phrase || ""}`, x + 30, y + 252, w - 60, 50, {
+    fontSize: 14, italic: true, color: C.requestRed,
+  });
+}
+
 async function renderCover(deck, slideSpec) {
   const slide = addSlide(deck, "BuildStak");
   addShape(slide, "left-navy", "rect", 0, 0, 150, 720, C.navy, C.navy, 0);
@@ -319,7 +337,8 @@ async function renderImageBullets(deck, slideSpec) {
   const imageY = 236;
 
   if (imageLeft) {
-    await addImage(slide, image.name || "teaching-image", imagePath, imageX, imageY, imageW, imageH, image.alt, "cover");
+    if (image.request) addImageRequestBox(slide, image, imageX, imageY, imageW, imageH);
+    else await addImage(slide, image.name || "teaching-image", imagePath, imageX, imageY, imageW, imageH, image.alt, "cover");
   }
 
   addText(slide, "intro", slideSpec.intro, textX, 236, textW, 76, {
@@ -333,7 +352,8 @@ async function renderImageBullets(deck, slideSpec) {
     addText(slide, "bottom-line", slideSpec.bottom_line, textX, 548, textW, 42, { fontSize: 23, bold: true, color: C.navy });
   }
   if (!imageLeft) {
-    await addImage(slide, image.name || "teaching-image", imagePath, imageX, imageY, imageW, imageH, image.alt, "cover");
+    if (image.request) addImageRequestBox(slide, image, imageX, imageY, imageW, imageH);
+    else await addImage(slide, image.name || "teaching-image", imagePath, imageX, imageY, imageW, imageH, image.alt, "cover");
   }
 }
 
@@ -346,17 +366,21 @@ async function renderIntroImageBullets(deck, slideSpec) {
   const imageX = imageLeft ? 72 : 668;
   addText(slide, "intro", slideSpec.intro, textX, 236, 558, 76, { fontSize: 22, color: C.gray });
   (slideSpec.bullets || []).forEach((item, idx) => addBullet(slide, item, textX, 338 + idx * 66, 558, idx + 1, 21));
-  await addImage(
-    slide,
-    slideSpec.image.name || "teaching-image",
-    runPath(slideSpec.image.path),
-    imageX,
-    236,
-    540,
-    330,
-    slideSpec.image.alt,
-    "cover"
-  );
+  if (slideSpec.image?.request) {
+    addImageRequestBox(slide, slideSpec.image, imageX, 236, 540, 330);
+  } else {
+    await addImage(
+      slide,
+      slideSpec.image.name || "teaching-image",
+      runPath(slideSpec.image.path),
+      imageX,
+      236,
+      540,
+      330,
+      slideSpec.image.alt,
+      "cover"
+    );
+  }
 }
 
 async function renderCardSequence(deck, slideSpec) {

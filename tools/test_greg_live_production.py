@@ -26,6 +26,11 @@ def deck_decision(medium: str = "native-diagram") -> dict:
         "trusted-source-image": ("inspect-real-example", "trusted-source"),
         "generated-conceptual-image": ("orient-with-conceptual-image", "generated-fallback"),
     }[medium]
+    asset_strategy = {
+        "native-diagram": "native-diagram",
+        "trusted-source-image": "reuse-reference",
+        "generated-conceptual-image": "generate",
+    }[medium]
     return {
         "learning_job": "Learners can apply this distinct construction decision correctly.",
         "teaching_strategy": "diagnose-and-decide",
@@ -35,6 +40,10 @@ def deck_decision(medium: str = "native-diagram") -> dict:
             for candidate in ["native-diagram", "trusted-source-image", "generated-conceptual-image"]
         ],
         "text_role": "Text directs attention to the decision rule.",
+        "image_need": "not-needed" if medium == "native-diagram" else "helpful",
+        "image_need_reason": "The selected medium makes the construction decision concrete for the learner.",
+        "asset_strategy": asset_strategy,
+        "asset_strategy_reason": "The selected route matches the required teaching medium and evidence needs.",
         "pedagogical_strategy": selected_strategy[0],
         "real_example_importance": "not-needed",
         "generation_suitability": "safe",

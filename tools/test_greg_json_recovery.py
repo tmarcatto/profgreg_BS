@@ -78,6 +78,10 @@ class VisualDecisionEvidenceTests(unittest.TestCase):
             "evidence_considered": [{"locator": "course map", "relevance": "Shows the dependency."}],
             "alternatives_considered": ["comparison matrix"],
             "selection_reason": "A process diagram makes the required dependency visible to learners.",
+            "image_need": "not-needed",
+            "image_need_reason": "A photograph would not clarify the abstract dependency being taught.",
+            "asset_strategy": "native-diagram",
+            "asset_strategy_reason": "A native process diagram directly exposes the required dependency relationship.",
         }]}
         self.assertTrue(production.visual_plan_has_decision_evidence(current_plan))
 

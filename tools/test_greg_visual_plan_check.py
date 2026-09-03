@@ -49,6 +49,10 @@ class VisualPlanCheckTests(unittest.TestCase):
                                     {"medium": "generated-conceptual-image", "decision": "selected", "reason": "A conceptual scene safely anchors the scenario."},
                                 ],
                                 "text_role": "Text states the decision learners should notice.",
+                                "image_need": "helpful",
+                                "image_need_reason": "A realistic setting makes the abstract coordination decision easier to transfer.",
+                                "asset_strategy": "generate",
+                                "asset_strategy_reason": "Generation safely supplies context because authenticity is not the claim.",
                                 "real_example_importance": "not-needed",
                                 "generation_suitability": "safe",
                                 "evidence_considered": [{"source_type": "course-map", "locator": "Lesson 1 visual strategy"}],
@@ -76,6 +80,10 @@ class VisualPlanCheckTests(unittest.TestCase):
                                     {"medium": "generated-conceptual-image", "decision": "rejected", "reason": "A scene cannot expose abstract responsibility boundaries."},
                                 ],
                                 "text_role": "Text names the responsibility distinction inside each region.",
+                                "image_need": "not-needed",
+                                "image_need_reason": "A photograph would not clarify the abstract responsibility boundaries being compared.",
+                                "asset_strategy": "native-diagram",
+                                "asset_strategy_reason": "A native comparison directly exposes the shared variables and boundaries.",
                                 "real_example_importance": "not-needed",
                                 "generation_suitability": "safe",
                                 "evidence_considered": [{"source_type": "course-map", "locator": "Lesson 1 visual strategy"}],
@@ -307,6 +315,10 @@ class VisualPlanCheckTests(unittest.TestCase):
                                         {"medium": "generated-conceptual-image", "decision": "rejected", "reason": "A generated scene cannot show the decision structure."},
                                     ],
                                     "text_role": "The labels name the evidence and required response.",
+                                    "image_need": "not-needed",
+                                    "image_need_reason": "A real or generated image would hide the decision relationship.",
+                                    "asset_strategy": "native-diagram",
+                                    "asset_strategy_reason": "The native mechanism directly exposes the required decision structure.",
                                 }
                             ],
                         }
@@ -315,6 +327,27 @@ class VisualPlanCheckTests(unittest.TestCase):
                 )
                 result = checker.run_checks(path)
                 self.assertTrue(result["passed"])
+
+    def test_operator_request_requires_complete_red_box_payload(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "visual_plan.json"
+            path.write_text(json.dumps({"artifact_type": "study-guide", "visual_curation_required": True, "visuals": [{
+                "visual_id": "V1", "visual_type": "trusted-source-image", "placement": "Section 02",
+                "purpose": "Lets learners inspect an authentic coordination issue in context.",
+                "learning_claim": "A real coordination view reveals the exact conflict that requires field verification.",
+                "pedagogical_strategy": "inspect-real-example", "real_example_importance": "required",
+                "generation_suitability": "unsafe", "source_status": "source-needed",
+                "context_focus": "U.S. residential construction",
+                "evidence_considered": [{"locator": "course map"}],
+                "alternatives_considered": ["diagram rejected", "generation unsafe"],
+                "selection_reason": "Learners must inspect authentic technical detail before deciding what to verify.",
+                "image_need": "required", "image_need_reason": "Authentic technical detail is the evidence learners must learn to inspect.",
+                "asset_strategy": "operator-request", "asset_strategy_reason": "No reusable or licensable verified source was available and generation is unsafe.",
+                "request_box": {"image_description": "Annotated residential BIM coordination view showing one constructability conflict.", "pedagogical_reason": "Learners need to identify the conflict before tracing the verification decision.", "search_phrase": "residential BIM coordination clash example"}
+            }]}), encoding="utf-8")
+            result = checker.run_checks(path)
+            finding = next(item for item in result["findings"] if item["check"] == "operator_request_box")
+            self.assertEqual("pass", finding["status"])
 
 
 if __name__ == "__main__":

@@ -47,6 +47,8 @@ MUTED = colors.HexColor("#6b7280")
 LIGHT = colors.HexColor("#f5f7fb")
 PALE_ORANGE = colors.HexColor("#fff2e9")
 LINE = colors.HexColor("#d5dce8")
+REQUEST_RED = colors.HexColor("#B91C1C")
+REQUEST_PALE = colors.HexColor("#FEF2F2")
 
 # Use TrueType fonts so every rendered page remains readable in Poppler and
 # browser PDF viewers.  ReportLab's built-in Helvetica is not embedded, which
@@ -84,6 +86,7 @@ styles.add(ParagraphStyle(name="BridgeLead", parent=styles["BodyGreg"], fontSize
 styles.add(ParagraphStyle(name="Caption", parent=styles["BodyGreg"], fontSize=8.6, leading=11, textColor=MUTED, alignment=TA_CENTER, spaceBefore=4, spaceAfter=10))
 styles.add(ParagraphStyle(name="TableHeader", parent=styles["BodyGreg"], fontName=FONT_BOLD, textColor=colors.white, spaceAfter=0))
 styles.add(ParagraphStyle(name="TableAtomic", parent=styles["BodyGreg"], splitLongWords=0))
+styles.add(ParagraphStyle(name="ImageRequest", parent=styles["BodyGreg"], fontSize=9.2, leading=12.5, textColor=REQUEST_RED, spaceAfter=0))
 
 
 def resolve_path(value: str | Path) -> Path:
@@ -1298,7 +1301,23 @@ def make_doc(output: Path, metadata: dict[str, Any]):
 
 def visual_flowables(visual: dict[str, Any]) -> list[Any]:
     diagram_type = visual.get("type")
-    if diagram_type == "image":
+    if diagram_type == "image_request":
+        request_copy = (
+            f"<b>IMAGE REQUIRED — {html.escape(str(visual.get('visual_id') or 'operator request'))}</b><br/>"
+            f"<b>Description:</b> {html.escape(str(visual.get('image_description') or 'Required teaching image'))}<br/>"
+            f"<b>Pedagogical reason:</b> {html.escape(str(visual.get('pedagogical_reason') or 'This image is required for the planned learning task.'))}<br/>"
+            f"<b>Suggested search:</b> {html.escape(str(visual.get('search_phrase') or ''))}"
+        )
+        flowable = Table([[Paragraph(request_copy, styles["ImageRequest"])]], colWidths=[6.45 * inch], hAlign="CENTER")
+        flowable.setStyle(TableStyle([
+            ("BOX", (0, 0), (-1, -1), 2.2, REQUEST_RED),
+            ("BACKGROUND", (0, 0), (-1, -1), REQUEST_PALE),
+            ("LEFTPADDING", (0, 0), (-1, -1), 14),
+            ("RIGHTPADDING", (0, 0), (-1, -1), 14),
+            ("TOPPADDING", (0, 0), (-1, -1), 14),
+            ("BOTTOMPADDING", (0, 0), (-1, -1), 14),
+        ]))
+    elif diagram_type == "image":
         path = resolve_path(str(visual.get("path") or ""))
         if not path.is_file():
             raise ValueError(f"Visual image does not exist: {path}")

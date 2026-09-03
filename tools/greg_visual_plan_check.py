@@ -29,6 +29,8 @@ DECK_TEACHING_STRATEGIES = {
     "trace-a-process", "inspect-evidence", "diagnose-and-decide", "synthesize-and-recall",
 }
 DECK_VISUAL_MEDIA = {"native-diagram", "trusted-source-image", "generated-conceptual-image"}
+IMAGE_NEEDS = {"required", "helpful", "not-needed"}
+ASSET_STRATEGIES = {"native-diagram", "reuse-reference", "search-online", "generate", "operator-request"}
 BRAND_TYPES = {"brand-mark", "logo"}
 ALLOWED_HIGHLIGHT_REASONS = {
     "exception",
@@ -150,6 +152,10 @@ def run_checks(plan_path: Path) -> dict[str, Any]:
     deck_decision_protocol_gaps = []
     diagram_explanation_gaps = []
     comparison_matrix_structure_gaps = []
+    image_need_gaps = []
+    asset_strategy_gaps = []
+    operator_request_box_gaps = []
+    unresolved_online_searches = []
 
     for index, visual in enumerate(visuals):
         label = visual_label(visual, index)
@@ -173,10 +179,39 @@ def run_checks(plan_path: Path) -> dict[str, Any]:
             learning_claims.setdefault(normalize(learning_claim), []).append(label)
 
         source_status = str(visual.get("source_status") or "").strip()
-        if kind in SOURCE_TYPES and not (visual.get("source_id") or visual.get("source_url") or visual.get("attribution")):
+        asset_strategy = str(visual.get("asset_strategy") or "").strip()
+        image_need = str(visual.get("image_need") or "").strip()
+        image_need_reason = str(visual.get("image_need_reason") or "").strip()
+        asset_strategy_reason = str(visual.get("asset_strategy_reason") or "").strip()
+        if image_need not in IMAGE_NEEDS or len(image_need_reason.split()) < 5:
+            image_need_gaps.append(label)
+        expected_asset_strategies = {
+            "deterministic-diagram": {"native-diagram"},
+            "chart": {"native-diagram"},
+            "process-flow": {"native-diagram"},
+            "structured-visual": {"native-diagram"},
+            "generated-conceptual-image": {"generate"},
+            "trusted-source-image": {"reuse-reference", "search-online", "operator-request"},
+            "real-source-image": {"reuse-reference", "search-online", "operator-request"},
+        }.get(kind, ASSET_STRATEGIES)
+        if asset_strategy not in expected_asset_strategies or len(asset_strategy_reason.split()) < 5:
+            asset_strategy_gaps.append(label)
+        if kind in SOURCE_TYPES and asset_strategy != "operator-request" and not (visual.get("source_id") or visual.get("source_url") or visual.get("attribution")):
             source_gaps.append(label)
-        if source_status in {"source-needed", "unverified", "missing"}:
+        if source_status in {"source-needed", "unverified", "missing"} and asset_strategy != "operator-request":
             source_needed.append(label)
+        if asset_strategy == "search-online" and not (visual.get("source_url") and visual.get("attribution")):
+            unresolved_online_searches.append(label)
+        if asset_strategy == "operator-request":
+            request_box = visual.get("request_box") or {}
+            if (
+                not isinstance(request_box, dict)
+                or len(str(request_box.get("image_description") or "").split()) < 5
+                or len(str(request_box.get("pedagogical_reason") or "").split()) < 5
+                or len(str(request_box.get("search_phrase") or "").split()) < 3
+                or source_status not in {"source-needed", "visual-curation-required"}
+            ):
+                operator_request_box_gaps.append(label)
 
         context_focus = normalize(str(visual.get("context_focus") or visual.get("setting") or visual.get("scenario_context") or ""))
         if "residential" not in context_focus and not visual.get("commercial_contrast") is True:
@@ -395,6 +430,26 @@ def run_checks(plan_path: Path) -> dict[str, Any]:
         findings.append(Finding("fail", "visual_source_status", f"Visual source gaps: source attribution missing {source_gaps}; source-needed {source_needed}."))
     else:
         findings.append(Finding("pass", "visual_source_status", "Visual source status is production-ready."))
+
+    if image_need_gaps:
+        findings.append(Finding("fail", "image_need_decision", f"Visuals do not state whether an image improves learning and why: {image_need_gaps}."))
+    else:
+        findings.append(Finding("pass", "image_need_decision", "Every visual records an explicit image-need decision and pedagogical reason."))
+
+    if asset_strategy_gaps:
+        findings.append(Finding("fail", "asset_acquisition_strategy", f"Visuals lack a compatible, justified acquisition strategy: {asset_strategy_gaps}."))
+    else:
+        findings.append(Finding("pass", "asset_acquisition_strategy", "Every visual selects a compatible asset-acquisition route."))
+
+    if unresolved_online_searches:
+        findings.append(Finding("fail", "online_image_resolution", f"Online searches have no verified asset and attribution: {unresolved_online_searches}."))
+    else:
+        findings.append(Finding("pass", "online_image_resolution", "Every online-search selection resolves to a verified attributable asset."))
+
+    if operator_request_box_gaps:
+        findings.append(Finding("fail", "operator_request_box", f"Operator image requests lack a complete red-box payload: {operator_request_box_gaps}."))
+    else:
+        findings.append(Finding("pass", "operator_request_box", "Every operator request contains an image description, pedagogical reason, and search phrase."))
 
     if missing_residential_context:
         findings.append(Finding("fail", "residential_context", f"Visuals missing residential-construction context: {missing_residential_context}."))

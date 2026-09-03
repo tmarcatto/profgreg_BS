@@ -27,7 +27,7 @@ DECK_LAYOUTS = {
     "checklist_rows",
     "takeaway",
 }
-PDF_VISUAL_TYPES = {"card_row", "comparison_matrix", "cost_stack", "cpm_network", "source_to_wbs_matrix", "timeline", "process_flow", "relationship_map", "schedule_bar_chart", "image"}
+PDF_VISUAL_TYPES = {"card_row", "comparison_matrix", "cost_stack", "cpm_network", "source_to_wbs_matrix", "timeline", "process_flow", "relationship_map", "schedule_bar_chart", "image", "image_request"}
 PATH_KEYS = {"run_folder", "source_markdown", "approved_baseline_artifact", "pptx", "pdf", "qa", "render_qa", "layout_qa", "rendered_dir"}
 
 
