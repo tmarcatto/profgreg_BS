@@ -17,6 +17,14 @@ RUNS = ROOT / "runs"
 WORDMARK = ROOT / "workspace" / "assets" / "logos" / "buildstak-wordmark.png"
 WORDMARK_NEGATIVE = ROOT / "workspace" / "assets" / "logos" / "buildstak-wordmark-negative.png"
 
+HOW_YOU_WILL_LEARN = [
+    "Short, focused lesson videos: Learn practical construction-management concepts through concise 6-10 minute videos designed for busy professionals.",
+    "Responsive online learning: Study from a mobile phone, tablet, or computer with a learning experience that adapts to your screen.",
+    "AI-powered course chat: Ask questions and get fast, contextual support while you work through each lesson.",
+    "Knowledge-check quizzes: Test your understanding, reinforce key concepts, and identify topics worth reviewing.",
+    "Certificate of completion: Document your professional development after completing the course requirements.",
+]
+
 
 def marketing_dir(course_slug: str) -> Path:
     return RUNS / slugify(course_slug) / "marketing"
@@ -67,6 +75,32 @@ def sentence_count(value: str) -> int:
     return len(re.findall(r"[.!?](?:[\"')\]]+)?(?:\s|$)", protected.strip()))
 
 
+def _lesson_details(value: Any, lessons: list[Any]) -> list[dict[str, Any]]:
+    supplied = value if isinstance(value, list) else []
+    by_number = {
+        int(item.get("lesson_number") or 0): item
+        for item in supplied
+        if isinstance(item, dict) and str(item.get("lesson_number") or "").isdigit()
+    }
+    details: list[dict[str, Any]] = []
+    for index, lesson in enumerate(lessons, start=1):
+        if not isinstance(lesson, dict):
+            continue
+        number = int(lesson.get("lesson_number") or index)
+        generated = by_number.get(number, {})
+        title = _text(generated.get("title") or lesson.get("title") or f"Lesson {number}", 180)
+        bullets = _text_list(generated.get("bullets"), 2, 220)
+        fallback = _text_list(lesson.get("sections"), 2, 220)
+        if len(bullets) < 2:
+            learning_goal = _text(lesson.get("learning_goal"), 220)
+            candidates = bullets + fallback + ([learning_goal] if learning_goal else [])
+            bullets = list(dict.fromkeys(candidates))[:2]
+        while len(bullets) < 2:
+            bullets.append("Apply the lesson concepts through practical construction examples.")
+        details.append({"lesson_number": number, "title": title, "bullets": bullets[:2]})
+    return details
+
+
 def normalize_marketing(data: dict[str, Any], course_map: dict[str, Any]) -> dict[str, Any]:
     course = course_map.get("course") or {}
     lessons = course_map.get("lessons") or []
@@ -104,6 +138,8 @@ def normalize_marketing(data: dict[str, Any], course_map: dict[str, Any]) -> dic
         "market_highlights": _text_list(data.get("market_highlights"), 4, 340),
         "market_sources": sources[:8],
         "course_journey": journey,
+        "lesson_details": _lesson_details(data.get("lesson_details"), lessons),
+        "how_you_will_learn": HOW_YOU_WILL_LEARN,
         "call_to_action": _text(data.get("call_to_action") or "Build practical skills you can use on your next project.", 240),
         "landing_page_url": _text(data.get("landing_page_url") or "https://learn.buildstak.com/courses", 1000),
         "status": "ready",
@@ -142,6 +178,8 @@ Use current web research for the U.S. construction market and career context. Pr
 
 Audience: construction professionals and workers in the United States. Voice: practical, credible, direct, optimistic, construction-native. Avoid academic filler, hype, guarantees, and claims that completing one course automatically causes a promotion or job offer. Explain how the learning can support advancement, stronger performance, or readiness for expanded responsibilities.
 
+For lesson_details, return one object for every Course Map lesson in order. Each object must contain exactly two short, distinct content bullets grounded in that lesson's sections.
+
 Required JSON schema:
 {{
   "course_title":"clear market-facing course title",
@@ -156,7 +194,8 @@ Required JSON schema:
   "market_highlights":["2-4 concise evidence-backed market observations; include the relevant number and year when supported"],
   "market_sources":[{{"organization":"...","title":"...","url":"https://direct-source","published":"date or year","claim":"the exact claim supported"}}],
   "course_journey":["one concise label per lesson, in Course Map order"],
-  "call_to_action":"short enrollment-oriented next step",
+  "lesson_details":[{{"lesson_number":1,"title":"concise lesson title","bullets":["content topic 1","content topic 2"]}}],
+  "call_to_action":"direct, catchy enrollment action in 3-7 words",
   "landing_page_url":"https://learn.buildstak.com/courses"
 }}
 
@@ -204,24 +243,46 @@ def marketing_status(course_slug: str) -> dict[str, Any]:
     }
 
 
+def _wrapped_lines(text: str, width: float, font: str, size: float) -> list[str]:
+    from reportlab.pdfbase.pdfmetrics import stringWidth
+
+    words = str(text or "").split()
+    lines: list[str] = []
+    line = ""
+    for word in words:
+        if stringWidth(word, font, size) > width:
+            pieces: list[str] = []
+            piece = ""
+            for character in word:
+                if piece and stringWidth(piece + character, font, size) > width:
+                    pieces.append(piece)
+                    piece = character
+                else:
+                    piece += character
+            if piece:
+                pieces.append(piece)
+            words_to_add = pieces
+        else:
+            words_to_add = [word]
+        for word_piece in words_to_add:
+            candidate = f"{line} {word_piece}".strip()
+            if stringWidth(candidate, font, size) <= width or not line:
+                line = candidate
+            else:
+                lines.append(line)
+                line = word_piece
+    if line:
+        lines.append(line)
+    return lines
+
+
 def _wrap(canvas: Any, text: str, x: float, y: float, width: float, *, font: str = "Helvetica", size: float = 10.5, leading: float = 14, color: Any = None, max_lines: int | None = None) -> float:
     from reportlab.pdfbase.pdfmetrics import stringWidth
 
     canvas.setFont(font, size)
     if color is not None:
         canvas.setFillColor(color)
-    words = str(text or "").split()
-    lines: list[str] = []
-    line = ""
-    for word in words:
-        candidate = f"{line} {word}".strip()
-        if stringWidth(candidate, font, size) <= width or not line:
-            line = candidate
-        else:
-            lines.append(line)
-            line = word
-    if line:
-        lines.append(line)
+    lines = _wrapped_lines(text, width, font, size)
     if max_lines and len(lines) > max_lines:
         lines = lines[:max_lines]
         while lines[-1] and stringWidth(lines[-1] + "...", font, size) > width:
@@ -287,15 +348,20 @@ def render_brochure(course_slug: str, data: dict[str, Any] | None = None) -> Pat
     c.setLineWidth(4)
     c.line(44, y - 12, 156, y - 12)
     _wrap(c, marketing.get("value_proposition", ""), 44, y - 52, 470, font="Helvetica", size=16, leading=22, color=white, max_lines=5)
+    from reportlab.pdfbase.pdfmetrics import stringWidth
+
     chips = marketing.get("skills") or []
     chip_x = 44
     for skill in chips:
-        chip_w = min(150, max(78, len(skill) * 7 + 24))
+        chip_w = 162
         c.setFillColor(HexColor("#405A7C"))
         c.roundRect(chip_x, 116, chip_w, 28, 8, fill=1, stroke=0)
         c.setFillColor(white)
-        c.setFont("Helvetica-Bold", 9)
-        c.drawCentredString(chip_x + chip_w / 2, 126, skill[:24])
+        chip_size = 9.0
+        while chip_size > 6.5 and stringWidth(skill, "Helvetica-Bold", chip_size) > chip_w - 18:
+            chip_size -= 0.25
+        c.setFont("Helvetica-Bold", chip_size)
+        c.drawCentredString(chip_x + chip_w / 2, 126, skill)
         chip_x += chip_w + 10
     footer(1, True)
     c.showPage()
@@ -337,7 +403,7 @@ def render_brochure(course_slug: str, data: dict[str, Any] | None = None) -> Pat
     footer(2)
     c.showPage()
 
-    # 3. Outcomes and skills
+    # 3. Outcomes and learning experience
     logo()
     section_label("What you will learn", 682)
     c.setFillColor(navy)
@@ -350,53 +416,57 @@ def render_brochure(course_slug: str, data: dict[str, Any] | None = None) -> Pat
         c.setFillColor(white)
         c.setFont("Helvetica-Bold", 10)
         c.drawCentredString(64, y - 7, str(index))
-        _wrap(c, outcome, 92, y + 4, 450, font="Helvetica-Bold", size=12, leading=16, color=navy, max_lines=3)
-        y -= 78
-    c.setFillColor(soft)
-    c.roundRect(44, 100, 524, 82, 8, fill=1, stroke=0)
+        _wrap(c, outcome, 92, y + 4, 450, font="Helvetica-Bold", size=10.8, leading=14, color=navy, max_lines=2)
+        y -= 54
+    c.setStrokeColor(HexColor("#DCE3EB"))
+    c.setLineWidth(1)
+    c.line(44, 318, 568, 318)
+    section_label("How you will learn", 294)
     c.setFillColor(navy)
-    c.setFont("Helvetica-Bold", 10)
-    c.drawString(62, 158, "SKILLS YOU CAN SIGNAL")
-    chip_x = 62
-    for skill in marketing.get("skills") or []:
-        chip_w = min(145, max(88, len(skill) * 7 + 28))
+    c.setFont("Helvetica-Bold", 19)
+    c.drawString(44, 265, "Flexible learning, built for the jobsite")
+    for index, item in enumerate(marketing.get("how_you_will_learn") or HOW_YOU_WILL_LEARN):
+        y = 226 - index * 38
+        c.setFillColor(orange)
+        c.circle(64, y - 2, 11, fill=1, stroke=0)
         c.setFillColor(white)
-        c.roundRect(chip_x, 118, chip_w, 28, 7, fill=1, stroke=0)
-        c.setFillColor(navy)
-        c.setFont("Helvetica-Bold", 9)
-        c.drawCentredString(chip_x + chip_w / 2, 128, skill[:24])
-        chip_x += chip_w + 10
+        c.setFont("Helvetica-Bold", 8)
+        c.drawCentredString(64, y - 5, str(index + 1))
+        _wrap(c, item, 88, y + 2, 468, font="Helvetica-Bold", size=9.1, leading=11, color=navy, max_lines=2)
     footer(3)
     c.showPage()
 
-    # 4. Course journey
+    # 4. Course journey with two content points per lesson
     logo()
     section_label("The course journey", 682)
     c.setFillColor(navy)
-    c.setFont("Helvetica-Bold", 25)
-    c.drawString(44, 646, "A practical path from insight to action")
-    journey = marketing.get("course_journey") or []
-    columns = 2
-    rows = max(1, (len(journey) + columns - 1) // columns)
-    start_y = 590
-    row_gap = min(66, 430 / max(rows, 1))
-    for index, item in enumerate(journey):
+    c.setFont("Helvetica-Bold", 21)
+    c.drawString(44, 646, "Every lesson turns insight into jobsite action")
+    details = marketing.get("lesson_details") or []
+    columns = 3
+    rows = max(1, (len(details) + columns - 1) // columns)
+    start_y = 610
+    card_w, card_h, col_gap, row_gap = 166, 90, 10, 8
+    for index, lesson in enumerate(details):
         col = index // rows
         row = index % rows
-        x = 44 + col * 270
-        y = start_y - row * row_gap
+        x = 44 + col * (card_w + col_gap)
+        top = start_y - row * (card_h + row_gap)
+        c.setFillColor(soft)
+        c.roundRect(x, top - card_h, card_w, card_h, 7, fill=1, stroke=0)
         c.setFillColor(orange)
         c.setFont("Helvetica-Bold", 9)
-        c.drawString(x, y, f"{index + 1:02d}")
-        c.setFillColor(navy)
-        c.setFont("Helvetica-Bold", 10.5)
-        _wrap(c, item, x + 28, y + 1, 218, font="Helvetica-Bold", size=10.5, leading=13, color=navy, max_lines=3)
-        c.setStrokeColor(HexColor("#DCE3EB"))
-        c.line(x + 28, y - 34, x + 240, y - 34)
+        c.drawString(x + 10, top - 18, f"{int(lesson.get('lesson_number') or index + 1):02d}")
+        _wrap(c, lesson.get("title", ""), x + 35, top - 12, card_w - 45, font="Helvetica-Bold", size=8.2, leading=9.5, color=navy, max_lines=2)
+        for bullet_index, bullet in enumerate((lesson.get("bullets") or [])[:2]):
+            bullet_y = top - 48 - bullet_index * 22
+            c.setFillColor(orange)
+            c.circle(x + 12, bullet_y + 2.2, 1.8, fill=1, stroke=0)
+            _wrap(c, bullet, x + 19, bullet_y, card_w - 29, size=7.1, leading=8.4, color=ink, max_lines=2)
     footer(4)
     c.showPage()
 
-    # 5. Audience, requirements, next step
+    # 5. Audience, career support, requirements, and next step
     c.setFillColor(soft)
     c.rect(0, 0, width, height, fill=1, stroke=0)
     logo()
@@ -405,39 +475,50 @@ def render_brochure(course_slug: str, data: dict[str, Any] | None = None) -> Pat
     c.setFont("Helvetica-Bold", 26)
     c.drawString(44, 646, "Bring the learning to your next project")
     c.setFillColor(white)
-    c.roundRect(44, 410, 524, 196, 10, fill=1, stroke=0)
+    c.roundRect(44, 510, 524, 96, 10, fill=1, stroke=0)
     c.setFillColor(orange)
     c.setFont("Helvetica-Bold", 10)
     c.drawString(64, 574, "WHO THIS IS FOR")
-    _wrap(c, marketing.get("audience", ""), 64, 550, 484, size=10.5, leading=15, color=ink, max_lines=6)
-    c.setFillColor(navy)
-    c.setFont("Helvetica-Bold", 11)
-    c.drawString(64, 474, "HOW THIS CAN SUPPORT YOUR CAREER")
-    y = 454
-    for item in (marketing.get("career_outcomes") or [])[:3]:
-        c.setFillColor(orange)
-        c.circle(68, y + 2, 3, fill=1, stroke=0)
-        y = _wrap(c, item, 80, y + 5, 458, size=9.3, leading=12, color=ink, max_lines=2) - 5
+    _wrap(c, marketing.get("audience", ""), 64, 552, 484, size=9.2, leading=11.5, color=ink, max_lines=4)
     c.setFillColor(white)
-    c.roundRect(44, 205, 524, 175, 10, fill=1, stroke=0)
+    c.roundRect(44, 350, 524, 140, 10, fill=1, stroke=0)
     c.setFillColor(navy)
-    c.setFont("Helvetica-Bold", 11)
-    c.drawString(64, 350, "REQUIREMENTS")
-    y = 328
-    for item in marketing.get("requirements") or []:
+    c.setFont("Helvetica-Bold", 10)
+    c.drawString(64, 465, "HOW THIS CAN SUPPORT YOUR CAREER")
+    for index, item in enumerate((marketing.get("career_outcomes") or [])[:5]):
+        text_y = 442 - index * 18
         c.setFillColor(orange)
-        c.circle(68, y + 2, 3, fill=1, stroke=0)
-        y = _wrap(c, item, 80, y + 5, 458, size=9.5, leading=13, color=ink, max_lines=2) - 6
+        c.circle(68, text_y + 2.4, 3, fill=1, stroke=0)
+        _wrap(c, item, 80, text_y, 458, size=8.0, leading=9, color=ink, max_lines=2)
+    c.setFillColor(white)
+    c.roundRect(44, 202, 524, 128, 10, fill=1, stroke=0)
+    c.setFillColor(navy)
+    c.setFont("Helvetica-Bold", 10)
+    c.drawString(64, 305, "REQUIREMENTS")
+    requirements = marketing.get("requirements") or []
+    for index, item in enumerate(requirements):
+        text_y = 282 - index * (14 if len(requirements) > 5 else 18)
+        c.setFillColor(orange)
+        c.circle(68, text_y + 2.4, 3, fill=1, stroke=0)
+        many = len(requirements) > 5
+        _wrap(c, item, 80, text_y, 458, size=7.5 if many else 8.2, leading=9, color=ink, max_lines=1 if many else 2)
     c.setFillColor(orange)
-    c.roundRect(44, 92, 524, 76, 9, fill=1, stroke=0)
+    c.roundRect(44, 76, 524, 106, 12, fill=1, stroke=0)
     c.setFillColor(white)
-    c.setFont("Helvetica-Bold", 15)
-    c.drawString(64, 136, marketing.get("call_to_action", "Start learning with BuildStak.")[:66])
-    c.setFont("Helvetica", 10)
-    c.drawString(64, 113, marketing.get("landing_page_url", "https://learn.buildstak.com/courses")[:88])
+    c.setFont("Helvetica-Bold", 8)
+    c.drawString(64, 155, "READY TO BUILD SMARTER?")
+    c.setFont("Helvetica-Bold", 20)
+    c.drawString(64, 126, "Start the course today")
+    c.setFont("Helvetica", 9)
+    c.drawString(64, 101, "Practical skills for your next project.")
+    c.setFillColor(white)
+    c.roundRect(470, 108, 74, 32, 16, fill=1, stroke=0)
+    c.setFillColor(orange)
+    c.setFont("Helvetica-Bold", 9)
+    c.drawCentredString(507, 119, "ENROLL")
     url = marketing.get("landing_page_url") or "https://learn.buildstak.com/courses"
     if re.match(r"^https://", url, flags=re.I):
-        c.linkURL(url, (44, 92, 568, 168), relative=0)
+        c.linkURL(url, (44, 76, 568, 182), relative=0)
     footer(5)
     c.save()
     return target

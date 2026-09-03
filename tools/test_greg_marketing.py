@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import importlib.util
 import sys
 import tempfile
 import unittest
@@ -19,7 +20,12 @@ class GregMarketingTests(unittest.TestCase):
         self.course_map = {
             "course": {"title": "Construction AI Essentials", "target_audience": "U.S. construction professionals."},
             "lessons": [
-                {"lesson_number": index, "title": f"Lesson topic {index}", "learning_goal": f"Apply topic {index}."}
+                {
+                    "lesson_number": index,
+                    "title": f"Lesson topic {index}",
+                    "learning_goal": f"Apply topic {index}.",
+                    "sections": [f"Plan topic {index}", f"Practice topic {index}", f"Review topic {index}"],
+                }
                 for index in range(1, 11)
             ],
         }
@@ -44,6 +50,9 @@ class GregMarketingTests(unittest.TestCase):
         normalized = marketing.normalize_marketing(self.marketing, self.course_map)
         self.assertEqual(3, len(normalized["skills"]))
         self.assertEqual(5, len(normalized["what_you_will_learn"]))
+        self.assertEqual(5, len(normalized["how_you_will_learn"]))
+        self.assertEqual(10, len(normalized["lesson_details"]))
+        self.assertTrue(all(len(item["bullets"]) == 2 for item in normalized["lesson_details"]))
         invalid = {**self.marketing, "skills": ["one", "two"]}
         with self.assertRaisesRegex(ValueError, "exactly 3 skills"):
             marketing.normalize_marketing(invalid, self.course_map)
@@ -56,6 +65,7 @@ class GregMarketingTests(unittest.TestCase):
         normalized = marketing.normalize_marketing(data, self.course_map)
         self.assertEqual([], normalized["market_sources"])
 
+    @unittest.skipUnless(importlib.util.find_spec("pypdf"), "pypdf is required for PDF integration checks")
     def test_save_and_render_create_a_five_page_brochure(self) -> None:
         from pypdf import PdfReader
 
@@ -68,9 +78,24 @@ class GregMarketingTests(unittest.TestCase):
                 saved = marketing.save_marketing("demo-course", self.marketing)
                 status = marketing.marketing_status("demo-course")
                 pages = PdfReader(str(marketing.brochure_path("demo-course"))).pages
+                page_text = [page.extract_text() or "" for page in pages]
+                page_five_links = [
+                    annotation.get_object()
+                    for annotation in (pages[4].get("/Annots") or [])
+                    if annotation.get_object().get("/Subtype") == "/Link"
+                ]
         self.assertEqual(self.marketing["course_title"], saved["course_title"])
         self.assertTrue(status["brochure_ready"])
         self.assertEqual(5, len(pages))
+        self.assertTrue(all(skill in page_text[0] for skill in self.marketing["skills"]))
+        self.assertIn("HOW YOU WILL LEARN", page_text[2])
+        self.assertIn("Plan topic 1", page_text[3])
+        self.assertIn("Practice topic 1", page_text[3])
+        self.assertNotIn("Review topic 1", page_text[3])
+        self.assertIn("HOW THIS CAN SUPPORT YOUR CAREER", page_text[4])
+        self.assertIn("Start the course today", page_text[4])
+        self.assertNotIn(self.marketing["landing_page_url"], page_text[4])
+        self.assertTrue(any(link.get("/A", {}).get("/URI") == self.marketing["landing_page_url"] for link in page_five_links))
 
 
 if __name__ == "__main__":

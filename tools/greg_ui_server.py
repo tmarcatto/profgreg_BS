@@ -1018,8 +1018,9 @@ def ui_shell(default_course: str) -> str:
       gap: 18px;
       align-items: start;
     }}
-    .marketing-grid {{ display: grid; grid-template-columns: minmax(0, 1.25fr) minmax(280px, .75fr); gap: 18px; align-items: start; }}
+    .marketing-grid {{ display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 18px; align-items: start; }}
     .marketing-column {{ display: grid; gap: 14px; }}
+    .marketing-column-title {{ color: var(--navy); font-size: 14px; font-weight: 800; padding-bottom: 8px; border-bottom: 2px solid var(--line); }}
     .marketing-field textarea {{ min-height: 112px; }}
     .marketing-field textarea.tall {{ min-height: 220px; }}
     .marketing-field .field-note {{ color: var(--muted); font-size: 12px; margin-top: 5px; }}
@@ -1344,20 +1345,22 @@ def ui_shell(default_course: str) -> str:
         <div id="marketingSources" class="field-note" style="margin-top:8px"></div>
         <div class="marketing-grid" style="margin-top:16px">
           <div class="marketing-column">
-            <div class="marketing-field"><label class="required" for="marketingTitle">Course title</label><input id="marketingTitle" placeholder="Market-facing course title"></div>
-            <div class="marketing-field"><label class="required" for="marketingShort">Short description</label><textarea id="marketingShort" placeholder="Exactly two sentences for the course hero or card."></textarea><div class="field-note">Two sentences, ready for the website.</div></div>
-            <div class="marketing-field"><label class="required" for="marketingFull">Full description</label><textarea id="marketingFull" class="tall" placeholder="Market context, learner problem, practical value, and career relevance."></textarea></div>
-            <div class="marketing-field"><label class="required" for="marketingLearn">What you will learn</label><textarea id="marketingLearn" placeholder="One outcome per line; exactly five."></textarea></div>
-          </div>
-          <div class="marketing-column">
+            <div class="marketing-column-title">Brochure fields</div>
             <div class="marketing-field"><label for="marketingPositioning">Brochure positioning</label><textarea id="marketingPositioning" placeholder="One strong, credible cover promise."></textarea></div>
             <div class="marketing-field"><label for="marketingHighlights">Market highlights</label><textarea id="marketingHighlights" placeholder="One evidence-backed market observation per line."></textarea></div>
-            <div class="marketing-field"><label class="required" for="marketingSkills">Skills / tags</label><textarea id="marketingSkills" placeholder="One tag per line; exactly three."></textarea></div>
-            <div class="marketing-field"><label for="marketingRequirements">Requirements</label><textarea id="marketingRequirements" placeholder="One requirement per line."></textarea></div>
             <div class="marketing-field"><label for="marketingAudience">Who this is for</label><textarea id="marketingAudience"></textarea></div>
             <div class="marketing-field"><label for="marketingCareer">Career relevance</label><textarea id="marketingCareer" placeholder="One careful, non-guaranteed outcome per line."></textarea></div>
             <div class="marketing-field"><label for="marketingCta">Call to action</label><input id="marketingCta" placeholder="Short enrollment-oriented next step"></div>
             <div class="marketing-field"><label for="marketingUrl">Course page URL</label><input id="marketingUrl" type="url" placeholder="https://learn.buildstak.com/courses/..."></div>
+          </div>
+          <div class="marketing-column">
+            <div class="marketing-column-title">Website fields</div>
+            <div class="marketing-field"><label class="required" for="marketingTitle">Course title</label><input id="marketingTitle" placeholder="Market-facing course title"></div>
+            <div class="marketing-field"><label class="required" for="marketingShort">Short description</label><textarea id="marketingShort" placeholder="Exactly two sentences for the course hero or card."></textarea><div class="field-note">Two sentences, ready for the website.</div></div>
+            <div class="marketing-field"><label class="required" for="marketingFull">Full description</label><textarea id="marketingFull" class="tall" placeholder="Market context, learner problem, practical value, and career relevance."></textarea></div>
+            <div class="marketing-field"><label class="required" for="marketingLearn">What you will learn</label><textarea id="marketingLearn" placeholder="One outcome per line; exactly five."></textarea></div>
+            <div class="marketing-field"><label class="required" for="marketingSkills">Skills / tags</label><textarea id="marketingSkills" placeholder="One tag per line; exactly three."></textarea></div>
+            <div class="marketing-field"><label for="marketingRequirements">Requirements</label><textarea id="marketingRequirements" placeholder="One requirement per line."></textarea></div>
           </div>
         </div>
         <div class="marketing-actions">

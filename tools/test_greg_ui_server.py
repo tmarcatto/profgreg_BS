@@ -35,6 +35,15 @@ class GregUiServerTests(unittest.TestCase):
         self.assertIn("Generate website copy + brochure", html)
         self.assertIn("/api/marketing-generate", html)
         self.assertIn("/api/marketing-save", html)
+        self.assertIn("Brochure fields", html)
+        self.assertIn("Website fields", html)
+        self.assertIn("grid-template-columns: repeat(2, minmax(0, 1fr))", html)
+        website_fields = html[html.index("Website fields"):html.index('</div>\n        </div>\n        <div class="marketing-actions">')]
+        expected_website_ids = [
+            'id="marketingTitle"', 'id="marketingShort"', 'id="marketingFull"',
+            'id="marketingLearn"', 'id="marketingSkills"', 'id="marketingRequirements"',
+        ]
+        self.assertEqual(expected_website_ids, sorted(expected_website_ids, key=website_fields.index))
         self.assertIn("Current activity", html)
         self.assertIn("Operating progress", html)
         self.assertIn("Course Map", html)
