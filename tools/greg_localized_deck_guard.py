@@ -165,9 +165,22 @@ def pptx_structure(path: Path) -> dict[str, Any]:
             slides = []
             for name in slide_names:
                 root = ElementTree.fromstring(archive.read(name))
+                shape_nodes = root.findall(f".//{{{PRESENTATION_NS}}}sp")
+                meaningful_shapes = 0
+                for shape in shape_nodes:
+                    text_body = shape.find(f"{{{PRESENTATION_NS}}}txBody")
+                    if text_body is None or any(
+                        (node.text or "").strip()
+                        for node in text_body.findall(f".//{{{DRAWING_NS}}}t")
+                    ):
+                        meaningful_shapes += 1
                 slides.append(
                     {
-                        "shapes": len(root.findall(f".//{{{PRESENTATION_NS}}}sp")),
+                        # Empty text boxes are renderer implementation debris,
+                        # not approved slide structure. Ignoring them lets a
+                        # corrected localized renderer remove blank duration
+                        # placeholders without weakening semantic parity.
+                        "shapes": meaningful_shapes,
                         "pictures": len(root.findall(f".//{{{PRESENTATION_NS}}}pic")),
                         "graphic_frames": len(root.findall(f".//{{{PRESENTATION_NS}}}graphicFrame")),
                         "connectors": len(root.findall(f".//{{{PRESENTATION_NS}}}cxnSp")),
