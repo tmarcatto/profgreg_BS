@@ -4443,7 +4443,24 @@ def normalize_localized_course_contract(markdown: str, locale: str) -> str:
         r"> **\1**",
         normalized,
     )
-    return normalized
+    # Translation models sometimes reintroduce dash punctuation even after a
+    # focused repair prompt.  Normalize it deterministically before structural
+    # QA while preserving the section-heading separator accepted by the
+    # renderer and all unspaced compound-word hyphens.
+    lines: list[str] = []
+    section_heading = re.compile(
+        rf"^#{{1,2}}\s+{re.escape(section)}\s+\d{{1,2}}\s*(?:-|:|–|—)\s+",
+        flags=re.IGNORECASE,
+    )
+    for line in normalized.splitlines():
+        if section_heading.match(line):
+            lines.append(line)
+            continue
+        line = line.replace(" — ", "; ").replace(" – ", "; ")
+        line = line.replace("—", ", ").replace("–", ", ")
+        line = re.sub(r"\s-{1,2}\s", "; ", line)
+        lines.append(line)
+    return "\n".join(lines) + ("\n" if normalized.endswith("\n") else "")
 
 
 def localized_book_structure_issues(markdown: str, locale: str) -> list[str]:
