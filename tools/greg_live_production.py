@@ -28,6 +28,7 @@ from typing import Any
 
 from greg_localized_book_structure import CALLOUTS, markdown_structure, structure_parity_issues
 from greg_localized_deck_guard import (
+    LocalizedDeckIntegrityError,
     assert_localized_deck_matches_approved_source,
     file_sha256 as localized_deck_file_sha256,
 )
@@ -5021,7 +5022,28 @@ Approved source structure:
         write_json(spec_path, spec)
         try:
             subprocess.run([sys.executable, str(ROOT / "tools" / "greg_render_deck_from_spec.py"), str(spec_path)], cwd=ROOT, check=True)
+            assert_localized_deck_matches_approved_source(
+                run,
+                lesson_tag,
+                run / spec["output"]["pptx"],
+            )
             break
+        except LocalizedDeckIntegrityError as error:
+            if fit_attempt == 3:
+                raise
+            integrity_feedback = (
+                "Localized-deck integrity QA found untranslated English learner-visible text. Translate every field "
+                "identified below into the target language while preserving U.S. construction meaning, structure, "
+                "facts, numbers, and all other localized text. Return all slides.\n- " + str(error)
+            )
+            fit_data = request_json_with_retry(
+                seed.slug,
+                "localization",
+                deck_revision_prompt(slides, integrity_feedback),
+                max_tokens=12000,
+            )
+            slides = localized_deck_slides(slides, fit_data.get("slides"), preserve_layout_on_drift=True)
+            slides = normalize_localized_dash_punctuation(slides)
         except subprocess.CalledProcessError:
             qa_text = (run / spec["output"]["qa"]).read_text(encoding="utf-8", errors="replace") if (run / spec["output"]["qa"]).exists() else ""
             fit_failures = [line for line in qa_text.splitlines() if "FAIL text_box_density" in line]
