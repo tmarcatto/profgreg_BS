@@ -785,6 +785,21 @@ class GregLiveProductionTests(unittest.TestCase):
         self.assertIn("Evidência conforme para liberação", visible)
         self.assertIn("Envie o registro da verificação.", visible)
 
+    def test_localized_deck_accepts_row_list_alias_and_synchronizes_items(self) -> None:
+        source = [{
+            "layout": "row_list", "title": "Quality gates",
+            "rows": [{"label": "Framing", "body": "Check connections."}],
+            "items": [{"title": "Framing", "body": "Check connections."}],
+        }]
+        translated = [{
+            "layout": "row_list", "title": "Pontos de qualidade",
+            "rows": [{"label": "Estrutura", "body": "Verifique as conexões."}],
+        }]
+        slide = production.localized_deck_slides(source, translated)[0]
+        self.assertEqual("Estrutura", slide["items"][0]["title"])
+        self.assertEqual("Verifique as conexões.", slide["items"][0]["body"])
+        self.assertEqual("Estrutura", slide["rows"][0]["label"])
+
     def test_localized_book_removes_unjustified_inline_bold(self) -> None:
         source = "**El gerente completo** comienza el trabajo.\n\n# Introducción"
         self.assertEqual(

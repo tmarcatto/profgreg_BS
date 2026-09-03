@@ -4719,6 +4719,15 @@ def localized_deck_slides(
             if source_value is None:
                 continue
             if field == "items":
+                if translated_value is None and isinstance(translated_slide.get("rows"), list):
+                    translated_value = [
+                        {
+                            "title": row.get("title") or row.get("label"),
+                            "body": row.get("body"),
+                        }
+                        if isinstance(row, dict) else row
+                        for row in translated_slide["rows"]
+                    ]
                 if not isinstance(translated_value, list) or len(translated_value) != len(source_value):
                     raise RuntimeError(f"Localized presentation slide {index} did not preserve its item structure.")
                 merged_items = copy.deepcopy(source_value)
@@ -4735,6 +4744,16 @@ def localized_deck_slides(
                                 )
                             merged_item[text_field] = value.strip()
                 localized[field] = merged_items
+                source_rows = source_slide.get("rows")
+                if isinstance(source_rows, list) and len(source_rows) == len(merged_items):
+                    localized_rows = copy.deepcopy(source_rows)
+                    for merged_item, localized_row in zip(merged_items, localized_rows):
+                        if isinstance(localized_row, dict):
+                            if isinstance(merged_item.get("title"), str):
+                                localized_row["label"] = merged_item["title"]
+                            if isinstance(merged_item.get("body"), str):
+                                localized_row["body"] = merged_item["body"]
+                    localized["rows"] = localized_rows
             else:
                 if not isinstance(translated_value, dict):
                     raise RuntimeError(f"Localized presentation slide {index} did not preserve its comparison structure.")
