@@ -796,6 +796,12 @@ class ComparisonMatrixDiagram(Flowable):
         first_w = table_w * .30
         other_w = (table_w - first_w) / (len(self.columns) - 1)
         widths = [first_w] + [other_w] * (len(self.columns) - 1)
+        for column, cell_w in zip(self.columns, widths):
+            header_lines = wrap_lines(column, FONT_BOLD, 8.2, cell_w - 16, break_long_words=False)
+            if len(header_lines) > 2 or any(
+                stringWidth(line, FONT_BOLD, 8.2) > cell_w - 16 for line in header_lines
+            ):
+                raise ValueError(f"Comparison-matrix header does not fit in two visible lines: {column}")
         wrapped_rows: list[list[list[str]]] = []
         row_heights: list[float] = []
         for row in self.rows:
