@@ -553,7 +553,7 @@ async function renderPlannedActual(deck, slideSpec) {
     });
     const rowHeight = rows.length > 3 ? 61 : 82;
     rows.forEach((row, rowIndex) => {
-      const action = [row.variance, row.action].filter(Boolean).join(" — ");
+      const action = [...new Set([row.variance, row.action, row.decision].filter(Boolean))].join(" — ");
       const cells = [row.item || row.title || "Condition", row.planned || "", row.actual || "", action];
       let cellX = x0;
       widths.forEach((width, columnIndex) => {

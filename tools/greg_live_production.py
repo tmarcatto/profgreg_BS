@@ -3723,6 +3723,9 @@ def normalize_deck_slides(data: dict[str, Any], lesson: dict[str, Any]) -> list[
                     ),
                 }
             rows = slide.get("planned_actual_rows") if isinstance(slide.get("planned_actual_rows"), list) else []
+            for row in rows:
+                if isinstance(row, dict) and not str(row.get("action") or "").strip() and str(row.get("decision") or "").strip():
+                    row["action"] = row["decision"]
             if not rows and isinstance(slide.get("rows"), list):
                 rows = [
                     {
