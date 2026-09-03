@@ -4993,14 +4993,16 @@ def localize_deck(course_slug: str, lesson_number: int, locale: str) -> list[str
         prompt = f"""Translate every student-visible text value in this Prof Greg deck JSON into {language}. Return JSON only in the form {{"slides": [...]}}. Preserve all keys, layout names, numbers, filenames, asset paths, and slide count exactly. Do not add slides or speaker notes. Preserve U.S. construction terms, units, and facts. If localized copy would overflow its approved layout, use a shorter equivalent that preserves the central message; do not add emphasis Markdown or bold markers.\n\n{json.dumps(localized_deck_translation_source(source['slides']), ensure_ascii=False)}"""
         merge_baseline = source["slides"]
     slides: list[dict[str, Any]] | None = None
+    last_candidate_slides: Any = None
     last_translation_error: Exception | None = None
     attempt_prompt = prompt
     for translation_attempt in range(1, 4):
         try:
             data = request_json_with_retry(seed.slug, "localization", attempt_prompt, max_tokens=12000)
+            last_candidate_slides = data.get("slides")
             slides = localized_deck_slides(
                 merge_baseline,
-                data.get("slides"),
+                last_candidate_slides,
                 preserve_layout_on_drift=bool(revision_feedback),
             )
             break
@@ -5014,6 +5016,39 @@ Return every slide and every existing visible field, including nested item title
 
 Approved source structure:
 {json.dumps(localized_deck_translation_source(merge_baseline), ensure_ascii=False)}"""
+    if slides is None and isinstance(last_candidate_slides, list) and len(last_candidate_slides) == len(merge_baseline):
+        repaired_slides = copy.deepcopy(last_candidate_slides)
+        for _ in range(len(merge_baseline)):
+            try:
+                slides = localized_deck_slides(
+                    merge_baseline,
+                    repaired_slides,
+                    preserve_layout_on_drift=bool(revision_feedback),
+                )
+                break
+            except RuntimeError as error:
+                last_translation_error = error
+                match = re.search(r"slide (\d+)", str(error), flags=re.I)
+                if not match:
+                    break
+                slide_index = int(match.group(1)) - 1
+                target_source = localized_deck_translation_source([merge_baseline[slide_index]])
+                target_prompt = f"""Translate every learner-visible text field in this single deck slide into {language}.
+Return JSON only as {{"slides": [{{...}}]}} with exactly one complete slide. The previous batch failed QA: {error}
+Preserve every existing key, nested structure, count, number, path, boolean, and numeric duration code. Translate all
+word-based labels, including duplicate aliases such as `columns`/`comparison_columns`, `rows`/`comparison_rows`,
+`items`/row-list rows, planned/actual content, network path names, activity bodies, and word-based timing labels.
+
+Approved source slide:
+{json.dumps(target_source[0], ensure_ascii=False)}"""
+                target_data = request_json_with_retry(seed.slug, "localization", target_prompt, max_tokens=6000)
+                target_slides = target_data.get("slides")
+                if not isinstance(target_slides, list) or len(target_slides) != 1 or not isinstance(target_slides[0], dict):
+                    last_translation_error = RuntimeError(
+                        f"Localized presentation slide {slide_index + 1} targeted repair returned an invalid slide."
+                    )
+                    break
+                repaired_slides[slide_index] = target_slides[0]
     if slides is None:
         raise RuntimeError(f"Localized presentation remained incomplete after three attempts: {last_translation_error}")
     slides = normalize_localized_dash_punctuation(slides)
