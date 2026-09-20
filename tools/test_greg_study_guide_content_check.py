@@ -147,6 +147,20 @@ class StudyGuideContentCheckTests(unittest.TestCase):
             failed = {item["check"] for item in result["findings"] if item["status"] == "fail"}
             self.assertTrue({"no_deep_markdown_headings", "no_dash_punctuation", "fixed_callout_vocabulary"}.issubset(failed))
 
+    def test_quoted_callout_bullets_are_not_dash_punctuation(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "draft.md"
+            path.write_text(
+                "# Section 01 - One\n\n> **HANDS-ON EXAMPLE**\n> Using supplied records:\n"
+                "> - **Record A:** Current plan.\n> - **Record B:** Old plan.\n"
+                "> Task: Decide which plan governs.\n> 1. Compare revisions.\n"
+                "> Answer/check: The current plan governs.\n",
+                encoding="utf-8",
+            )
+            result = checker.run_checks(path)
+            finding = next(item for item in result["findings"] if item["check"] == "no_dash_punctuation")
+            self.assertEqual("pass", finding["status"])
+
     def test_plain_unapproved_callout_and_fenced_visual_fail(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             path = Path(tmp) / "draft.md"

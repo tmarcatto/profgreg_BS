@@ -231,6 +231,8 @@ def run_checks(draft_path: Path, level: str | None = None) -> dict:
     for index, line in enumerate(teaching_text.splitlines(), start=1):
         if re.match(r"^#\s+Section\s+\d{2}\s+-\s+", line):
             continue
+        if re.match(r"^\s*>\s*[-*+]\s+\S", line):
+            continue
         if "—" in line or "–" in line or re.search(r"\s-{1,2}\s", line):
             dash_punctuation.append(index)
     if dash_punctuation:
@@ -301,7 +303,7 @@ def run_checks(draft_path: Path, level: str | None = None) -> dict:
         r"\b(calculate|compute|identify|compare|decide|check|complete|estimate|forecast|reconcile|mark|write|choose|review|explain|verify)\b",
         flags=re.IGNORECASE,
     )
-    hands_on_input = re.compile(r"\b(using|given|start with|from the|assume|based on|figures?|amounts?|values?|report|table|diagram)\b", flags=re.IGNORECASE)
+    hands_on_input = re.compile(r"\b(using|use|given|start with|from the|assume|based on|supplied|records?|figures?|amounts?|values?|report|table|diagram)\b", flags=re.IGNORECASE)
     hands_on_check = re.compile(r"\b(answer|check|result|should|then|compare your|verify|expected|why)\b", flags=re.IGNORECASE)
     for block in hands_on_blocks:
         body = str(block.get("body") or "")

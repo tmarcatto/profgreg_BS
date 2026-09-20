@@ -1278,6 +1278,22 @@ Use these terms to distinguish roles.
         self.assertIn("> **HANDS-ON EXAMPLE**\n> Apply the rule and check the result.", normalized)
         self.assertNotIn("EXAMPLE**,", normalized)
 
+    def test_callout_normalizer_repairs_flattened_hands_on_body(self) -> None:
+        draft = (
+            "# Section 01 - Work\n\n> **HANDS-ON EXAMPLE**\n>\n"
+            "**Setup.** Use the records. **Supplied inputs.** * **Record A:** Current plan. "
+            "* **Record B:** Old photo. **Task.** Decide what governs. "
+            "**Actions.** 1. Check the revision. 2. Hold changed work. "
+            "**Answer/check.** The current plan governs.\n\nFollowing teaching prose.\n"
+        )
+        normalized = production.normalize_callout_density(draft)
+        self.assertIn("> - **Record A:** Current plan.", normalized)
+        self.assertIn("> - **Record B:** Old photo.", normalized)
+        self.assertIn("> 1. Check the revision.", normalized)
+        self.assertIn("> 2. Hold changed work.", normalized)
+        self.assertIn("> Answer/check: The current plan governs.", normalized)
+        self.assertNotIn("Actions.** 1.", normalized)
+
     def test_callout_normalizer_unboxes_unapproved_labels(self) -> None:
         draft = (
             "# Section 01 - Work\n\n"
@@ -1515,6 +1531,18 @@ Use these terms to distinguish roles.
         )
         self.assertNotIn("accessed", text.lower())
         self.assertIn("Current online edition.", text)
+
+    def test_student_references_remove_private_provenance_and_duplicate_works(self) -> None:
+        sources = [
+            {"title": "Construction Contract and Laws (uploaded reference; author not stated)", "author_or_organization": "Not stated in supplied excerpt", "source_type": "book", "formal_reference": "Uploaded reference: 123-Construction-Contract-and-Laws.pdf. Supplied excerpt covers contract documents."},
+            {"title": "Specifications and Drawings for Construction, FAR 52.236-21", "source_type": "government", "url": "https://origin.example/far/52.236-21", "formal_reference": "Federal Acquisition Regulation, FAR 52.236-21, Specifications and Drawings for Construction. https://origin.example/far/52.236-21"},
+            {"title": "Specifications and Drawings for Construction, FAR 52.236-21", "source_type": "government", "url": "https://example/far/52.236-21", "formal_reference": "Federal Acquisition Regulation, FAR 52.236-21, Specifications and Drawings for Construction. https://example/far/52.236-21"},
+        ]
+        lines = production.student_reference_lines(sources)
+        self.assertEqual(2, len(lines))
+        self.assertEqual("- Construction Contract and Laws.", lines[0])
+        self.assertNotIn("http", lines[1])
+        self.assertNotIn("uploaded", " ".join(lines).lower())
 
     def test_forced_references_keep_summary_bullet_only_and_normalize_osha_title(self) -> None:
         draft = "# Summary and Key Takeaways\n\nReview this first.\n\n- Keep this point.\n\n# Glossary\n\nTerm"

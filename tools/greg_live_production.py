@@ -905,7 +905,7 @@ def produce_source_ledger(course_slug: str) -> list[str]:
     ledger_path = run / "sources" / "source_ledger.json"
     refs_path = run / "sources" / "student_references.md"
     write_json(ledger_path, ledger)
-    write_text(refs_path, "# References\n\n" + "\n".join(f"- {student_reference_for_source(item)}" for item in sources if item.get('formal_reference')))
+    write_text(refs_path, "# References\n\n" + "\n".join(student_reference_lines(sources)))
     write_text(run / "sources" / "research_log.md", "# Research Log\n\n" + "\n".join(f"- {item}" for item in data.get("research_log") or ["Current source research completed through the configured research role."]))
     write_text(run / "sources" / "source_gaps.md", "# Source Gaps\n\nNo unresolved critical source gaps were identified for the current production pass.\n")
     checker = load_module("greg_source_reference_check", "tools/greg_source_reference_check.py")
@@ -934,6 +934,18 @@ def student_reference_text(value: str) -> str:
 
 def student_reference_for_source(source: dict[str, Any]) -> str:
     text = student_reference_text(str(source.get("formal_reference") or ""))
+    title = re.sub(
+        r"\s*\([^)]*(?:uploaded|supplied|bibliographic|excerpt|file)[^)]*\)\s*",
+        " ", str(source.get("title") or ""), flags=re.I,
+    ).strip(" .")
+    author = str(source.get("author_or_organization") or "").strip()
+    if re.match(r"^(?:uploaded|supplied) (?:reference|file)\s*:", text, flags=re.I):
+        known_author = "" if re.search(r"\b(?:not stated|unknown)\b", author, flags=re.I) else author
+        text = ". ".join(value for value in (known_author, title) if value).rstrip(" .") + "."
+    text = re.sub(r"\s+(?:Supplied uploaded reference|Uploaded reference)\.?\s*$", ".", text, flags=re.I)
+    text = re.sub(r";\s*supplied file identifies[^.]+", "", text, flags=re.I)
+    text = re.sub(r"\s+Supplied excerpt[^.]*\.?", " ", text, flags=re.I)
+    text = re.sub(r"\s{2,}", " ", text).strip()
     if re.search(r"29 C\.F\.R\.\s+(?:§\s*1926(?:\.\d+)?|Part\s+1926)", text, flags=re.I):
         return (
             "Occupational Safety and Health Administration. Safety and Health Regulations for Construction, "
@@ -973,7 +985,6 @@ def student_reference_for_source(source: dict[str, Any]) -> str:
     source_type = str(source.get("source_type") or "").lower()
     url = str(source.get("url") or "").strip()
     document_url = bool(re.search(r"\.(pdf|docx?|pptx?)(?:[?#]|$)", url, flags=re.I))
-    title = str(source.get("title") or "").strip()
     # A directly linked standalone document is cited by its own title. Model
     # research sometimes appends the parent marketing collection as
     # ``In Collection Name``; that is neither needed nor reliably sourced and
@@ -999,9 +1010,9 @@ def student_reference_for_source(source: dict[str, Any]) -> str:
     # reviewer removes the URL and the next deterministic references rebuild
     # silently adds it again, creating a revision loop.
     formal_title = bool(re.search(
-        r"\b(?:manual|standard|code|handbook|guidance document|quick start guide|"
+        r"\b(?:manual|standard|code|regulation|federal acquisition regulation|handbook|guidance document|quick start guide|"
         r"verification requirements)\b",
-        text,
+        f"{title} {text}",
         flags=re.I,
     ))
     if source_type in formal_types or document_url or formal_title:
@@ -1009,6 +1020,33 @@ def student_reference_for_source(source: dict[str, Any]) -> str:
     elif url and url not in text:
         text = text.rstrip(" .") + f". {url}"
     return text.strip()
+
+
+def student_reference_identity(source: dict[str, Any], reference: str) -> str:
+    """Return a work-level key so refreshed chapters cannot duplicate a work."""
+    combined = f"{source.get('title') or ''} {reference}".lower()
+    if re.search(r"\b(?:far\s*)?52[.\s-]*236[.\s-]*21\b", combined):
+        return "far 52 236 21"
+    title = str(source.get("title") or reference).lower()
+    title = re.sub(r"\b(?:chapter|section|attachment)\s+[a-z0-9.-]+.*$", "", title)
+    title = re.sub(r"\([^)]*(?:uploaded|supplied|excerpt|file)[^)]*\)", "", title)
+    return re.sub(r"[^a-z0-9]+", " ", title).strip()
+
+
+def student_reference_lines(sources: list[dict[str, Any]]) -> list[str]:
+    """Build a clean, stable bibliography with one entry per work."""
+    lines: list[str] = []
+    seen: set[str] = set()
+    for source in sources:
+        if not source.get("formal_reference"):
+            continue
+        reference = student_reference_for_source(source)
+        identity = student_reference_identity(source, reference)
+        if not reference or not identity or identity in seen:
+            continue
+        seen.add(identity)
+        lines.append(f"- {reference}")
+    return lines
 
 
 def study_guide_prompt(seed, lesson: dict[str, Any], references: str, ledger: dict[str, Any], feedback: str) -> str:
@@ -1329,6 +1367,7 @@ def restore_truncated_revision(candidate: str, baseline: str) -> str:
 
 def normalize_callout_density(draft: str, maximum: int = 4) -> str:
     """Keep useful body callouts; structural sections are always unboxed prose."""
+    draft = normalize_hands_on_example_markdown(draft)
     raw_lines = draft.splitlines()
     approved_labels = {"KEY TERM", "APPLY IT", "HANDS-ON EXAMPLE", "SCENARIO", "CALLBACK", "BRIDGE"}
     # Revisions sometimes invent Markdown boxes such as NOTE, WARNING, or a
@@ -1355,7 +1394,14 @@ def normalize_callout_density(draft: str, maximum: int = 4) -> str:
             raw_index = end
             continue
         match = any_label.match(raw_lines[raw_index].strip())
-        if not match or match.group(1).strip().upper() in approved_labels:
+        if match and match.group(1).strip().upper() in approved_labels:
+            end = raw_index + 1
+            while end < len(raw_lines) and raw_lines[end].lstrip().startswith(">"):
+                end += 1
+            lines.extend(raw_lines[raw_index:end])
+            raw_index = end
+            continue
+        if not match:
             lines.append(raw_lines[raw_index])
             raw_index += 1
             continue
@@ -1438,6 +1484,97 @@ def normalize_callout_density(draft: str, maximum: int = 4) -> str:
             replacement = "> **APPLY IT**\n> " + candidate.group(1).strip()
             normalized = normalized[: candidate.start()] + replacement + normalized[candidate.end() :]
     return normalized
+
+
+def normalize_hands_on_example_markdown(draft: str) -> str:
+    """Repair provider-flattened HANDS-ON blocks without changing wording."""
+    field_pattern = re.compile(
+        r"\*\*(Setup|Supplied (?:inputs|records)|Task|Actions|Answer/check)\.?\*\*", flags=re.I,
+    )
+    label_pattern = re.compile(r"^>\s*\*\*HANDS-ON EXAMPLE\*\*\s*$", flags=re.I)
+    lines = draft.splitlines()
+    output: list[str] = []
+    index = 0
+
+    def format_fields(body: str, *, quoted: bool) -> list[str]:
+        matches = list(field_pattern.finditer(body))
+        if not matches:
+            return []
+        result: list[str] = []
+        line_prefix = "> " if quoted else ""
+        blank = ">" if quoted else ""
+
+        def add_break() -> None:
+            if result and result[-1] != blank:
+                result.append(blank)
+
+        def split_records(value: str) -> tuple[str, list[str]]:
+            parts = re.split(r"\s*(?:>\s*)?[-*]\s*(?=\*\*Record\s+[A-Z0-9]+:)", value)
+            if len(parts) <= 1:
+                return value, []
+            return parts[0].strip(), [part.strip() for part in parts[1:] if part.strip()]
+
+        for match_index, match in enumerate(matches):
+            end = matches[match_index + 1].start() if match_index + 1 < len(matches) else len(body)
+            label = match.group(1).rstrip(".")
+            value = body[match.end() : end].strip()
+            if label.lower() in {"task", "answer/check"}:
+                add_break()
+            if label.lower().startswith("supplied"):
+                lead, records = split_records(value)
+                result.append(f"{line_prefix}{label}:")
+                if lead:
+                    result.append(f"{line_prefix}{lead}")
+                result.extend(f"{line_prefix}- {record}" for record in records)
+            elif label.lower() == "setup":
+                lead, records = split_records(value)
+                result.append(f"{line_prefix}Setup:" + (f" {lead}" if lead else ""))
+                if records:
+                    result.append(f"{line_prefix}Supplied inputs:")
+                    result.extend(f"{line_prefix}- {record}" for record in records)
+            elif label.lower() == "actions":
+                result.append(f"{line_prefix}Actions:")
+                parts = re.split(r"(?<!\w)(\d{1,2})\.\s+", value)
+                steps = [(parts[pos], parts[pos + 1].strip()) for pos in range(1, len(parts) - 1, 2)]
+                if steps:
+                    result.extend(f"{line_prefix}{number}. {step}" for number, step in steps if step)
+                elif value:
+                    result.append(f"{line_prefix}{value}")
+            else:
+                result.append(f"{line_prefix}{label}:" + (f" {value}" if value else ""))
+        return result
+
+    while index < len(lines):
+        if not label_pattern.match(lines[index].strip()):
+            if len(list(field_pattern.finditer(lines[index]))) >= 3:
+                output.extend(format_fields(lines[index].strip(), quoted=False))
+                output.append("")
+                index += 1
+                continue
+            output.append(lines[index])
+            index += 1
+            continue
+        output.append("> **HANDS-ON EXAMPLE**")
+        index += 1
+        body_lines: list[str] = []
+        while index < len(lines) and lines[index].lstrip().startswith(">"):
+            body_lines.append(lines[index].lstrip()[1:].strip())
+            index += 1
+        while index < len(lines) and not lines[index].strip():
+            index += 1
+        if index < len(lines) and field_pattern.search(lines[index]):
+            body_lines.append(lines[index].strip())
+            index += 1
+        body = " ".join(part for part in body_lines if part).strip()
+        formatted = format_fields(body, quoted=True)
+        if not formatted:
+            if body:
+                output.append(f"> {body}")
+            output.append("")
+            continue
+        output.extend(formatted)
+        output.append("")
+    return "\n".join(output).rstrip() + "\n"
 
 
 def study_guide_revision_prompt(
@@ -2253,14 +2390,7 @@ def merge_lesson_sources(run: Path, ledger: dict[str, Any], refresh: dict[str, A
         and item.get("formal_reference")
         and (item.get("currency_validation") or {}).get("status") != "unresolved"
     ]
-    reference_lines: list[str] = []
-    seen_references: set[str] = set()
-    for item in lesson_sources:
-        line = student_reference_for_source(item)
-        key = re.sub(r"[^a-z0-9]+", " ", line.lower()).strip()
-        if line and key not in seen_references:
-            reference_lines.append(f"- {line}")
-            seen_references.add(key)
+    reference_lines = student_reference_lines(lesson_sources)
     refs = "# References\n\n" + "\n".join(reference_lines)
     write_text(run / "sources" / "student_references.md", refs)
     return ledger, refs
