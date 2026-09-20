@@ -1544,6 +1544,54 @@ Use these terms to distinguish roles.
         self.assertNotIn("http", lines[1])
         self.assertNotIn("uploaded", " ".join(lines).lower())
 
+    def test_formal_ufgs_reference_drops_url_and_web_descriptor_is_cleaned(self) -> None:
+        ufgs = {
+            "title": "UFGS 01 33 00, Submittal Procedures",
+            "source_type": "government",
+            "url": "https://legacy.wbdg.org/dod/ufgs/ufgs-01-33-00",
+            "formal_reference": "U.S. Department of Defense. UFGS 01 33 00, Submittal Procedures. https://legacy.wbdg.org/dod/ufgs/ufgs-01-33-00",
+        }
+        fhwa = {
+            "title": "Development and Review of Specifications—Construction, Attachment 2",
+            "source_type": "webpage",
+            "url": "https://www.fhwa.dot.gov/construction/specrevattach2.cfm",
+            "formal_reference": "Federal Highway Administration. Development and Review of Specifications—Construction, Attachment 2. Online technical guidance,.",
+        }
+        self.assertNotIn("http", production.student_reference_for_source(ufgs))
+        cleaned = production.student_reference_for_source(fhwa)
+        self.assertNotIn("Online technical guidance", cleaned)
+        self.assertIn(fhwa["url"], cleaned)
+
+    def test_chapter_wide_feedback_routes_to_complete_revision(self) -> None:
+        feedback = (
+            "Automatic reviewer changes required:\n- Re-outline the lesson so each section has one distinct purpose. "
+            "Remove duplicated explanations and use one running residential scenario."
+        )
+        self.assertTrue(production.revision_requires_chapter_context(feedback))
+
+    def test_hands_on_normalizer_demotes_answer_only_and_expands_flat_task(self) -> None:
+        draft = """> **HANDS-ON EXAMPLE**
+> Answer/Check: The answer is the current sheet.
+
+> **HANDS-ON EXAMPLE**
+> The supplied inputs are: - Record A is current. - Record B is superseded. Compare the records and choose the current one. The result should identify Record A. Your check is complete when the status agrees.
+"""
+        normalized = production.normalize_hands_on_example_markdown(draft)
+        self.assertIn("> **APPLY IT**\n> Answer/Check:", normalized)
+        self.assertIn("> Inputs:", normalized)
+        self.assertIn("> - Record A is current.", normalized)
+        self.assertIn("> Action: Compare the records", normalized)
+        self.assertIn("> Answer/Check: The result should", normalized)
+
+    def test_reviewed_factual_language_softens_submittal_effect_claim(self) -> None:
+        draft = (
+            "Approved submittals have contractual effect only when the governing contract incorporates or otherwise recognizes them. "
+            "Approval alone does not modify the contract."
+        )
+        normalized = production.normalize_reviewed_factual_language(draft)
+        self.assertNotIn("contractual effect only", normalized)
+        self.assertIn("does not automatically replace or modify", normalized)
+
     def test_forced_references_keep_summary_bullet_only_and_normalize_osha_title(self) -> None:
         draft = "# Summary and Key Takeaways\n\nReview this first.\n\n- Keep this point.\n\n# Glossary\n\nTerm"
         references = "# References\n\n- Occupational Safety and Health Administration. (2016). Construction (OSHA Publication 3886)."
@@ -1601,7 +1649,7 @@ Use these terms to distinguish roles.
                 "> **KEY TERM**\n> Second definition.",
                 "> **KEY TERM**\n> Third definition.",
                 "> **SCENARIO**\n> A field situation.",
-                "> **HANDS-ON EXAMPLE**\n> A worked example.",
+                "> **HANDS-ON EXAMPLE**\n> Using the supplied records, compare the versions and choose the current sheet. Check that your answer matches the register.",
                 "> **BRIDGE**\n> The next connection.",
             ]
         )

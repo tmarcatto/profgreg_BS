@@ -1010,11 +1010,12 @@ def student_reference_for_source(source: dict[str, Any]) -> str:
     # reviewer removes the URL and the next deterministic references rebuild
     # silently adds it again, creating a revision loop.
     formal_title = bool(re.search(
-        r"\b(?:manual|standard|code|regulation|federal acquisition regulation|handbook|guidance document|quick start guide|"
+        r"\b(?:manual|standard|specification|code|regulation|federal acquisition regulation|handbook|guidance document|quick start guide|"
         r"verification requirements)\b",
         f"{title} {text}",
         flags=re.I,
-    ))
+    )) or bool(re.search(r"\bUFGS\s+\d", f"{title} {text}", flags=re.I))
+    text = re.sub(r",?\s+Online technical guidance,?\.?\s*(?=https?://|$)", ". ", text, flags=re.I)
     if source_type in formal_types or document_url or formal_title:
         text = re.sub(r"\s+https?://\S+", "", text).rstrip(" .") + "."
     elif url and url not in text:
@@ -1324,6 +1325,22 @@ def normalize_reviewed_factual_language(draft: str) -> str:
         "After award, estimate decisions become contractual or procurement obligations only when they are incorporated into executed contract and purchasing documents. The next lesson carries those documented obligations into procurement and execution.",
         "An estimate is not itself a binding project obligation. The applicable proposal, contract, subcontract, purchase order, and governing law control the parties' commitments as procurement and execution begin.",
     )
+    corrected = re.sub(
+        r"Approved submittals have contractual effect only when the governing contract incorporates or otherwise recognizes them\.\s*"
+        r"Approval alone does not modify the contract\.",
+        "Submittal approval alone does not automatically replace or modify the contract. "
+        "The governing contract, applicable law, and required change or substitution procedure determine any effect.",
+        corrected,
+        flags=re.I,
+    )
+    corrected = re.sub(
+        r"Do not assume that submittal approval alone replaces or modifies the contract; check whether the governing contract "
+        r"incorporates or otherwise recognizes the submittal and follow the applicable change or substitution procedure\.",
+        "Submittal approval alone does not automatically replace or modify the contract. "
+        "The governing contract, applicable law, and required change or substitution procedure determine any effect.",
+        corrected,
+        flags=re.I,
+    )
     return normalize_repeated_lesson_objectives(
         normalize_prose_dashes(normalize_ordered_step_tables(corrected))
     )
@@ -1574,7 +1591,52 @@ def normalize_hands_on_example_markdown(draft: str) -> str:
             continue
         output.extend(formatted)
         output.append("")
-    return "\n".join(output).rstrip() + "\n"
+    # A HANDS-ON label is a semantic promise, not decoration. Models
+    # occasionally leave only an explanatory answer in the box. Relabel that
+    # prose as APPLY IT instead of asking reviewers to invent missing inputs
+    # and actions forever. Conversely, expand a complete but flattened
+    # inputs/action/check paragraph into a scannable task.
+    normalized: list[str] = []
+    index = 0
+    action_pattern = re.compile(
+        r"\b(calculate|compute|identify|compare|decide|check|complete|estimate|forecast|reconcile|mark|write|choose|review|explain|verify)\b",
+        flags=re.I,
+    )
+    input_pattern = re.compile(r"\b(using|use|given|start with|from the|assume|based on|supplied|inputs?|records?|figures?|amounts?|values?|report|table|diagram)\b", flags=re.I)
+    check_pattern = re.compile(r"\b(answer|check|result|should|then|compare your|verify|expected|why)\b", flags=re.I)
+    while index < len(output):
+        if not label_pattern.match(output[index].strip()):
+            normalized.append(output[index])
+            index += 1
+            continue
+        end = index + 1
+        while end < len(output) and output[end].lstrip().startswith(">"):
+            end += 1
+        body_lines = [line.lstrip()[1:].strip() for line in output[index + 1 : end] if line.lstrip()[1:].strip()]
+        body = " ".join(body_lines)
+        if not (action_pattern.search(body) and input_pattern.search(body) and check_pattern.search(body)):
+            normalized.append("> **APPLY IT**")
+            normalized.extend(output[index + 1 : end])
+            index = end
+            continue
+        if len(body_lines) == 1 and " - " in body:
+            action = re.search(r"(?<=[.!?])\s+(?=(?:Compare|Calculate|Compute|Identify|Decide|Check|Complete|Estimate|Forecast|Reconcile|Mark|Write|Choose|Review|Explain|Verify)\b)", body)
+            if action:
+                inputs_text = body[: action.start()].strip()
+                task_and_check = body[action.end() :].strip()
+                check = re.search(r"(?<=[.!?])\s+(?=(?:The result|The answer|Your check|Answer/Check|Check:)\b)", task_and_check, flags=re.I)
+                task_text = task_and_check[: check.start()].strip() if check else task_and_check
+                check_text = task_and_check[check.end() :].strip() if check else "Verify the result against the supplied inputs."
+                input_parts = [part.strip() for part in re.split(r"\s+-\s+", inputs_text) if part.strip()]
+                normalized.extend(["> **HANDS-ON EXAMPLE**", "> Inputs:"])
+                normalized.append(f"> {input_parts[0]}")
+                normalized.extend(f"> - {part}" for part in input_parts[1:])
+                normalized.extend([">", f"> Action: {task_text}", ">", f"> Answer/Check: {check_text}"])
+                index = end
+                continue
+        normalized.extend(output[index:end])
+        index = end
+    return "\n".join(normalized).rstrip() + "\n"
 
 
 def study_guide_revision_prompt(
@@ -1647,7 +1709,9 @@ def revision_requires_chapter_context(feedback: str) -> bool:
         return False
     return bool(re.search(
         r"\b(?:throughout the lesson|entire lesson|across (?:the )?(?:lesson|sections)|"
-        r"reorganize the (?:lesson|chapter)|each section owns|"
+        r"reorganize the (?:lesson|chapter)|re-outline the (?:lesson|chapter)|"
+        r"each section (?:owns|has one distinct purpose)|remove duplicated explanations|"
+        r"running residential scenario|linked residential scenarios|"
         r"complete project-review schema|canonical project-review schema|"
         r"one (?:canonical|cumulative|common) (?:case|schema|template|record)|"
         r"single (?:canonical|cumulative|common) (?:case|schema|template|record)|"
