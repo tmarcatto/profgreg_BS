@@ -116,11 +116,19 @@ def title_in_references(source: dict[str, Any], references_text: str) -> bool:
     haystack = references_text.lower()
     formal_reference = str(source.get("formal_reference") or "").strip()
     normalize = lambda value: re.sub(r"[^a-z0-9]+", " ", value.lower()).strip()
+    student_title = re.sub(
+        r"\s*\([^)]*(?:uploaded|supplied|bibliographic|excerpt|file)[^)]*\)\s*",
+        " ",
+        title,
+        flags=re.I,
+    ).strip(" .")
     # Formal bibliography wording may intentionally abbreviate a long source
     # title while preserving author, edition, and publication identity. When
     # the validated formal_reference itself is present, the attachment is not
     # missing merely because the ledger title carries a longer subtitle.
     if formal_reference and normalize(formal_reference) in normalize(references_text):
+        return True
+    if student_title and normalize(student_title) in normalize(references_text):
         return True
     if title and title.lower() in haystack:
         return True

@@ -62,6 +62,14 @@ class SourceReferenceCheckTests(unittest.TestCase):
         references = "# References\n\n- Hendrickson, C., & Au, T. (2008). Project Management for Construction (Version 2.2). Carnegie Mellon University.\n"
         self.assertTrue(checker.title_in_references(source, references))
 
+    def test_private_upload_qualifier_is_not_required_in_student_title(self) -> None:
+        source = {
+            "title": "Construction Contract and Laws (uploaded reference; bibliographic author not stated in supplied excerpt)",
+            "author_or_organization": "Not stated in supplied excerpt",
+            "formal_reference": "Uploaded reference: private-file.pdf. Supplied excerpt covers contract documents.",
+        }
+        self.assertTrue(checker.title_in_references(source, "# References\n\n- Construction Contract and Laws.\n"))
+
     def test_old_source_detection(self) -> None:
         source = {"publication_date": "2017"}
         self.assertTrue(checker.is_more_than_three_years_old(source, 2026))
