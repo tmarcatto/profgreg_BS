@@ -1646,10 +1646,16 @@ def ui_shell(default_course: str) -> str:
       const approved = (currentStatus?.lessons || []).reduce((count, lesson) => count + approvalGroups.filter(group => lesson[group.approvalField] === 'approved').length, 0);
       document.getElementById('approvalCount').textContent = `${{approved}} approvals`;
       const intakeButton = document.getElementById('generateCourseMapFromIntake');
+      const intakeStatus = document.getElementById('intakeProductionStatus');
       const courseMapActive = currentJobs.some(job => job.request_type === 'course_start' && ['queued', 'running'].includes(job.state));
       if (intakeButton) {{
-        intakeButton.disabled = courseMapActive;
-        intakeButton.textContent = courseMapActive ? 'Generating Course Map...' : (currentStatus?.course_map_ready === true ? 'Regenerate Course Map' : 'Generate Course Map');
+        const courseMapReady = currentStatus?.course_map_ready === true;
+        intakeButton.disabled = courseMapActive || courseMapReady;
+        intakeButton.textContent = courseMapActive ? 'Generating Course Map...' : (courseMapReady ? 'Course Map completed ✓' : 'Generate Course Map');
+        if (courseMapReady && intakeStatus) {{
+          intakeStatus.className = 'operator-result success';
+          intakeStatus.textContent = 'Course Map completed. Select the lessons you want and generate their course books from Lesson Management.';
+        }}
       }}
       renderCourseMapPanel();
       renderOperatorTool();
