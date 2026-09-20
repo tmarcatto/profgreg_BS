@@ -1337,14 +1337,14 @@ def ui_shell(default_course: str) -> str:
       </div>
     </section>
 
-    <section class="card" aria-label="Generate course books">
+    <section class="card" aria-label="Generate Course Map">
       <div class="body">
         <div class="course-map-actions">
           <div style="flex:1 1 360px">
-            <strong style="color:var(--navy)">Ready to create the course books?</strong>
-            <div class="hint">This saves the new course, creates its Course Map, and then generates a course book for every lesson. Add any optional source files above before starting.</div>
+            <strong style="color:var(--navy)">Ready to create the Course Map?</strong>
+            <div class="hint">This saves the new course and generates only its Course Map. After reviewing the map, choose specific lessons and generate their course books from Lesson Management.</div>
           </div>
-          <button class="primary" id="generateCourseBooksFromIntake">Generate course books</button>
+          <button class="primary" id="generateCourseMapFromIntake">Generate Course Map</button>
           <span id="intakeProductionStatus" class="operator-result" aria-live="polite"></span>
         </div>
       </div>
@@ -1645,12 +1645,11 @@ def ui_shell(default_course: str) -> str:
       }}).join('');
       const approved = (currentStatus?.lessons || []).reduce((count, lesson) => count + approvalGroups.filter(group => lesson[group.approvalField] === 'approved').length, 0);
       document.getElementById('approvalCount').textContent = `${{approved}} approvals`;
-      const intakeButton = document.getElementById('generateCourseBooksFromIntake');
+      const intakeButton = document.getElementById('generateCourseMapFromIntake');
       const courseMapActive = currentJobs.some(job => job.request_type === 'course_start' && ['queued', 'running'].includes(job.state));
-      const courseBooksActive = currentJobs.some(job => job.request_type === 'production_stage' && job?.payload?.stage === 'study_guide' && ['queued', 'running'].includes(job.state));
       if (intakeButton) {{
-        intakeButton.disabled = courseMapActive || courseBooksActive;
-        intakeButton.textContent = courseMapActive ? 'Preparing Course Map...' : (courseBooksActive ? 'Generating course books...' : 'Generate course books');
+        intakeButton.disabled = courseMapActive;
+        intakeButton.textContent = courseMapActive ? 'Generating Course Map...' : (currentStatus?.course_map_ready === true ? 'Regenerate Course Map' : 'Generate Course Map');
       }}
       renderCourseMapPanel();
       renderOperatorTool();
@@ -2406,26 +2405,23 @@ def ui_shell(default_course: str) -> str:
       }}
       return post('/api/start-course', {{course: course.value}});
     }}
-    async function generateCourseBooksFromIntake() {{
-      const button = document.getElementById('generateCourseBooksFromIntake');
+    async function generateCourseMapFromIntake() {{
+      const button = document.getElementById('generateCourseMapFromIntake');
       const localStatus = document.getElementById('intakeProductionStatus');
       localStatus.className = 'operator-result';
-      localStatus.textContent = 'Saving the course and preparing production...';
+      localStatus.textContent = 'Saving the course and preparing its Course Map...';
       button.disabled = true;
       try {{
         await ensureCourseIntake();
-        const statusLessons = (currentStatus?.lessons || []).map(item => Number(item.lesson)).filter(Number.isFinite);
-        const expectedCount = Math.max(1, Number(document.getElementById('expectedLessons').value || 1));
-        const lessons = statusLessons.length ? statusLessons : Array.from({{length: expectedCount}}, (_, index) => index + 1);
-        const data = await api('/api/generate-course-books', {{method:'POST', body:JSON.stringify({{course:course.value, lessons}})}});
+        const data = await api('/api/start-course', {{method:'POST', body:JSON.stringify({{course:course.value}})}});
         localStatus.className = 'operator-result success';
-        localStatus.textContent = data.message || 'Course-book production queued.';
+        localStatus.textContent = data.message || 'Course Map generation queued. Course books remain available separately in Lesson Management.';
         await loadWorkspace();
       }} catch (error) {{
         localStatus.className = 'operator-result error';
         localStatus.textContent = error.message;
       }} finally {{
-        const active = currentJobs.some(job => ['queued', 'running'].includes(job.state) && (job.request_type === 'course_start' || (job.request_type === 'production_stage' && job?.payload?.stage === 'study_guide')));
+        const active = currentJobs.some(job => ['queued', 'running'].includes(job.state) && job.request_type === 'course_start');
         button.disabled = active;
       }}
     }}
@@ -2709,7 +2705,7 @@ def ui_shell(default_course: str) -> str:
     }};
     document.getElementById('deleteCourse').onclick = deleteCourse;
     document.getElementById('startProduction').onclick = startProductionFlow;
-    document.getElementById('generateCourseBooksFromIntake').onclick = generateCourseBooksFromIntake;
+    document.getElementById('generateCourseMapFromIntake').onclick = generateCourseMapFromIntake;
     document.getElementById('uploadScope').onchange = toggleLessonInput;
     document.getElementById('files').onchange = event => setUploadQueue(event.target.files);
     document.getElementById('upload').onclick = uploadFiles;
@@ -3001,40 +2997,6 @@ class GregUiHandler(BaseHTTPRequestHandler):
                     summary="operator started Course Map and source research",
                 )
                 self.send_json(HTTPStatus.OK, {"message": result.message, "job": result.job})
-                return
-            if parsed.path == "/api/generate-course-books":
-                course = slugify(str(body.get("course") or getattr(self.server, "default_course", DEFAULT_COURSE)))
-                lessons = sorted({int(value) for value in (body.get("lessons") or []) if 1 <= int(value) <= 30})
-                if not course or not lessons:
-                    self.send_json(HTTPStatus.BAD_REQUEST, {"error": "Create the course and choose at least one lesson before generating course books."})
-                    return
-                active_jobs = [
-                    job for job in list_jobs(job_root)
-                    if str(job.get("course_slug") or "") == course and job.get("state") in {"queued", "running"}
-                ]
-                active_start = next((job for job in active_jobs if job.get("request_type") == "course_start"), None)
-                if active_start:
-                    payload = active_start.get("payload") or {}
-                    if payload.get("followup_stage") != "study_guide":
-                        jobs = enqueue_production_lesson_jobs(job_root=job_root, course=course, stage="study_guide", lessons=lessons)
-                        self.send_json(HTTPStatus.OK, {"message": f"The Course Map is already in progress. Course-book production for {len(lessons)} lesson(s) is queued behind it.", "job": active_start, "jobs": jobs})
-                        return
-                    self.send_json(HTTPStatus.OK, {"message": "The Course Map and course-book production are already in progress.", "job": active_start})
-                    return
-                status = course_status(course)
-                if status.get("course_map_ready") is True:
-                    jobs = enqueue_production_lesson_jobs(job_root=job_root, course=course, stage="study_guide", lessons=lessons)
-                    self.send_json(HTTPStatus.OK, {"message": f"Course-book production queued for {len(lessons)} lesson(s).", "job": jobs[0] if jobs else None, "jobs": jobs})
-                    return
-                result = enqueue_job(
-                    job_root=job_root,
-                    request_type="course_start",
-                    course_slug=course,
-                    requested_by="operator-ui",
-                    summary="operator requested Course Map followed by all course books",
-                    payload={"followup_stage": "study_guide", "lessons": lessons, "all_lessons": True},
-                )
-                self.send_json(HTTPStatus.OK, {"message": f"Course Map queued. Course-book production for {len(lessons)} lesson(s) will start automatically when it is ready.", "job": result.job})
                 return
             if parsed.path == "/api/marketing-generate":
                 course = slugify(str(body.get("course") or getattr(self.server, "default_course", DEFAULT_COURSE)))

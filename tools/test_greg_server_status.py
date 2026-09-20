@@ -21,24 +21,6 @@ spec.loader.exec_module(checker)
 
 
 class GregServerStatusTests(unittest.TestCase):
-    def test_course_start_queues_requested_course_books_after_map_succeeds(self) -> None:
-        (ROOT / "tmp" / "jobs").mkdir(parents=True, exist_ok=True)
-        with tempfile.TemporaryDirectory(dir=ROOT / "tmp" / "jobs") as tmp:
-            root = Path(tmp)
-            job = checker.create_job(
-                job_root=root,
-                request_type="course_start",
-                course_slug="demo",
-                requested_by="operator-ui",
-                payload={"followup_stage": "study_guide", "lessons": [1, 2]},
-            )
-            with patch.object(checker, "run_command", return_value=(0, "ok")):
-                completed = checker.execute_worker_job(root, job, backup_root=root / "backups")
-            queued = [item for item in checker.list_jobs(root) if item["request_type"] == "production_stage"]
-        self.assertEqual("course_start", completed["request_type"])
-        self.assertEqual([1, 2], [item["lesson"] for item in queued])
-        self.assertTrue(all(item["payload"]["stage"] == "study_guide" for item in queued))
-
     def test_cancellable_worker_command_terminates_active_child(self) -> None:
         code, output = checker.run_command(
             [sys.executable, "-c", "import time; time.sleep(30)"],

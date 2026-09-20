@@ -572,27 +572,7 @@ def execute_worker_job(job_root: Path, job: dict[str, Any], *, backup_root: Path
         if code != 0:
             raise RuntimeError(output or f"course_start source research failed with exit code {code}")
         artifacts = [{"kind": "course_map", "path": f"runs/{course_slug}/course_map/course_map.md", "created": True}, {"kind": "source_ledger", "path": f"runs/{course_slug}/sources/source_ledger.json", "created": True}]
-        completed = update_job(job_root, job, artifacts=artifacts, last_error=None)
-        payload = job.get("payload") or {}
-        if payload.get("followup_stage") == "study_guide":
-            lessons = sorted({int(value) for value in (payload.get("lessons") or []) if 1 <= int(value) <= 30})
-            if payload.get("all_lessons"):
-                status_module = __import__("greg_course_status")
-                final_status = status_module.summarize(str(course_slug))
-                mapped_lessons = sorted({int(item.get("lesson")) for item in (final_status.get("lessons") or []) if 1 <= int(item.get("lesson") or 0) <= 30})
-                if mapped_lessons:
-                    lessons = mapped_lessons
-            for lesson in lessons:
-                create_job(
-                    job_root=job_root,
-                    request_type="production_stage",
-                    course_slug=str(course_slug),
-                    lesson=lesson,
-                    requested_by=str(job.get("requested_by") or "operator-ui"),
-                    input_summary=f"Course Map completed; generate course book for lesson {lesson}",
-                    payload={"stage": "study_guide", "lessons": [lesson]},
-                )
-        return completed
+        return update_job(job_root, job, artifacts=artifacts, last_error=None)
     if request_type == "lesson_lifecycle":
         course_slug = job.get("course_slug")
         lesson = job.get("lesson") or 1
