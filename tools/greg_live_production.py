@@ -927,6 +927,7 @@ def student_reference_text(value: str) -> str:
     text = re.sub(r"\s+retrieved\s+[A-Z][a-z]+\s+\d{1,2},\s+\d{4}\.?", ".", text, flags=re.I)
     text = re.sub(r"\s+retrieved\s+\d{4}-\d{2}-\d{2}\.?", ".", text, flags=re.I)
     text = re.sub(r"\bCurrent online edition\s*\.\s*", "Current online edition. ", text)
+    text = re.sub(r"\bExhibits\s+A\s*,\s*C\b", "Exhibits A–C", text, flags=re.I)
     text = re.sub(r"\.{2,}\s*$", ".", text)
     text = re.sub(r"\s{2,}", " ", text).strip()
     return text
@@ -1730,9 +1731,11 @@ def revision_requires_chapter_context(feedback: str) -> bool:
         return False
     return bool(re.search(
         r"\b(?:throughout the lesson|entire lesson|across (?:the )?(?:lesson|sections)|"
-        r"reorganize the (?:lesson|chapter)|re-outline the (?:lesson|chapter)|"
+        r"reorganize the (?:lesson|chapter|sections)|re-outline the (?:lesson|chapter)|"
         r"each section (?:owns|has one distinct purpose)|remove duplicated explanations|"
-        r"running residential scenario|linked residential scenarios|"
+        r"running residential scenario|linked residential scenarios|one connected (?:residential )?scenario|"
+        r"consolidate the (?:lesson|chapter) into|non-?overlapping (?:sequence|functions)|"
+        r"remove repeated .+ from later sections|consistent markdown heading hierarchy|"
         r"complete project-review schema|canonical project-review schema|"
         r"one (?:canonical|cumulative|common) (?:case|schema|template|record)|"
         r"single (?:canonical|cumulative|common) (?:case|schema|template|record)|"

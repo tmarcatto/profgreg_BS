@@ -1630,6 +1630,20 @@ Term.
             "Remove duplicated explanations and use one running residential scenario."
         )
         self.assertTrue(production.revision_requires_chapter_context(feedback))
+        alternate = (
+            "Automatic reviewer changes required:\n- Consolidate the lesson into a non-overlapping sequence and use one "
+            "connected residential scenario. Remove repeated explanations from later sections and use a consistent Markdown heading hierarchy."
+        )
+        self.assertTrue(production.revision_requires_chapter_context(alternate))
+        self.assertTrue(production.revision_requires_chapter_context(
+            "Automatic reviewer changes required:\n- Reorganize the sections into distinct, nonoverlapping functions."
+        ))
+
+    def test_utah_reference_title_normalizes_exhibit_range(self) -> None:
+        self.assertIn(
+            "Exhibits A–C",
+            production.student_reference_text("Utah. Residential Construction Agreement and Exhibits A, C."),
+        )
 
     def test_hands_on_normalizer_demotes_answer_only_and_expands_flat_task(self) -> None:
         draft = """> **HANDS-ON EXAMPLE**
