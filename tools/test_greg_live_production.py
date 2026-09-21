@@ -1562,6 +1562,21 @@ Use these terms to distinguish roles.
         self.assertNotIn("Online technical guidance", cleaned)
         self.assertIn(fhwa["url"], cleaned)
 
+    def test_direct_fannie_document_drops_url_and_far_part_16_is_deduplicated(self) -> None:
+        fannie = {
+            "title": "Single-Closing Construction-to-Permanent Financing Transaction Process",
+            "source_type": "government",
+            "url": "https://singlefamily.fanniemae.com/media/6311/display",
+            "formal_reference": "Fannie Mae. Single-Closing Construction-to-Permanent Financing Transaction Process.",
+        }
+        far_sources = [
+            {"title": "Federal Acquisition Regulation, Subpart 16.1—Selecting Contract Types", "formal_reference": "Federal Acquisition Regulation, Subpart 16.1, Selecting Contract Types."},
+            {"title": "Federal Acquisition Regulation, Part 16—Types of Contracts", "formal_reference": "Federal Acquisition Regulation, Part 16, Types of Contracts."},
+            {"title": "Part 16—Types of Contracts", "formal_reference": "Federal Acquisition Regulatory Council. Federal Acquisition Regulation, Part 16—Types of Contracts."},
+        ]
+        self.assertNotIn("http", production.student_reference_for_source(fannie))
+        self.assertEqual(1, len(production.student_reference_lines(far_sources)))
+
     def test_chapter_wide_feedback_routes_to_complete_revision(self) -> None:
         feedback = (
             "Automatic reviewer changes required:\n- Re-outline the lesson so each section has one distinct purpose. "

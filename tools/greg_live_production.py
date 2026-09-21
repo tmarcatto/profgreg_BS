@@ -984,7 +984,10 @@ def student_reference_for_source(source: dict[str, Any]) -> str:
     text = re.sub(r"\s*\([^)]*\bpp?\.\s*[^)]*\)", "", text, flags=re.I)
     source_type = str(source.get("source_type") or "").lower()
     url = str(source.get("url") or "").strip()
-    document_url = bool(re.search(r"\.(pdf|docx?|pptx?)(?:[?#]|$)", url, flags=re.I))
+    document_url = bool(
+        re.search(r"\.(pdf|docx?|pptx?)(?:[?#]|$)", url, flags=re.I)
+        or re.search(r"/media/\d+/display(?:[?#]|$)", url, flags=re.I)
+    )
     # A directly linked standalone document is cited by its own title. Model
     # research sometimes appends the parent marketing collection as
     # ``In Collection Name``; that is neither needed nor reliably sourced and
@@ -1028,6 +1031,8 @@ def student_reference_identity(source: dict[str, Any], reference: str) -> str:
     combined = f"{source.get('title') or ''} {reference}".lower()
     if re.search(r"\b(?:far\s*)?52[.\s-]*236[.\s-]*21\b", combined):
         return "far 52 236 21"
+    if re.search(r"\b(?:federal acquisition regulation|far)[,\s]*(?:sub)?part\s+16(?:\.1)?\b", combined):
+        return "far part 16"
     title = str(source.get("title") or reference).lower()
     title = re.sub(r"\b(?:chapter|section|attachment)\s+[a-z0-9.-]+.*$", "", title)
     title = re.sub(r"\([^)]*(?:uploaded|supplied|excerpt|file)[^)]*\)", "", title)
