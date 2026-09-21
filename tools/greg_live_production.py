@@ -1033,10 +1033,21 @@ def student_reference_identity(source: dict[str, Any], reference: str) -> str:
         return "far 52 236 21"
     if re.search(r"\b(?:federal acquisition regulation|far)[,\s]*(?:sub)?part\s+16(?:\.1)?\b", combined):
         return "far part 16"
-    title = str(source.get("title") or reference).lower()
-    title = re.sub(r"\b(?:chapter|section|attachment)\s+[a-z0-9.-]+.*$", "", title)
+    raw_title = str(source.get("title") or reference).lower()
+    # A direct webpage attachment is a distinct consulted work (for example,
+    # FHWA Attachment 2 beside its parent guidance page). Preserve that page
+    # identity while still collapsing chapter locators for books and manuals.
+    keep_attachment = bool(re.search(r"\battachment\s+[a-z0-9.-]+", raw_title)) and bool(source.get("url"))
+    locator_pattern = r"\b(?:chapter|section)\s+[a-z0-9.-]+.*$" if keep_attachment else r"\b(?:chapter|section|attachment)\s+[a-z0-9.-]+.*$"
+    title = re.sub(locator_pattern, "", raw_title)
     title = re.sub(r"\([^)]*(?:uploaded|supplied|excerpt|file)[^)]*\)", "", title)
-    return re.sub(r"[^a-z0-9]+", " ", title).strip()
+    identity = re.sub(r"[^a-z0-9]+", " ", title).strip()
+    if not identity:
+        # Some source titles are only locators (for example, "Chapter 5:
+        # Change Orders"). The normalized corporate-author reference still
+        # identifies the parent manual and must not disappear from the list.
+        identity = re.sub(r"[^a-z0-9]+", " ", reference.lower()).strip()
+    return identity
 
 
 def student_reference_lines(sources: list[dict[str, Any]]) -> list[str]:
@@ -1209,6 +1220,11 @@ def force_student_references(draft: str, references: str, locale: str = "en") ->
     summary_heading, references_heading = labels.get(locale, labels["en"])
     if locale == "es":
         draft = re.sub(r"(?im)^#\s+Resumen y puntos clave\s*$", f"# {summary_heading}", draft)
+    draft = re.sub(
+        r"(?ims)^#{1,3}\s+Source ledger\s*$.*?(?=^#{1,3}\s+|\Z)",
+        "",
+        draft,
+    )
     draft = remove_embedded_reference_lists(draft)
     body = re.split(rf"(?im)^#\s+{re.escape(references_heading)}\s*$", draft, maxsplit=1)[0].rstrip()
     summary_match = re.search(rf"(?ims)(^#\s+{re.escape(summary_heading)}\s*$)(.*?)(?=^#\s+|\Z)", body)

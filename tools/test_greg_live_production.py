@@ -1577,6 +1577,53 @@ Use these terms to distinguish roles.
         self.assertNotIn("http", production.student_reference_for_source(fannie))
         self.assertEqual(1, len(production.student_reference_lines(far_sources)))
 
+    def test_locator_only_manual_and_distinct_web_attachment_survive_identity_cleanup(self) -> None:
+        caltrans = {
+            "title": "Chapter 5: Contract Administration, Section 3: Change Orders",
+            "source_type": "government",
+            "formal_reference": "California Department of Transportation. Construction Manual, Chapter 5: Contract Administration, Section 3: Change Orders.",
+        }
+        fhwa_main = {
+            "title": "Development and Review of Specifications—Construction",
+            "source_type": "government",
+            "url": "https://www.fhwa.dot.gov/construction/specreview.cfm",
+            "formal_reference": "Federal Highway Administration. Development and Review of Specifications—Construction.",
+        }
+        fhwa_attachment = {
+            "title": "Development and Review of Specifications—Construction, Attachment 2",
+            "source_type": "government",
+            "url": "https://www.fhwa.dot.gov/construction/specrevattach2.cfm",
+            "formal_reference": "Federal Highway Administration. Development and Review of Specifications—Construction, Attachment 2.",
+        }
+        lines = production.student_reference_lines([caltrans, fhwa_main, fhwa_attachment])
+        self.assertEqual(3, len(lines))
+        self.assertTrue(any("Construction Manual" in line for line in lines))
+        self.assertTrue(any("Attachment 2" in line for line in lines))
+
+    def test_forced_references_remove_model_source_ledger_block(self) -> None:
+        draft = """# Summary and Key Takeaways
+
+- One.
+- Two.
+- Three.
+- Four.
+
+# Source ledger
+
+Internal source metadata.
+
+# Glossary
+
+Term.
+
+# References
+
+- Model output.
+"""
+        normalized = production.force_student_references(draft, "# References\n\n- Validated work.")
+        self.assertNotIn("Source ledger", normalized)
+        self.assertNotIn("Internal source metadata", normalized)
+
     def test_chapter_wide_feedback_routes_to_complete_revision(self) -> None:
         feedback = (
             "Automatic reviewer changes required:\n- Re-outline the lesson so each section has one distinct purpose. "
