@@ -2992,6 +2992,20 @@ Return:
 
 
 def visual_semantic_review_prompt(seed, lesson: dict[str, Any], draft: str, plan: dict[str, Any]) -> str:
+    review_keys = {
+        "visual_id", "visual_type", "placement", "purpose", "learning_claim", "image_need",
+        "asset_strategy", "pedagogical_strategy", "real_example_importance", "source_status",
+        "diagram_type", "diagram_title", "diagram_total", "diagram_nodes", "diagram_columns",
+        "diagram_rows", "schedule_rows", "network_paths", "highlighted", "highlight_reason",
+        "max_area_percent", "caption", "type", "title", "nodes", "columns", "rows", "paths",
+    }
+    review_plan = {
+        "artifact_type": plan.get("artifact_type"),
+        "visuals": [
+            {key: value for key, value in visual.items() if key in review_keys}
+            for visual in plan.get("visuals") or []
+        ],
+    }
     return f"""Your entire response must be one compact JSON object that starts with `{{` and ends with `}}`. Do not include analysis, Markdown, code fences, or introductory text. Independently review this visual plan for Lesson {lesson['lesson_number']}: {lesson['title']} in {seed.title}.
 
 Check every diagram against the lesson prose and against what the deterministic renderer will visibly show. The student-facing learning claim becomes the figure caption, so it must explain the exact visible relationship, order, grouping, highlight, or calculation instead of making a generic statement that could accompany a different diagram. Require the caption claim, diagram title, and visible nodes/cards/rows to use the same core terms and logic. If the content contains numbered steps, an order, a sequence, a workflow, or first/next/then/finally logic, require a process-flow with visible connectors and the exact source order; a card sequence or collection of boxes is a blocking mismatch. If the content compares two or more entities across the same variables, require a true comparison matrix with one variable column and one separate column per entity; packing `A: ... B: ...` into a single narrative cell is a blocking mismatch. A relationship-map is visibly center-and-spoke: the first node is the center and the renderer connects every later node directly to it. It has no arbitrary edge, endpoint, legend, alternate-path, or outer-node-link schema. Never demand unsupported edge fields. If a plan promises relationships that center-and-spoke cannot show, require the planner to narrow the visible claim to center-to-node relationships or choose a supported comparison/process mechanism. Set `passed` to false for a material learner-visible error: a factual contradiction, a caption or explanation disconnected from the visible diagram, a promised lifecycle endpoint/responsibility/role/comparison item that is actually absent, a materially misleading authority or sequence, failure to implement a Course Map visual insertion, substitution of a descriptive matrix for a required direct demonstration, or content that will be clipped or hidden. Concise instructional compression is expected; a diagram does not need to reproduce every qualification or detail from the prose. Standard construction abbreviations already defined in the lesson and minor editorial preferences are non-blocking findings. Enforce these hard capacities: process-flow 2-6 nodes with titles <=30 characters and visible details <=36 characters, relationship-map 2-6 nodes, comparison-matrix 3-4 columns and 2-5 rows with one cell per column, card-sequence 2-8 cards, schedule-bar-chart 3-8 rows, and activity-network 1-2 paths with 2-4 activities each. Do not accept hidden extra nodes or rows as satisfying a claim. Confirm that each visual is placed after the section that teaches it.
@@ -3000,7 +3014,7 @@ Lesson draft:
 {draft[:36000]}
 
 Visual plan:
-{json.dumps(plan, ensure_ascii=False)[:18000]}
+{json.dumps(review_plan, ensure_ascii=False)}
 
 Return exactly:
 {{"passed":true,"findings":["specific evidence"],"required_changes":[]}}"""

@@ -1391,6 +1391,26 @@ Term.
         self.assertIn(replacement.strip(), revised)
         self.assertEqual("# Section 02 - Two", section_patch.call_args.args[1])
 
+    def test_visual_review_prompt_uses_complete_compact_plan(self) -> None:
+        seed = SimpleNamespace(title="Course")
+        lesson = {"lesson_number": 2, "title": "Lesson"}
+        plan = {
+            "artifact_type": "study-guide",
+            "visuals": [{
+                "visual_id": "L02V01",
+                "visual_type": "deterministic-diagram",
+                "diagram_type": "relationship-map",
+                "diagram_title": "GC Connections",
+                "diagram_nodes": [{"title": "GC", "detail": "Center"}],
+                "selection_reason": "x" * 30000,
+            }],
+        }
+        prompt = production.visual_semantic_review_prompt(seed, lesson, "Draft.", plan)
+        self.assertIn('"diagram_title": "GC Connections"', prompt)
+        self.assertIn('"detail": "Center"', prompt)
+        self.assertNotIn("selection_reason", prompt)
+        self.assertNotIn("x" * 100, prompt)
+
     def test_cross_section_consistency_uses_chapter_context(self) -> None:
         feedback = (
             "Automatic reviewer changes required:\n"
