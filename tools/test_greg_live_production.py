@@ -1624,6 +1624,20 @@ Term.
         self.assertNotIn("Source ledger", normalized)
         self.assertNotIn("Internal source metadata", normalized)
 
+    def test_hands_on_normalizer_preserves_bold_colon_fields_and_splits_task_steps(self) -> None:
+        draft = """> **HANDS-ON EXAMPLE**
+> **Setup:** Revision 2 is current. **Task:** 1. Confirm the revision. 2. Compare the request. 3. Verify authority. 4. Record the result. **Answer/Check:** Revision 2 governs.
+"""
+        normalized = production.normalize_callout_density(
+            production.normalize_reviewed_factual_language(draft)
+        )
+        self.assertIn("> **HANDS-ON EXAMPLE**", normalized)
+        self.assertIn("> Setup: Revision 2 is current.", normalized)
+        self.assertIn("> Task:\n> 1. Confirm the revision.\n> 2. Compare the request.", normalized)
+        self.assertIn("> 3. Verify authority.\n> 4. Record the result.", normalized)
+        self.assertIn("> Answer/Check: Revision 2 governs.", normalized)
+        self.assertNotIn("1. Confirm the revision. 2.", normalized)
+
     def test_chapter_wide_feedback_routes_to_complete_revision(self) -> None:
         feedback = (
             "Automatic reviewer changes required:\n- Re-outline the lesson so each section has one distinct purpose. "

@@ -1613,7 +1613,8 @@ def normalize_callout_density(draft: str, maximum: int = 4) -> str:
 def normalize_hands_on_example_markdown(draft: str) -> str:
     """Repair provider-flattened HANDS-ON blocks without changing wording."""
     field_pattern = re.compile(
-        r"\*\*(Setup|Supplied (?:inputs|records)|Task|Actions|Answer/check)\.?\*\*", flags=re.I,
+        r"\*\*(Setup|Supplied (?:inputs|records)|Task|Actions|Answer/check)\s*[:.]?\*\*",
+        flags=re.I,
     )
     label_pattern = re.compile(r"^>\s*\*\*HANDS-ON EXAMPLE\*\*\s*$", flags=re.I)
     lines = draft.splitlines()
@@ -1638,6 +1639,14 @@ def normalize_hands_on_example_markdown(draft: str) -> str:
                 return value, []
             return parts[0].strip(), [part.strip() for part in parts[1:] if part.strip()]
 
+        def split_steps(value: str) -> list[tuple[str, str]]:
+            parts = re.split(r"(?<!\w)(\d{1,2})\.\s+", value)
+            return [
+                (parts[pos], parts[pos + 1].strip())
+                for pos in range(1, len(parts) - 1, 2)
+                if parts[pos + 1].strip()
+            ]
+
         for match_index, match in enumerate(matches):
             end = matches[match_index + 1].start() if match_index + 1 < len(matches) else len(body)
             label = match.group(1).rstrip(".")
@@ -1656,10 +1665,9 @@ def normalize_hands_on_example_markdown(draft: str) -> str:
                 if records:
                     result.append(f"{line_prefix}Supplied inputs:")
                     result.extend(f"{line_prefix}- {record}" for record in records)
-            elif label.lower() == "actions":
-                result.append(f"{line_prefix}Actions:")
-                parts = re.split(r"(?<!\w)(\d{1,2})\.\s+", value)
-                steps = [(parts[pos], parts[pos + 1].strip()) for pos in range(1, len(parts) - 1, 2)]
+            elif label.lower() in {"task", "actions"}:
+                result.append(f"{line_prefix}{label}:")
+                steps = split_steps(value)
                 if steps:
                     result.extend(f"{line_prefix}{number}. {step}" for number, step in steps if step)
                 elif value:
