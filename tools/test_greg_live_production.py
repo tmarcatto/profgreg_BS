@@ -1688,6 +1688,16 @@ Supplied inputs: - Record A is current. - Record B is old. Task: 1. Compare the 
         self.assertIn("> 1. Compare the records.\n> 2. Choose the current record.", normalized)
         self.assertIn("> Answer/Check: Record A governs.", normalized)
 
+    def test_inline_step_normalizer_does_not_split_revision_number(self) -> None:
+        draft = (
+            "> Task: 1. Record the request. 2. Compare it with A2.14, revision 3. "
+            "3. Check the register. **Answer/Check:** A2.14, revision 3. governs.\n"
+        )
+        normalized = production.normalize_inline_numbered_sequences(draft)
+        self.assertIn("> 2. Compare it with A2.14, revision 3.", normalized)
+        self.assertIn("> 3. Check the register.", normalized)
+        self.assertIn("A2.14, revision 3. governs.", normalized)
+
     def test_chapter_wide_feedback_routes_to_complete_revision(self) -> None:
         feedback = (
             "Automatic reviewer changes required:\n- Re-outline the lesson so each section has one distinct purpose. "

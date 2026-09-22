@@ -1288,7 +1288,15 @@ def normalize_inline_numbered_sequences(draft: str) -> str:
         stripped = line.strip()
         quoted = stripped.startswith(">")
         content = stripped[1:].strip() if quoted else stripped
-        markers = list(re.finditer(r"(?<!\w)(\d{1,2})\.\s+", content))
+        markers = [
+            marker
+            for marker in re.finditer(r"(?<!\w)(\d{1,2})\.\s+", content)
+            if not re.search(
+                r"\b(?:revision|rev(?:ision)?|section|figure|record|sheet|part|unit)\s*$",
+                content[: marker.start()],
+                flags=re.I,
+            )
+        ]
         learner_line = bool(re.search(r"\bLearner tasks?\b", content, flags=re.I))
         if not markers or (len(markers) == 1 and not learner_line):
             normalized.append(line)
