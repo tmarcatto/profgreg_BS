@@ -1641,13 +1641,20 @@ def normalize_callout_density(draft: str, maximum: int = 4) -> str:
 
 def normalize_hands_on_example_markdown(draft: str) -> str:
     """Repair provider-flattened HANDS-ON blocks without changing wording."""
+    # Accept the harmless label variants providers commonly return, including
+    # an inline body after the bold label, then emit the one renderer contract.
     draft = re.sub(
-        r"(?im)^>\s*\*\*HANDS-ON EXAMPLE\s+\d+\*\*\s*$",
+        r"(?im)^(?:>[ \t]*)?\*\*HANDS ON EXAMPLE(?:[ \t]+\d+)?[.:]?\*\*[ \t]*(?:[:,.][ \t]*)?(?=\S)",
+        "> **HANDS-ON EXAMPLE**\n> ",
+        draft,
+    )
+    draft = re.sub(
+        r"(?im)^>[ \t]*(?:\*\*)?HANDS[ -]ON EXAMPLE(?:[ \t]+\d+)?[.:]?(?:\*\*)?[ \t]*$",
         "> **HANDS-ON EXAMPLE**",
         draft,
     )
     field_pattern = re.compile(
-        r"(?:\*\*)?(Setup|Supplied (?:inputs|records)|Task|Actions|Your action|Individual action|Answer/check)\s*[:.]?(?:\*\*)?",
+        r"(?:\*\*)?(Setup|Supplied (?:inputs|records|information)|Task|Actions|Your action|Individual action|Answer\s*/\s*Check)\s*[:.]?(?:\*\*)?",
         flags=re.I,
     )
     label_pattern = re.compile(r"^>\s*\*\*HANDS-ON EXAMPLE\*\*\s*$", flags=re.I)
@@ -1676,11 +1683,19 @@ def normalize_hands_on_example_markdown(draft: str) -> str:
             return parts[0].strip(), [part.strip() for part in parts[1:] if part.strip()]
 
         def split_steps(value: str) -> list[tuple[str, str]]:
-            parts = re.split(r"(?<!\w)(\d{1,2})\.\s+", value)
+            markers = []
+            for marker in re.finditer(r"(?<!\w)(\d{1,2})\.\s+", value):
+                # "revision 3." is document metadata, never a list marker.
+                if value[max(0, marker.start() - 12) : marker.start()].lower().rstrip().endswith("revision"):
+                    continue
+                markers.append(marker)
             return [
-                (parts[pos], parts[pos + 1].strip())
-                for pos in range(1, len(parts) - 1, 2)
-                if parts[pos + 1].strip()
+                (
+                    marker.group(1),
+                    value[marker.end() : (markers[pos + 1].start() if pos + 1 < len(markers) else len(value))].strip(),
+                )
+                for pos, marker in enumerate(markers)
+                if value[marker.end() : (markers[pos + 1].start() if pos + 1 < len(markers) else len(value))].strip()
             ]
 
         fields: list[tuple[re.Match[str], str, str]] = []
@@ -1689,36 +1704,41 @@ def normalize_hands_on_example_markdown(draft: str) -> str:
             label = match.group(1).rstrip(".")
             value = body[match.end() : end].strip()
             fields.append((match, label, value))
-        rank = {"setup": 0, "supplied inputs": 1, "supplied records": 1, "task": 2, "actions": 2, "your action": 2, "individual action": 2, "answer/check": 3}
-        fields.sort(key=lambda item: rank.get(item[1].lower(), 4))
+        def field_key(label: str) -> str:
+            return re.sub(r"\s*/\s*", "/", label.lower())
+
+        rank = {"setup": 0, "supplied inputs": 1, "supplied records": 1, "supplied information": 1, "task": 2, "actions": 2, "your action": 2, "individual action": 2, "answer/check": 3}
+        fields.sort(key=lambda item: rank.get(field_key(item[1]), 4))
         for _match, label, value in fields:
-            if label.lower() in {"task", "answer/check"}:
+            key = field_key(label)
+            if key in {"task", "answer/check"}:
                 add_break()
-            if label.lower().startswith("supplied"):
+            if key.startswith("supplied"):
                 lead, records = split_records(value)
-                result.append(f"{line_prefix}{label}:")
+                result.append(f"{line_prefix}Supplied inputs:")
                 if lead:
                     result.append(f"{line_prefix}{lead}")
                 result.extend(f"{line_prefix}- {record}" for record in records)
-            elif label.lower() == "setup":
+            elif key == "setup":
                 lead, records = split_records(value)
                 result.append(f"{line_prefix}Setup:" + (f" {lead}" if lead else ""))
                 if records:
                     result.append(f"{line_prefix}Supplied inputs:")
                     result.extend(f"{line_prefix}- {record}" for record in records)
-            elif label.lower() in {"task", "actions"}:
-                result.append(f"{line_prefix}{label}:")
+            elif key in {"task", "actions"}:
+                result.append(f"{line_prefix}{'Task' if key == 'task' else 'Actions'}:")
                 steps = split_steps(value)
                 if steps:
                     result.extend(f"{line_prefix}{number}. {step}" for number, step in steps if step)
                 elif value:
                     result.append(f"{line_prefix}{value}")
-            elif label.lower() in {"your action", "individual action"}:
+            elif key in {"your action", "individual action"}:
                 add_break()
                 result.append(f"{line_prefix}{label}:" + (f" {value}" if value else ""))
-            elif label.lower() == "answer/check":
+            elif key == "answer/check":
                 lead, records = split_records(value)
-                result.append(f"{line_prefix}{label}:" + (f" {lead}" if lead else ""))
+                canonical_label = re.sub(r"\s*/\s*", "/", label)
+                result.append(f"{line_prefix}{canonical_label}:" + (f" {lead}" if lead else ""))
                 result.extend(f"{line_prefix}- {record}" for record in records)
             else:
                 result.append(f"{line_prefix}{label}:" + (f" {value}" if value else ""))

@@ -1421,6 +1421,26 @@ Term.
         self.assertIn("> Individual action: Identify the current sheet.", normalized)
         self.assertIn("> - A2.1 is current.\n> - A2.0 is old.", normalized)
 
+    def test_inline_hands_on_variant_and_spaced_answer_check_are_normalized(self) -> None:
+        draft = """**HANDS ON EXAMPLE.** Setup: Use the field record. Supplied information: * Drawing A4.1 is current. * The vent blocks the centerline. Task: 1. Confirm A4.1, revision 3. 2. Hold the affected work. **Answer / Check** * The current drawing is recorded. * The work remains on hold.
+"""
+        normalized = production.normalize_callout_density(draft)
+        self.assertIn("> **HANDS-ON EXAMPLE**", normalized)
+        self.assertIn("> Supplied inputs:\n> - Drawing A4.1 is current.", normalized)
+        self.assertIn("> Task:\n> 1. Confirm A4.1, revision 3.\n> 2. Hold the affected work.", normalized)
+        self.assertIn("> Answer/Check:\n> - The current drawing is recorded.", normalized)
+        self.assertNotIn("HANDS ON EXAMPLE", normalized)
+
+    def test_hands_on_step_splitter_does_not_treat_revision_as_a_step(self) -> None:
+        draft = """> **HANDS-ON EXAMPLE**
+> Setup: Use current records. Task: 1. Record the request. 2. Compare A2.14, revision 3. 3. Check the register. Answer / Check: A2.14, revision 3, remains current.
+"""
+        normalized = production.normalize_callout_density(draft)
+        self.assertIn("> 2. Compare A2.14, revision 3.", normalized)
+        self.assertIn("> 3. Check the register.", normalized)
+        self.assertNotIn("> 3. 3. Check", normalized)
+        self.assertIn("> Answer/Check: A2.14, revision 3, remains current.", normalized)
+
     def test_prose_dash_normalizer_removes_compound_hyphens_only_before_references(self) -> None:
         draft = """# Section 01 - Work
 
