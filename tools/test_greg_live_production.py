@@ -1638,6 +1638,36 @@ Term.
         self.assertIn("> Answer/Check: Revision 2 governs.", normalized)
         self.assertNotIn("1. Confirm the revision. 2.", normalized)
 
+    def test_hands_on_normalizer_recovers_adjacent_exercise_after_early_answer(self) -> None:
+        draft = """> **HANDS-ON EXAMPLE**
+> Answer/check: Stale answer that appeared before the task.
+
+Supplied inputs: Use these records: - A5.2 Revision 3 is current. - Addendum 02 is incorporated.
+
+**Your action** Prepare the control record.
+
+**Answer/check** Mark Addendum 02 as incorporated and A5.2 Revision 3 as current.
+
+# Section 04 - Next
+
+Body.
+"""
+        normalized = production.normalize_callout_density(draft)
+        self.assertIn("> Supplied inputs:\n> Use these records:", normalized)
+        self.assertIn("> - A5.2 Revision 3 is current.", normalized)
+        self.assertIn("> Your action: Prepare the control record.", normalized)
+        self.assertIn("> Answer/check: Mark Addendum 02 as incorporated", normalized)
+        self.assertLess(normalized.index("> Supplied inputs:"), normalized.index("> Your action:"))
+        self.assertLess(normalized.index("> Your action:"), normalized.index("> Answer/check:"))
+        self.assertNotIn("Stale answer", normalized)
+
+    def test_factual_normalizer_repairs_course_book_source_title_and_sheet_spacing(self) -> None:
+        normalized = production.normalize_reviewed_factual_language(
+            "Residential Construction Agreement and Exhibits A, C uses W- 3 on A2. 1.\n"
+        )
+        self.assertIn("Residential Construction Agreement and Exhibits A–C", normalized)
+        self.assertIn("W-3 on A2.1", normalized)
+
     def test_chapter_wide_feedback_routes_to_complete_revision(self) -> None:
         feedback = (
             "Automatic reviewer changes required:\n- Re-outline the lesson so each section has one distinct purpose. "
@@ -1651,6 +1681,9 @@ Term.
         self.assertTrue(production.revision_requires_chapter_context(alternate))
         self.assertTrue(production.revision_requires_chapter_context(
             "Automatic reviewer changes required:\n- Reorganize the sections into distinct, nonoverlapping functions."
+        ))
+        self.assertFalse(production.revision_requires_chapter_context(
+            "Automatic reviewer changes required:\n- Correct A2. 1 and check the entire lesson for similar spacing errors."
         ))
 
     def test_chapter_wide_revision_retries_incomplete_response(self) -> None:

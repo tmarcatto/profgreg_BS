@@ -1412,6 +1412,12 @@ def normalize_reviewed_factual_language(draft: str) -> str:
         corrected,
         flags=re.I,
     )
+    corrected = corrected.replace(
+        "Residential Construction Agreement and Exhibits A, C",
+        "Residential Construction Agreement and Exhibits A–C",
+    )
+    corrected = re.sub(r"\b([A-Z])-\s+(\d+)\b", r"\1-\2", corrected)
+    corrected = re.sub(r"\b([A-Z]\d+)\.\s+(\d+)\b", r"\1.\2", corrected)
     corrected = re.sub(
         r"Do not assume that submittal approval alone replaces or modifies the contract; check whether the governing contract "
         r"incorporates or otherwise recognizes the submittal and follow the applicable change or substitution procedure\.",
@@ -1420,12 +1426,16 @@ def normalize_reviewed_factual_language(draft: str) -> str:
         corrected,
         flags=re.I,
     )
-    return normalize_repeated_lesson_objectives(
+    normalized = normalize_repeated_lesson_objectives(
         normalize_prose_dashes(
             normalize_inline_numbered_sequences(
                 normalize_conceptual_party_role_table(normalize_ordered_step_tables(corrected))
             )
         )
+    )
+    return normalized.replace(
+        "Residential Construction Agreement and Exhibits A, C",
+        "Residential Construction Agreement and Exhibits A–C",
     )
 
 
@@ -1613,7 +1623,7 @@ def normalize_callout_density(draft: str, maximum: int = 4) -> str:
 def normalize_hands_on_example_markdown(draft: str) -> str:
     """Repair provider-flattened HANDS-ON blocks without changing wording."""
     field_pattern = re.compile(
-        r"\*\*(Setup|Supplied (?:inputs|records)|Task|Actions|Answer/check)\s*[:.]?\*\*",
+        r"(?:\*\*)?(Setup|Supplied (?:inputs|records)|Task|Actions|Your action|Answer/check)\s*[:.]?(?:\*\*)?",
         flags=re.I,
     )
     label_pattern = re.compile(r"^>\s*\*\*HANDS-ON EXAMPLE\*\*\s*$", flags=re.I)
@@ -1625,6 +1635,8 @@ def normalize_hands_on_example_markdown(draft: str) -> str:
         matches = list(field_pattern.finditer(body))
         if not matches:
             return []
+        if matches[0].start() > 0 and not body[matches[0].start() :].startswith("**"):
+            return []
         result: list[str] = []
         line_prefix = "> " if quoted else ""
         blank = ">" if quoted else ""
@@ -1634,7 +1646,7 @@ def normalize_hands_on_example_markdown(draft: str) -> str:
                 result.append(blank)
 
         def split_records(value: str) -> tuple[str, list[str]]:
-            parts = re.split(r"\s*(?:>\s*)?[-*]\s*(?=\*\*Record\s+[A-Z0-9]+:)", value)
+            parts = re.split(r"(?:^|\s+)(?:>\s*)?[-*]\s+", value)
             if len(parts) <= 1:
                 return value, []
             return parts[0].strip(), [part.strip() for part in parts[1:] if part.strip()]
@@ -1647,10 +1659,15 @@ def normalize_hands_on_example_markdown(draft: str) -> str:
                 if parts[pos + 1].strip()
             ]
 
+        fields: list[tuple[re.Match[str], str, str]] = []
         for match_index, match in enumerate(matches):
             end = matches[match_index + 1].start() if match_index + 1 < len(matches) else len(body)
             label = match.group(1).rstrip(".")
             value = body[match.end() : end].strip()
+            fields.append((match, label, value))
+        rank = {"setup": 0, "supplied inputs": 1, "supplied records": 1, "task": 2, "actions": 2, "your action": 2, "answer/check": 3}
+        fields.sort(key=lambda item: rank.get(item[1].lower(), 4))
+        for _match, label, value in fields:
             if label.lower() in {"task", "answer/check"}:
                 add_break()
             if label.lower().startswith("supplied"):
@@ -1672,6 +1689,13 @@ def normalize_hands_on_example_markdown(draft: str) -> str:
                     result.extend(f"{line_prefix}{number}. {step}" for number, step in steps if step)
                 elif value:
                     result.append(f"{line_prefix}{value}")
+            elif label.lower() == "your action":
+                add_break()
+                result.append(f"{line_prefix}Your action:" + (f" {value}" if value else ""))
+            elif label.lower() == "answer/check":
+                lead, records = split_records(value)
+                result.append(f"{line_prefix}{label}:" + (f" {lead}" if lead else ""))
+                result.extend(f"{line_prefix}- {record}" for record in records)
             else:
                 result.append(f"{line_prefix}{label}:" + (f" {value}" if value else ""))
         return result
@@ -1692,8 +1716,31 @@ def normalize_hands_on_example_markdown(draft: str) -> str:
         while index < len(lines) and lines[index].lstrip().startswith(">"):
             body_lines.append(lines[index].lstrip()[1:].strip())
             index += 1
-        while index < len(lines) and not lines[index].strip():
-            index += 1
+        probe = index
+        while probe < len(lines) and not lines[probe].strip():
+            probe += 1
+        # A revision can accidentally close the quote after placing an early
+        # answer in the box, leaving the actual inputs/action/check as an
+        # ordinary block. Pull that adjacent exercise back into the callout
+        # and let the field ordering below restore the learner-facing order.
+        if (
+            body_lines
+            and body_lines[0].lower().startswith("answer/check")
+            and probe < len(lines)
+            and re.match(r"^(?:\*\*)?Supplied (?:inputs|records)\b", lines[probe].strip(), flags=re.I)
+        ):
+            attached_end = probe
+            while attached_end < len(lines) and not re.match(r"^#{1,2}\s+", lines[attached_end]):
+                attached_end += 1
+            attached = lines[probe:attached_end]
+            attached_text = " ".join(part.strip() for part in attached if part.strip())
+            if re.search(r"Your action|\*\*Task", attached_text, flags=re.I) and re.search(r"Answer/check", attached_text, flags=re.I):
+                body_lines = [part.strip() for part in attached if part.strip()]
+                index = attached_end
+            else:
+                index = probe
+        else:
+            index = probe
         if index < len(lines) and field_pattern.search(lines[index]):
             body_lines.append(lines[index].strip())
             index += 1
@@ -1823,7 +1870,8 @@ def revision_requires_chapter_context(feedback: str) -> bool:
     if not feedback.startswith("Automatic reviewer changes required:"):
         return False
     return bool(re.search(
-        r"\b(?:throughout the lesson|entire lesson|across (?:the )?(?:lesson|sections)|"
+        r"\b(?:(?:revise|rewrite|restructure|reorganize|standardize|harmonize|reconcile).{0,80}"
+        r"(?:throughout the lesson|entire lesson)|across (?:the )?(?:lesson|sections)|"
         r"reorganize the (?:lesson|chapter|sections)|re-outline the (?:lesson|chapter)|"
         r"each section (?:owns|has one distinct purpose)|remove duplicated explanations|"
         r"running residential scenario|linked residential scenarios|one connected (?:residential )?scenario|"
