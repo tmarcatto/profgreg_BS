@@ -1038,11 +1038,14 @@ def student_reference_identity(source: dict[str, Any], reference: str) -> str:
     # A direct webpage attachment is a distinct consulted work (for example,
     # FHWA Attachment 2 beside its parent guidance page). Preserve that page
     # identity while still collapsing chapter locators for books and manuals.
-    keep_attachment = bool(re.search(r"\battachment\s+[a-z0-9.-]+", raw_title)) and bool(source.get("url"))
+    attachment = re.search(r"\battachment\s+([a-z0-9.-]+)", f"{raw_title} {reference.lower()}")
+    keep_attachment = bool(attachment) and bool(source.get("url"))
     locator_pattern = r"\b(?:chapter|section)\s+[a-z0-9.-]+.*$" if keep_attachment else r"\b(?:chapter|section|attachment)\s+[a-z0-9.-]+.*$"
     title = re.sub(locator_pattern, "", raw_title)
     title = re.sub(r"\([^)]*(?:uploaded|supplied|excerpt|file)[^)]*\)", "", title)
     identity = re.sub(r"[^a-z0-9]+", " ", title).strip()
+    if keep_attachment and attachment and f"attachment {attachment.group(1)}" not in identity:
+        identity = (identity + f" attachment {attachment.group(1)}").strip()
     if not identity:
         # Some source titles are only locators (for example, "Chapter 5:
         # Change Orders"). The normalized corporate-author reference still
@@ -1913,21 +1916,37 @@ def targeted_study_guide_revision(
 ) -> str:
     """Use a model for limited section patches while preserving all other text."""
     if revision_requires_chapter_context(feedback):
-        revised = request_text(
-            course_slug,
-            "technical_content",
-            study_guide_revision_prompt(draft, feedback, references, attempt=1, level=level),
-            max_tokens=24000,
-        ).strip()
+        last_reason = ""
         fence = chr(96) * 3
-        if revised.startswith(fence):
-            revised = re.sub(r"^\x60{3}(?:markdown)?\s*", "", revised, count=1, flags=re.I)
-            revised = re.sub(r"\s*\x60{3}$", "", revised, count=1).strip()
-        revised = normalize_reviewed_factual_language(force_student_references(revised, references))
-        revised = normalize_callout_density(revised)
-        if not preserves_complete_study_guide_structure(revised, draft):
-            raise RuntimeError("The chapter-wide consistency revision returned an incomplete course book.")
-        return revised
+        for attempt in range(1, 4):
+            retry_feedback = feedback
+            if attempt > 1:
+                retry_feedback += (
+                    "\n- The previous chapter-wide response was incomplete. Return the entire chapter from Introduction "
+                    "through References, preserve all five numbered sections, and reserve enough output space for the ending."
+                )
+            revised = request_text(
+                course_slug,
+                "technical_content",
+                study_guide_revision_prompt(draft, retry_feedback, references, attempt=attempt, level=level),
+                max_tokens=24000,
+            ).strip()
+            if revised.startswith(fence):
+                revised = re.sub(r"^\x60{3}(?:markdown)?\s*", "", revised, count=1, flags=re.I)
+                revised = re.sub(r"\s*\x60{3}$", "", revised, count=1).strip()
+            revised = normalize_reviewed_factual_language(force_student_references(revised, references))
+            revised = normalize_callout_density(revised)
+            if preserves_complete_study_guide_structure(revised, draft):
+                return revised
+            missing = [
+                heading for heading in ("Introduction", "Learning Objectives", "Summary and Key Takeaways", "Glossary", "References")
+                if not re.search(rf"(?im)^#{{1,2}}\s+{re.escape(heading)}\s*$", revised)
+            ]
+            last_reason = "missing " + ", ".join(missing) if missing else "numbered sections or chapter length were incomplete"
+        raise RuntimeError(
+            "The chapter-wide consistency revision returned an incomplete course book after 3 attempts: "
+            + last_reason
+        )
     sections = editable_study_guide_sections(
         draft,
         include_introduction=feedback.startswith("Automatic reviewer changes required:"),

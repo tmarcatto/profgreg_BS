@@ -1590,7 +1590,7 @@ Use these terms to distinguish roles.
             "formal_reference": "Federal Highway Administration. Development and Review of Specifications—Construction.",
         }
         fhwa_attachment = {
-            "title": "Development and Review of Specifications—Construction, Attachment 2",
+            "title": "Development and Review of Specifications—Construction",
             "source_type": "government",
             "url": "https://www.fhwa.dot.gov/construction/specrevattach2.cfm",
             "formal_reference": "Federal Highway Administration. Development and Review of Specifications—Construction, Attachment 2.",
@@ -1638,6 +1638,59 @@ Term.
         self.assertTrue(production.revision_requires_chapter_context(
             "Automatic reviewer changes required:\n- Reorganize the sections into distinct, nonoverlapping functions."
         ))
+
+    def test_chapter_wide_revision_retries_incomplete_response(self) -> None:
+        draft = """# Introduction
+
+Intro.
+
+## Learning Objectives
+
+- Learn.
+
+# Section 01 - One
+
+Body.
+
+# Section 02 - Two
+
+Body.
+
+# Section 03 - Three
+
+Body.
+
+# Section 04 - Four
+
+Body.
+
+# Section 05 - Five
+
+Body.
+
+# Summary and Key Takeaways
+
+- One.
+- Two.
+- Three.
+- Four.
+
+# Glossary
+
+Term.
+
+# References
+
+- Work.
+"""
+        feedback = "Automatic reviewer changes required:\n- Reorganize the sections into distinct, nonoverlapping functions."
+        with patch.object(production, "request_text", side_effect=["# Introduction\n\nPartial.", draft]) as request:
+            revised = production.targeted_study_guide_revision(
+                "course", draft, feedback, "# References\n\n- Work.", level="Basic"
+            )
+        self.assertIn("# Summary and Key Takeaways", revised)
+        self.assertEqual(2, request.call_count)
+        self.assertIn("previous chapter-wide response was incomplete", request.call_args_list[1].args[2])
 
     def test_utah_reference_title_normalizes_exhibit_range(self) -> None:
         self.assertIn(
