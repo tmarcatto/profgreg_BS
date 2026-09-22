@@ -1418,6 +1418,7 @@ def normalize_reviewed_factual_language(draft: str) -> str:
     )
     corrected = re.sub(r"\b([A-Z])-\s+(\d+)\b", r"\1-\2", corrected)
     corrected = re.sub(r"\b([A-Z]\d+)\.\s+(\d+)\b", r"\1.\2", corrected)
+    corrected = re.sub(r"\bA2\.14, revision(?=\s*(?:$|\n|[.,]))", "A2.14, revision 3", corrected)
     corrected = re.sub(
         r"Do not assume that submittal approval alone replaces or modifies the contract; check whether the governing contract "
         r"incorporates or otherwise recognizes the submittal and follow the applicable change or substitution procedure\.",
@@ -1553,7 +1554,7 @@ def normalize_callout_density(draft: str, maximum: int = 4) -> str:
     body_blocks = [block for block in blocks if block["section"] not in structural]
     keep = {
         item[1]["start"]
-        for item in sorted(enumerate(body_blocks), key=lambda item: (-priority[item[1]["label"]], item[0]))[:maximum]
+        for item in sorted(enumerate(body_blocks), key=lambda item: (-priority[item[1]["label"]], -item[0]))[:maximum]
     }
     output: list[str] = []
     block_by_start = {block["start"]: block for block in blocks}
@@ -1703,7 +1704,8 @@ def normalize_hands_on_example_markdown(draft: str) -> str:
     while index < len(lines):
         if not label_pattern.match(lines[index].strip()):
             if len(list(field_pattern.finditer(lines[index]))) >= 3:
-                output.extend(format_fields(lines[index].strip(), quoted=False))
+                output.append("> **HANDS-ON EXAMPLE**")
+                output.extend(format_fields(lines[index].strip(), quoted=True))
                 output.append("")
                 index += 1
                 continue
@@ -1983,7 +1985,7 @@ Revision request:
 Section:
 {section}
 {retry_note}""",
-                max_tokens=12000,
+                max_tokens=min(8000, max(2000, target_words * 3)),
             ).strip()
         except ModelRequestError as error:
             last_error = str(error)

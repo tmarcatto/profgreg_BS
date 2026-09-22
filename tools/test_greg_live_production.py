@@ -1339,6 +1339,10 @@ Use these terms to distinguish roles.
         self.assertIn("The renderer connects every node after the first node directly to the first center node", source)
         self.assertIn("Never demand unsupported edge fields", source)
 
+    def test_plain_section_patch_uses_bounded_output_budget(self) -> None:
+        source = Path(production.__file__).read_text(encoding="utf-8")
+        self.assertIn("max_tokens=min(8000, max(2000, target_words * 3))", source)
+
     def test_cross_section_consistency_uses_chapter_context(self) -> None:
         feedback = (
             "Automatic reviewer changes required:\n"
@@ -1672,6 +1676,17 @@ Body.
         )
         self.assertIn("Residential Construction Agreement and Exhibits A–C", normalized)
         self.assertIn("W-3 on A2.1", normalized)
+
+    def test_flat_complete_exercise_is_promoted_to_hands_on_callout(self) -> None:
+        draft = """# Section 05 - Decide
+
+Supplied inputs: - Record A is current. - Record B is old. Task: 1. Compare the records. 2. Choose the current record. Answer/Check: Record A governs.
+"""
+        normalized = production.normalize_callout_density(draft)
+        self.assertIn("> **HANDS-ON EXAMPLE**", normalized)
+        self.assertIn("> Supplied inputs:", normalized)
+        self.assertIn("> 1. Compare the records.\n> 2. Choose the current record.", normalized)
+        self.assertIn("> Answer/Check: Record A governs.", normalized)
 
     def test_chapter_wide_feedback_routes_to_complete_revision(self) -> None:
         feedback = (
