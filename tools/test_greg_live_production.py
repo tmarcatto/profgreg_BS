@@ -1334,6 +1334,11 @@ Use these terms to distinguish roles.
         self.assertIn("max_content_review_attempts = 7", source)
         self.assertIn("max_content_review_attempts - 1", source)
 
+    def test_visual_prompts_describe_relationship_map_renderer_contract(self) -> None:
+        source = Path(production.__file__).read_text(encoding="utf-8")
+        self.assertIn("The renderer connects every node after the first node directly to the first center node", source)
+        self.assertIn("Never demand unsupported edge fields", source)
+
     def test_cross_section_consistency_uses_chapter_context(self) -> None:
         feedback = (
             "Automatic reviewer changes required:\n"
