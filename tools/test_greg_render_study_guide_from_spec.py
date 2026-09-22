@@ -31,6 +31,30 @@ except ModuleNotFoundError as error:
 
 
 class RenderStudyGuideFromSpecTests(unittest.TestCase):
+    def test_render_source_allows_markdown_bullets_inside_callouts(self) -> None:
+        if pdf_renderer is None:
+            self.skipTest("ReportLab is not installed in this Python environment.")
+        source = (
+            "# Introduction\n\nIntro.\n\n"
+            "# Section 01 - Work\n\n"
+            "> **HANDS-ON EXAMPLE**\n> Supplied inputs:\n> - Record A is current.\n> - Record B is old.\n\n"
+            "# Summary and Key Takeaways\n\n- One.\n- Two.\n- Three.\n- Four.\n\n"
+            "# References\n\n- Source.\n"
+        )
+        pdf_renderer.validate_render_source(source)
+
+    def test_render_source_still_rejects_spaced_prose_dash(self) -> None:
+        if pdf_renderer is None:
+            self.skipTest("ReportLab is not installed in this Python environment.")
+        source = (
+            "# Introduction\n\nThis - that.\n\n"
+            "# Section 01 - Work\n\nBody.\n\n"
+            "# Summary and Key Takeaways\n\n- One.\n- Two.\n- Three.\n- Four.\n\n"
+            "# References\n\n- Source.\n"
+        )
+        with self.assertRaisesRegex(ValueError, "Dash punctuation"):
+            pdf_renderer.validate_render_source(source)
+
     def test_bare_localized_callout_label_still_renders_as_a_box(self) -> None:
         if pdf_renderer is None:
             self.skipTest("ReportLab is not installed in this Python environment.")

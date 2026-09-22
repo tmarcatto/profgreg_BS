@@ -130,6 +130,8 @@ def validate_render_source(markdown: str, locale: str = "en") -> None:
     for line in teaching_text.splitlines():
         if re.match(rf"^#{{1,2}}\s+{re.escape(labels['section'])}\s+\d{{1,2}}\s*(?:-|:|–|—)\s+", line):
             continue
+        if re.match(r"^\s*>?\s*[-*+]\s+\S", line):
+            continue
         if "—" in line or "–" in line or re.search(r"\s-{1,2}\s", line):
             raise ValueError("Dash punctuation found in study-guide source; PDF was not rendered.")
 
