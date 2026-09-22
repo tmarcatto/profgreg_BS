@@ -1411,6 +1411,30 @@ Term.
         self.assertNotIn("selection_reason", prompt)
         self.assertNotIn("x" * 100, prompt)
 
+    def test_numbered_hands_on_label_and_individual_action_are_normalized(self) -> None:
+        draft = """> **HANDS-ON EXAMPLE 1**
+> Supplied inputs: - A2.1 is current. - A2.0 is old. Individual action: Identify the current sheet. Answer/check: A2.1 governs.
+"""
+        normalized = production.normalize_callout_density(draft)
+        self.assertIn("> **HANDS-ON EXAMPLE**", normalized)
+        self.assertNotIn("HANDS-ON EXAMPLE 1", normalized)
+        self.assertIn("> Individual action: Identify the current sheet.", normalized)
+        self.assertIn("> - A2.1 is current.\n> - A2.0 is old.", normalized)
+
+    def test_prose_dash_normalizer_removes_compound_hyphens_only_before_references(self) -> None:
+        draft = """# Section 01 - Work
+
+Use document-control and wall-insulation records for the two-story addition.
+
+# References
+
+- Formal Work-with-Hyphens.
+"""
+        normalized = production.normalize_prose_dashes(draft)
+        self.assertIn("# Section 01 - Work", normalized)
+        self.assertIn("document control and wall insulation records for the two story addition", normalized)
+        self.assertIn("Formal Work-with-Hyphens", normalized)
+
     def test_cross_section_consistency_uses_chapter_context(self) -> None:
         feedback = (
             "Automatic reviewer changes required:\n"

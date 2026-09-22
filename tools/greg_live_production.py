@@ -1346,10 +1346,20 @@ def normalize_conceptual_party_role_table(draft: str) -> str:
 def normalize_prose_dashes(draft: str) -> str:
     """Remove prohibited Unicode dash punctuation without altering section separators."""
     lines: list[str] = []
+    inside_references = False
     for line in draft.splitlines():
+        if re.match(r"^#\s+References\s*$", line, flags=re.I):
+            inside_references = True
         if not re.match(r"^#\s+Section\s+\d{2}\s+-\s+", line):
             line = re.sub(r"(?<=\d)\s*[\u2013\u2014]\s*(?=\d)", " to ", line)
             line = re.sub(r"\s*[\u2013\u2014]\s*", ", ", line)
+            canonical_callout_label = bool(re.match(
+                r"^>\s*\*\*(?:KEY TERM|APPLY IT|HANDS-ON EXAMPLE(?:\s+\d+)?|SCENARIO|CALLBACK|BRIDGE)\*\*\s*$",
+                line,
+                flags=re.I,
+            ))
+            if not inside_references and not canonical_callout_label:
+                line = re.sub(r"(?<=[A-Za-z])-(?=[A-Za-z])", " ", line)
         lines.append(line)
     return "\n".join(lines).rstrip() + "\n"
 
@@ -1631,8 +1641,13 @@ def normalize_callout_density(draft: str, maximum: int = 4) -> str:
 
 def normalize_hands_on_example_markdown(draft: str) -> str:
     """Repair provider-flattened HANDS-ON blocks without changing wording."""
+    draft = re.sub(
+        r"(?im)^>\s*\*\*HANDS-ON EXAMPLE\s+\d+\*\*\s*$",
+        "> **HANDS-ON EXAMPLE**",
+        draft,
+    )
     field_pattern = re.compile(
-        r"(?:\*\*)?(Setup|Supplied (?:inputs|records)|Task|Actions|Your action|Answer/check)\s*[:.]?(?:\*\*)?",
+        r"(?:\*\*)?(Setup|Supplied (?:inputs|records)|Task|Actions|Your action|Individual action|Answer/check)\s*[:.]?(?:\*\*)?",
         flags=re.I,
     )
     label_pattern = re.compile(r"^>\s*\*\*HANDS-ON EXAMPLE\*\*\s*$", flags=re.I)
@@ -1674,7 +1689,7 @@ def normalize_hands_on_example_markdown(draft: str) -> str:
             label = match.group(1).rstrip(".")
             value = body[match.end() : end].strip()
             fields.append((match, label, value))
-        rank = {"setup": 0, "supplied inputs": 1, "supplied records": 1, "task": 2, "actions": 2, "your action": 2, "answer/check": 3}
+        rank = {"setup": 0, "supplied inputs": 1, "supplied records": 1, "task": 2, "actions": 2, "your action": 2, "individual action": 2, "answer/check": 3}
         fields.sort(key=lambda item: rank.get(item[1].lower(), 4))
         for _match, label, value in fields:
             if label.lower() in {"task", "answer/check"}:
@@ -1698,9 +1713,9 @@ def normalize_hands_on_example_markdown(draft: str) -> str:
                     result.extend(f"{line_prefix}{number}. {step}" for number, step in steps if step)
                 elif value:
                     result.append(f"{line_prefix}{value}")
-            elif label.lower() == "your action":
+            elif label.lower() in {"your action", "individual action"}:
                 add_break()
-                result.append(f"{line_prefix}Your action:" + (f" {value}" if value else ""))
+                result.append(f"{line_prefix}{label}:" + (f" {value}" if value else ""))
             elif label.lower() == "answer/check":
                 lead, records = split_records(value)
                 result.append(f"{line_prefix}{label}:" + (f" {lead}" if lead else ""))
