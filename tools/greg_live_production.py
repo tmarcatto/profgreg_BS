@@ -1281,6 +1281,60 @@ def normalize_ordered_step_tables(draft: str) -> str:
     return "\n".join(normalized).rstrip() + "\n"
 
 
+def normalize_inline_numbered_sequences(draft: str) -> str:
+    """Put model-flattened learner steps on real Markdown source lines."""
+    normalized: list[str] = []
+    for line in draft.splitlines():
+        stripped = line.strip()
+        quoted = stripped.startswith(">")
+        content = stripped[1:].strip() if quoted else stripped
+        markers = list(re.finditer(r"(?<!\w)(\d{1,2})\.\s+", content))
+        learner_line = bool(re.search(r"\bLearner tasks?\b", content, flags=re.I))
+        if not markers or (len(markers) == 1 and not learner_line):
+            normalized.append(line)
+            continue
+        prefix = content[: markers[0].start()].strip()
+        source_prefix = "> " if quoted else ""
+        if prefix:
+            normalized.append(source_prefix + prefix)
+        for marker_index, marker in enumerate(markers):
+            end = markers[marker_index + 1].start() if marker_index + 1 < len(markers) else len(content)
+            value = content[marker.end() : end].strip()
+            tail = ""
+            if marker_index == len(markers) - 1:
+                tail_match = re.search(r"\s+(?=\*\*(?:Record\s+[A-Z0-9]+|Answer(?:/check)?)\s*[:.]?\*\*)", value, flags=re.I)
+                if tail_match:
+                    tail = value[tail_match.end() :].strip()
+                    value = value[: tail_match.start()].strip()
+            normalized.append(f"{source_prefix}{marker.group(1)}. {value}")
+            if tail:
+                normalized.append(source_prefix + tail)
+    return "\n".join(normalized).rstrip() + "\n"
+
+
+def normalize_conceptual_party_role_table(draft: str) -> str:
+    """Render a conceptual party map as bullets, not a quantitative table."""
+    lines = draft.splitlines()
+    output: list[str] = []
+    index = 0
+    while index < len(lines):
+        if not re.fullmatch(r"\s*\|\s*Party\s*\|\s*Role and project relationship\s*\|\s*", lines[index], flags=re.I):
+            output.append(lines[index])
+            index += 1
+            continue
+        if index + 1 >= len(lines) or not re.fullmatch(r"\s*\|?\s*-{3,}\s*\|\s*-{3,}\s*\|?\s*", lines[index + 1]):
+            output.append(lines[index])
+            index += 1
+            continue
+        index += 2
+        while index < len(lines) and lines[index].lstrip().startswith("|"):
+            cells = [cell.strip() for cell in lines[index].strip().strip("|").split("|", 1)]
+            if len(cells) == 2 and all(cells):
+                output.append(f"- {cells[0]}: {cells[1]}")
+            index += 1
+    return "\n".join(output).rstrip() + "\n"
+
+
 def normalize_prose_dashes(draft: str) -> str:
     """Remove prohibited Unicode dash punctuation without altering section separators."""
     lines: list[str] = []
@@ -1367,7 +1421,11 @@ def normalize_reviewed_factual_language(draft: str) -> str:
         flags=re.I,
     )
     return normalize_repeated_lesson_objectives(
-        normalize_prose_dashes(normalize_ordered_step_tables(corrected))
+        normalize_prose_dashes(
+            normalize_inline_numbered_sequences(
+                normalize_conceptual_party_role_table(normalize_ordered_step_tables(corrected))
+            )
+        )
     )
 
 
@@ -1525,7 +1583,31 @@ def normalize_callout_density(draft: str, maximum: int = 4) -> str:
         if candidate:
             replacement = "> **APPLY IT**\n> " + candidate.group(1).strip()
             normalized = normalized[: candidate.start()] + replacement + normalized[candidate.end() :]
-    return normalized
+    # Keep at most three visual paragraphs inside a callout. Models often add
+    # a blank quote line before every label and list, which makes a perfectly
+    # usable scenario fail the renderer's density gate. Removing surplus
+    # blank quote lines preserves every label, bullet, and numbered step.
+    compacted: list[str] = []
+    normalized_lines = normalized.splitlines()
+    index = 0
+    while index < len(normalized_lines):
+        if not pattern.match(normalized_lines[index].strip()):
+            compacted.append(normalized_lines[index])
+            index += 1
+            continue
+        end = index + 1
+        while end < len(normalized_lines) and normalized_lines[end].lstrip().startswith(">"):
+            end += 1
+        compacted.append(normalized_lines[index])
+        blank_count = 0
+        for body_line in normalized_lines[index + 1 : end]:
+            if body_line.strip() == ">":
+                blank_count += 1
+                if blank_count > 2:
+                    continue
+            compacted.append(body_line)
+        index = end
+    return "\n".join(compacted).rstrip() + "\n"
 
 
 def normalize_hands_on_example_markdown(draft: str) -> str:
@@ -2516,7 +2598,7 @@ def reviewer_prompt(
 ) -> str:
     criteria = {
         "pedagogy_review": "Check only learning progression, depth for level, MECE sections, residential examples, explanations before bullets, no classroom/group activities or quizzes, and no audience boilerplate. Learning Objectives and Summary and Key Takeaways are structural bullet-only exceptions and must not receive an orienting or framing paragraph. A HANDS-ON EXAMPLE is a deliberate exception: it must give the individual learner supplied inputs, a concrete action to perform, and an answer or result check; reject a HANDS-ON box that merely contains explanatory course-book prose. Any ordered procedure must use a real numbered Markdown list with exactly one step per source line; reject `1. ... 2. ... 3. ...` embedded in one paragraph because it hides the sequence from the learner and renderer. The Summary and Key Takeaways section must contain only 4-6 bullets, with no framing sentence or prose. Require a readable Markdown table only for one uninterrupted list of seven or more comparable items that repeatedly state category, quantity or amount, and the same condition or comment. Do not demand tables for conceptual lists, short examples, WBS vocabulary, or distinct decision steps. After a table, require prose to add a decision, exception, or interpretation rather than restating its rows. Citation style and reference formatting belong to the citation reviewer; do not fail this review merely because ordinary claims lack inline citations. Figures are planned and inserted by a separate visual pipeline after this review. Do not request ASCII diagrams, Markdown tables used as figures, fenced visual source, or final figure rendering inside the chapter Markdown.",
-        "citation_review": "Check factual support against the ledger, current applicability, clean student references, no invented claims, and no internal/local source language. Internal/local source language means file paths, ledger mechanics, reviewer rationale, or private production notes; neutral student-facing references to documented authority, organizational procedures, or project procedures are allowed. Do not demand inline citations for every source or every ordinary claim. References may include materially consulted sources even when they are not named decoratively in the teaching prose. List each work only once, even when multiple chapters or claims used it; omit chapter, section, and page details from the final References section. Evaluate that bibliography rule only against the text after the final `# References` heading. A chapter, section, or direct-content hyperlink discussed in the teaching prose is not a bibliography defect and must not be reported as one. Never request or add accessed/retrieved dates. Books, codes, standards, regulations, reports, manuals, and paginated formal publications must remain bibliographic references without URLs even when the research ledger records an official online location; do not demand URLs for those formal works. Only sources actually classified as webpages may retain the direct content URL used. A direct standalone PDF is cited by its normalized corporate author and document title; do not demand that a parent marketing collection be restored when the normalized ledger entry omits it. The Summary and Key Takeaways section must be only 4-6 bullets, with no introductory prose; never request a summary opener.",
+        "citation_review": "Check factual support against the ledger, current applicability, clean student references, no invented claims, and no internal/local source language. Internal/local source language means file paths, ledger mechanics, reviewer rationale, or private production notes; neutral student-facing references to documented authority, organizational procedures, or project procedures are allowed. Do not demand inline citations for every source or every ordinary claim. References may include materially consulted sources even when they are not named decoratively in the teaching prose. List each work only once, even when multiple chapters or claims used it; omit chapter, section, and page details from the final References section. Evaluate that bibliography rule only against the text after the final `# References` heading. Count the actual bibliography lines, not duplicate ledger records: if the final References text contains only one Part 16 entry, do not report a duplicate Part 16 work. A chapter, section, or direct-content hyperlink discussed in the teaching prose is not a bibliography defect and must not be reported as one. Never request or add accessed/retrieved dates. Books, codes, standards, regulations, reports, manuals, and paginated formal publications must remain bibliographic references without URLs even when the research ledger records an official online location; do not demand URLs for those formal works. Only sources actually classified as webpages may retain the direct content URL used. A direct standalone PDF is cited by its normalized corporate author and document title; do not demand that a parent marketing collection be restored when the normalized ledger entry omits it. The Summary and Key Takeaways section must be only 4-6 bullets, with no introductory prose; never request a summary opener.",
         "design_review": "Check only the draft's approved structural and presentation contract: Introduction followed by Learning Objectives with no Lesson Roadmap; continuous lesson body; separate summary, glossary, and references; only these six approved callout labels: KEY TERM, APPLY IT, HANDS-ON EXAMPLE, SCENARIO, CALLBACK, and BRIDGE; no callouts in structural sections; no H3 or deeper headings; no dash punctuation in prose; no one-line section openers; and every ordered procedure formatted as a real numbered Markdown list with one step per source line rather than several numbered markers embedded in a paragraph. BRIDGE is explicitly approved and must never be reported as an invalid label. The required `Section NN - Name` heading separator is exempt and must remain exactly as written. Bold lead-ins used to introduce a teaching paragraph or list are explicitly allowed; they are not headings and must not be reported as one-line section openers. A one-line section opener means a numbered Section heading whose entire section body contains only one line before the next numbered Section heading. Useful callouts inside the teaching body are allowed. Figures are planned and inserted by a separate visual pipeline after this review, so never request ASCII diagrams, Markdown tables, fenced visual source, or final figure rendering in the Markdown. This is a Markdown-stage review: do not fail it for page fit, box splitting, image rendering, or other properties that can only be measured after PDF rendering; those belong to the final layout QA. Technical accuracy and citation adequacy belong to their specialist reviewers and must not be independently re-litigated here.",
     }[kind]
     revision_scope = ""

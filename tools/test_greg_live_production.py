@@ -1712,6 +1712,36 @@ Term.
         self.assertIn("> Action: Compare the records", normalized)
         self.assertIn("> Answer/Check: The result should", normalized)
 
+    def test_review_normalizers_split_inline_tasks_and_convert_conceptual_party_table(self) -> None:
+        draft = """| Party | Role and project relationship |
+|---|---|
+| **Owner** | Hires the builder. |
+| **GC** | Coordinates the work. |
+
+> **SCENARIO**
+> **Learner tasks and answer/check:** 1. Classify the role. 2. Identify the hiring party. **Record A:** GC.
+"""
+        normalized = production.normalize_reviewed_factual_language(draft)
+        self.assertNotIn("| Party |", normalized)
+        self.assertIn("- **Owner**: Hires the builder.", normalized)
+        self.assertIn("> 1. Classify the role.", normalized)
+        self.assertIn("> 2. Identify the hiring party.", normalized)
+        self.assertIn("> **Record A:** GC.", normalized)
+
+    def test_callout_density_removes_surplus_blank_quote_lines(self) -> None:
+        draft = """> **SCENARIO**
+>
+> **Setup:** One.
+>
+> **Records:** Two.
+>
+> **Tasks:** Three.
+>
+> **Answer/check:** Four.
+"""
+        normalized = production.normalize_callout_density(draft)
+        self.assertLessEqual(sum(1 for line in normalized.splitlines() if line.strip() == ">"), 2)
+
     def test_reviewed_factual_language_softens_submittal_effect_claim(self) -> None:
         draft = (
             "Approved submittals have contractual effect only when the governing contract incorporates or otherwise recognizes them. "
