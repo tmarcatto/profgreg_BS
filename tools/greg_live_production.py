@@ -2119,8 +2119,21 @@ Available headings:
     )
     selected = plan.get("headings")
     if not isinstance(selected, list) or not 1 <= len(selected) <= 6 or any(not isinstance(item, str) for item in selected):
-        raise RuntimeError("The revision agent did not identify a valid, limited set of sections.")
-    selected = resolve_study_guide_headings(selected, sections)
+        mentioned_numbers = {
+            int(value)
+            for value in re.findall(r"\bSection\s+0*(\d{1,2})\b", feedback, flags=re.I)
+        }
+        selected = [
+            heading
+            for heading in sections
+            if any(re.match(rf"#\s+Section\s+0*{number}\b", heading, flags=re.I) for number in mentioned_numbers)
+        ]
+        if not selected:
+            selected = [heading for heading in sections if heading.startswith("# Section ")][:5]
+        if not selected:
+            raise RuntimeError("The saved course book has no teaching sections available for automatic revision.")
+    else:
+        selected = resolve_study_guide_headings(selected, sections)
     chapter_limit_match = re.search(r"must not exceed\s+([\d,]+)\s+words", feedback, flags=re.I)
     chapter_limit = int(chapter_limit_match.group(1).replace(",", "")) if chapter_limit_match else None
     if chapter_limit and len(draft.split()) > chapter_limit:

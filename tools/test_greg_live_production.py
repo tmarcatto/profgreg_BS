@@ -1343,6 +1343,54 @@ Use these terms to distinguish roles.
         source = Path(production.__file__).read_text(encoding="utf-8")
         self.assertIn("max_tokens=min(8000, max(2000, target_words * 3))", source)
 
+    def test_invalid_revision_selection_falls_back_to_sections_named_in_feedback(self) -> None:
+        draft = """# Introduction
+
+Intro.
+
+## Learning Objectives
+
+- Learn.
+
+# Section 01 - One
+
+One body.
+
+# Section 02 - Two
+
+Two body.
+
+# Summary and Key Takeaways
+
+- One.
+- Two.
+- Three.
+- Four.
+
+# Glossary
+
+Term.
+
+# References
+
+- Work.
+"""
+        feedback = "Automatic reviewer changes required:\n- Repair Section 02 and keep its answer check separate."
+        replacement = "# Section 02 - Two\n\nRepaired body.\n"
+        with patch.object(
+            production,
+            "request_json_with_retry",
+            side_effect=[{}, production.ModelRequestError("malformed patch")],
+        ), patch.object(
+            production, "request_plain_study_guide_section_patch", return_value=replacement
+        ) as section_patch:
+            revised = production.targeted_study_guide_revision(
+                "course", draft, feedback, "# References\n\n- Work.", level="Basic"
+            )
+        self.assertIn("# Section 01 - One\n\nOne body.", revised)
+        self.assertIn(replacement.strip(), revised)
+        self.assertEqual("# Section 02 - Two", section_patch.call_args.args[1])
+
     def test_cross_section_consistency_uses_chapter_context(self) -> None:
         feedback = (
             "Automatic reviewer changes required:\n"
