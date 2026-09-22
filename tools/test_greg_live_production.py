@@ -1441,6 +1441,51 @@ Term.
         self.assertNotIn("> 3. 3. Check", normalized)
         self.assertIn("> Answer/Check: A2.14, revision 3, remains current.", normalized)
 
+    def test_unquoted_multiline_hands_on_block_is_restored(self) -> None:
+        draft = """# Section 02 - Coordinate
+
+**HANDS ON EXAMPLE**
+
+**Supplied inputs:**
+
+- The scope assigns the door.
+- A2.1 shows its location.
+
+**Individual action:** Identify each source.
+
+**Answer/check:**
+
+- The scope assigns responsibility.
+- A2.1 supplies location.
+
+Following teaching prose remains outside the box.
+"""
+        normalized = production.normalize_callout_density(draft)
+        self.assertIn("> **HANDS-ON EXAMPLE**", normalized)
+        self.assertIn("> - The scope assigns the door.", normalized)
+        self.assertIn("> Individual action: Identify each source.", normalized)
+        self.assertIn("> - A2.1 supplies location.", normalized)
+        self.assertIn("\nFollowing teaching prose remains outside the box.", normalized)
+        self.assertNotIn("> Following teaching prose", normalized)
+
+    def test_unlabeled_flat_multiline_exercise_is_promoted(self) -> None:
+        draft = """# Section 03 - Control
+
+Supplied inputs: - Addendum 02 is incorporated. - A5.2 revision 3 is current.
+Individual action: Prepare the control record.
+Answer/check: - Mark Addendum 02 incorporated. - Keep A5.2 revision 3 current.
+
+# Section 04 - Verify
+
+Body.
+"""
+        normalized = production.normalize_callout_density(draft)
+        self.assertIn("> **HANDS-ON EXAMPLE**", normalized)
+        self.assertIn("> - Addendum 02 is incorporated.", normalized)
+        self.assertIn("> Individual action: Prepare the control record.", normalized)
+        self.assertIn("> - Keep A5.2 revision 3 current.", normalized)
+        self.assertIn("# Section 04 - Verify", normalized)
+
     def test_prose_dash_normalizer_removes_compound_hyphens_only_before_references(self) -> None:
         draft = """# Section 01 - Work
 

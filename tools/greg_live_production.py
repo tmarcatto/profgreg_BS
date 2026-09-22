@@ -1653,12 +1653,79 @@ def normalize_hands_on_example_markdown(draft: str) -> str:
         "> **HANDS-ON EXAMPLE**",
         draft,
     )
+    # Providers also drop the blockquote markers from an otherwise complete
+    # multi-line exercise. Restore them before field parsing, stopping after
+    # the answer list so following teaching prose is not boxed.
+    source_lines = draft.splitlines()
+    restored_lines: list[str] = []
+    source_index = 0
+    plain_label = re.compile(r"^(?:\*\*)?HANDS[ -]ON EXAMPLE(?:\s+\d+)?[.:]?(?:\*\*)?$", flags=re.I)
+    while source_index < len(source_lines):
+        stripped = source_lines[source_index].strip()
+        if not plain_label.match(stripped):
+            restored_lines.append(source_lines[source_index])
+            source_index += 1
+            continue
+        restored_lines.append("> **HANDS-ON EXAMPLE**")
+        source_index += 1
+        saw_answer = False
+        while source_index < len(source_lines):
+            current = source_lines[source_index]
+            current_stripped = current.strip()
+            if re.match(r"^#{1,2}\s+", current_stripped):
+                break
+            if re.search(r"Answer\s*/\s*Check", current_stripped, flags=re.I):
+                saw_answer = True
+            if not current_stripped:
+                probe = source_index + 1
+                while probe < len(source_lines) and not source_lines[probe].strip():
+                    probe += 1
+                next_line = source_lines[probe].strip() if probe < len(source_lines) else ""
+                if saw_answer and next_line and not re.match(r"^(?:[-*]|>)\s+", next_line):
+                    break
+                restored_lines.append(">")
+            else:
+                restored_lines.append("> " + re.sub(r"^>\s?", "", current_stripped))
+            source_index += 1
+        restored_lines.append("")
+    draft = "\n".join(restored_lines)
     field_pattern = re.compile(
         r"(?:\*\*)?(Setup|Supplied (?:inputs|records|information)|Task|Actions|Your action|Individual action|Answer\s*/\s*Check)\s*[:.]?(?:\*\*)?",
         flags=re.I,
     )
     label_pattern = re.compile(r"^>\s*\*\*HANDS-ON EXAMPLE\*\*\s*$", flags=re.I)
     lines = draft.splitlines()
+
+    # A complete exercise can also lose only its label. Promote a contiguous
+    # supplied-inputs/action/answer block so the same parser repairs it.
+    promoted_lines: list[str] = []
+    index = 0
+    while index < len(lines):
+        prior = len(promoted_lines) - 1
+        while prior >= 0 and not promoted_lines[prior].strip():
+            prior -= 1
+        follows_early_quoted_answer = prior >= 0 and re.match(r"^>\s*(?:\*\*)?Answer\s*/\s*Check", promoted_lines[prior].strip(), flags=re.I)
+        if (
+            follows_early_quoted_answer
+            or lines[index].lstrip().startswith(">")
+            or not re.match(r"^(?:\*\*)?Supplied (?:inputs|records|information)\b", lines[index].strip(), flags=re.I)
+        ):
+            promoted_lines.append(lines[index])
+            index += 1
+            continue
+        end = index + 1
+        while end < len(lines) and not re.match(r"^#{1,2}\s+", lines[end].strip()):
+            if not lines[end].strip() and re.search(r"Answer\s*/\s*Check", " ".join(lines[index:end]), flags=re.I):
+                break
+            end += 1
+        candidate = " ".join(line.strip() for line in lines[index:end] if line.strip())
+        if re.search(r"(?:Your|Individual) action", candidate, flags=re.I) and re.search(r"Answer\s*/\s*Check", candidate, flags=re.I):
+            promoted_lines.extend(["> **HANDS-ON EXAMPLE**", "> " + candidate, ""])
+            index = end
+            continue
+        promoted_lines.append(lines[index])
+        index += 1
+    lines = promoted_lines
     output: list[str] = []
     index = 0
 
