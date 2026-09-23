@@ -1275,7 +1275,7 @@ def force_student_references(draft: str, references: str, locale: str = "en") ->
     for line in validated_references.splitlines():
         value = line.strip()
         if re.fullmatch(r"-\s*Construction Contract and Laws\.?", value, flags=re.I):
-            continue
+            value = "- Construction Contract and Laws. Author, publisher, and date not stated in the supplied excerpt."
         far_clause = re.search(r"\bFAR\s+(\d+(?:\.\d+)?(?:-\d+)?)\b", value, flags=re.I)
         far_part = re.search(r"\b(?:Federal Acquisition Regulation[^\n]*?Part|FAR\s+Part)\s+(\d+)\b", value, flags=re.I)
         url = re.search(r"https?://\S+", value)
@@ -1300,6 +1300,9 @@ def force_student_references(draft: str, references: str, locale: str = "en") ->
             value = re.sub(r"\s+https?://\S+\s*$", "", value).rstrip()
         if re.search(r"New York State Department of Public Service.*Home Improvement Contract", value, flags=re.I):
             value = re.sub(r"\s+https?://\S+\s*$", "", value).rstrip()
+        if re.search(r"Massachusetts Office of Consumer Affairs and Business Regulation.*Home Improvement Contract Sample Language", value, flags=re.I):
+            value = re.sub(r"\s+https?://\S+\s*$", "", value).rstrip(" .")
+            value += ". https://www.mass.gov/info-details/home-improvement-contract-sample-language"
         normalized_reference_lines.append(value)
     validated_references = "\n".join(normalized_reference_lines)
     return f"{body}\n\n# {references_heading}\n\n{validated_references}\n"

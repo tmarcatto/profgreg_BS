@@ -2389,13 +2389,27 @@ Term.
         entry = next(line for line in normalized.splitlines() if "New York State Department" in line)
         self.assertNotIn("http", entry)
 
-    def test_student_references_remove_incomplete_placeholder_title(self) -> None:
+    def test_student_references_complete_mandatory_title_without_inventing_metadata(self) -> None:
         normalized = production.force_student_references(
             "# Introduction\n\nIntro.\n\n# References\n\n- Old.\n",
             "# References\n\n- Construction Contract and Laws.\n- Complete source with publisher and date.\n",
         )
-        self.assertNotIn("Construction Contract and Laws", normalized)
+        self.assertIn(
+            "Construction Contract and Laws. Author, publisher, and date not stated in the supplied excerpt.",
+            normalized,
+        )
         self.assertIn("Complete source with publisher and date", normalized)
+
+    def test_massachusetts_home_improvement_reference_keeps_direct_content_url(self) -> None:
+        normalized = production.force_student_references(
+            "# Introduction\n\nIntro.\n\n# References\n\n- Old.\n",
+            (
+                "# References\n\n- Massachusetts Office of Consumer Affairs and Business Regulation. "
+                "Home Improvement Contract Sample Language.\n"
+            ),
+        )
+        entry = next(line for line in normalized.splitlines() if "Massachusetts Office" in line)
+        self.assertTrue(entry.endswith("https://www.mass.gov/info-details/home-improvement-contract-sample-language"))
 
 
 if __name__ == "__main__":
