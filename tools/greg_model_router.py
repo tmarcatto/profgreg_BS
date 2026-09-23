@@ -10,8 +10,10 @@ from __future__ import annotations
 import json
 import os
 import base64
+import hashlib
 import http.client
 import socket
+import threading
 import time
 import urllib.error
 import urllib.request
@@ -27,11 +29,112 @@ CONFIG_PATH = ROOT / "workspace" / "config" / "model-routing.json"
 
 
 class ModelRequestError(RuntimeError):
-    pass
+    def __init__(self, message: str, *, usage: dict[str, Any] | None = None):
+        super().__init__(message)
+        self.usage = dict(usage or {})
+
+
+class ModelBudgetExceeded(ModelRequestError):
+    """Raised before a provider call would exceed the active job budget."""
+
+
+_REQUEST_BUDGET_LOCK = threading.Lock()
+_REQUEST_BUDGET_LIMIT: int | None = None
+_REQUEST_BUDGET_USED = 0
+_REQUEST_BUDGET_USD_LIMIT: float | None = None
+_REQUEST_BUDGET_USD_USED = 0.0
+_REQUEST_BUDGET_LABEL = "production job"
+_REQUEST_CONTEXT: dict[str, Any] = {}
+_MODEL_CACHE_LOCK = threading.Lock()
+
+
+def configure_request_budget(
+    limit: int | None,
+    *,
+    label: str = "production job",
+    usd_limit: float | None = None,
+) -> None:
+    """Reset the process-local provider-call budget for one bounded job.
+
+    Production stages run in isolated worker processes. A process-local counter
+    therefore gives each job a hard circuit breaker without coupling a new
+    correction to the historical call count of its course workspace.
+    """
+    if limit is not None and limit < 1:
+        raise ValueError("Model request budget must be positive or None.")
+    if usd_limit is not None and usd_limit <= 0:
+        raise ValueError("Model USD budget must be positive or None.")
+    global _REQUEST_BUDGET_LIMIT, _REQUEST_BUDGET_USED, _REQUEST_BUDGET_LABEL
+    global _REQUEST_BUDGET_USD_LIMIT, _REQUEST_BUDGET_USD_USED
+    with _REQUEST_BUDGET_LOCK:
+        _REQUEST_BUDGET_LIMIT = limit
+        _REQUEST_BUDGET_USED = 0
+        _REQUEST_BUDGET_USD_LIMIT = usd_limit
+        _REQUEST_BUDGET_USD_USED = 0.0
+        _REQUEST_BUDGET_LABEL = label
+
+
+def configure_request_context(**values: Any) -> None:
+    """Attach non-sensitive job metadata to later usage rows in this process."""
+    global _REQUEST_CONTEXT
+    _REQUEST_CONTEXT = {
+        key: value
+        for key, value in values.items()
+        if value is not None and isinstance(value, (str, int, float, bool))
+    }
+
+
+def reserve_provider_call() -> None:
+    """Reserve one real provider attempt or stop before money is spent."""
+    global _REQUEST_BUDGET_USED
+    with _REQUEST_BUDGET_LOCK:
+        if _REQUEST_BUDGET_USD_LIMIT is not None and _REQUEST_BUDGET_USD_USED >= _REQUEST_BUDGET_USD_LIMIT:
+            raise ModelBudgetExceeded(
+                f"AI cost budget reached for {_REQUEST_BUDGET_LABEL}: "
+                f"${_REQUEST_BUDGET_USD_USED:.4f}/${_REQUEST_BUDGET_USD_LIMIT:.4f}. "
+                "The last safe artifact was preserved; review the remaining finding before authorizing more spend."
+            )
+        if _REQUEST_BUDGET_LIMIT is not None and _REQUEST_BUDGET_USED >= _REQUEST_BUDGET_LIMIT:
+            raise ModelBudgetExceeded(
+                f"AI call budget reached for {_REQUEST_BUDGET_LABEL}: "
+                f"{_REQUEST_BUDGET_USED}/{_REQUEST_BUDGET_LIMIT} provider calls. "
+                "The last safe artifact was preserved; review the remaining finding before authorizing more spend."
+            )
+        _REQUEST_BUDGET_USED += 1
+
+
+def record_provider_cost(binding: dict[str, Any], usage: dict[str, Any]) -> None:
+    """Add completed estimated spend to the active job circuit breaker."""
+    global _REQUEST_BUDGET_USD_USED
+    estimated = cost_estimate(binding, usage)
+    if estimated.get("status") != "estimated":
+        return
+    with _REQUEST_BUDGET_LOCK:
+        _REQUEST_BUDGET_USD_USED += float(estimated.get("estimated_usd") or 0)
 
 
 def load_config() -> dict[str, Any]:
     return json.loads(CONFIG_PATH.read_text(encoding="utf-8"))
+
+
+def request_budget_for(name: str, default: int) -> int:
+    """Read a positive named provider-call budget from routing configuration."""
+    value = ((load_config().get("cost_tracking") or {}).get("call_budgets") or {}).get(name, default)
+    try:
+        parsed = int(value)
+    except (TypeError, ValueError):
+        return default
+    return parsed if parsed > 0 else default
+
+
+def usd_budget_for(name: str, default: float) -> float:
+    """Read a positive named USD budget from routing configuration."""
+    value = ((load_config().get("cost_tracking") or {}).get("usd_budgets") or {}).get(name, default)
+    try:
+        parsed = float(value)
+    except (TypeError, ValueError):
+        return default
+    return parsed if parsed > 0 else default
 
 
 def binding_for(role: str) -> tuple[dict[str, Any], dict[str, Any]]:
@@ -128,14 +231,63 @@ def append_usage(
         "model": binding.get("model"),
         "outcome": outcome,
         "detail": detail[:300],
+        **_REQUEST_CONTEXT,
     }
     if usage:
         # Keep the operational log small and private: usage metadata is enough
         # for cost reporting and never includes a prompt or generated content.
         row["usage"] = usage
-        row["cost"] = cost_estimate(binding, usage) if outcome == "completed" else {"currency": "USD", "status": "not_chargeable"}
+        row["cost"] = (
+            cost_estimate(binding, usage)
+            if outcome in {"completed", "retry", "failed"}
+            else {"currency": "USD", "status": "not_chargeable"}
+        )
     with path.open("a", encoding="utf-8") as handle:
         handle.write(json.dumps(row, ensure_ascii=False) + "\n")
+
+
+def text_cache_path(binding: dict[str, Any], role: str, prompt: str, max_tokens: int) -> Path:
+    """Return a content-addressed path for a repeatable non-web request."""
+    payload = json.dumps(
+        {
+            "provider": binding.get("provider"),
+            "model": binding.get("model"),
+            "reasoning": binding.get("reasoning"),
+            "role": role,
+            "max_tokens": max_tokens,
+            "prompt": prompt,
+        },
+        ensure_ascii=False,
+        sort_keys=True,
+        separators=(",", ":"),
+    )
+    digest = hashlib.sha256(payload.encode("utf-8")).hexdigest()
+    cache_root = Path(
+        os.environ.get("PROF_GREG_MODEL_CACHE_DIR")
+        or ROOT / "tmp" / "model-response-cache"
+    )
+    return cache_root / f"{digest}.json"
+
+
+def read_text_cache(path: Path) -> str | None:
+    try:
+        data = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return None
+    text = data.get("text") if isinstance(data, dict) else None
+    return text if isinstance(text, str) and text.strip() else None
+
+
+def write_text_cache(path: Path, text: str) -> None:
+    """Persist reusable output when the local cache directory is writable."""
+    try:
+        with _MODEL_CACHE_LOCK:
+            path.parent.mkdir(parents=True, exist_ok=True)
+            path.write_text(json.dumps({"text": text}, ensure_ascii=False), encoding="utf-8")
+    except OSError:
+        # Cache reuse is an optimization, never a reason to discard a paid
+        # provider response or fail an otherwise successful production stage.
+        return
 
 
 def post_json(
@@ -192,6 +344,7 @@ def request_image(course_slug: str, prompt: str, output_path: Path, *, size: str
         "output_format": "png",
     }
     try:
+        reserve_provider_call()
         response = post_json(
             f"{base_url.rstrip('/')}/v1/images/generations",
             payload,
@@ -205,9 +358,16 @@ def request_image(course_slug: str, prompt: str, output_path: Path, *, size: str
         output_path.parent.mkdir(parents=True, exist_ok=True)
         output_path.write_bytes(base64.b64decode(encoded, validate=True))
     except (ModelRequestError, ValueError) as error:
-        append_usage(course_slug, role=role, binding=binding, outcome="failed", detail=str(error))
+        append_usage(
+            course_slug,
+            role=role,
+            binding=binding,
+            outcome="blocked" if isinstance(error, ModelBudgetExceeded) else "failed",
+            detail=str(error),
+        )
         raise ModelRequestError(str(error)) from error
     usage = {**dict(response.get("usage") or {}), "images": 1, "size": size, "quality": payload["quality"]}
+    record_provider_cost(binding, usage)
     append_usage(
         course_slug,
         role=role,
@@ -246,9 +406,9 @@ def anthropic_text(
     text = "".join(
         str(block.get("text") or "") for block in response.get("content") or [] if block.get("type") == "text"
     ).strip()
-    if not text:
-        raise ModelRequestError("Anthropic returned no text content.")
     usage = dict(response.get("usage") or {})
+    if not text:
+        raise ModelRequestError("Anthropic returned no text content.", usage=usage)
     return (text, usage) if return_usage else text
 
 
@@ -280,6 +440,7 @@ def openai_text(
         timeout=timeout,
         attempts=2,
     )
+    usage = dict(response.get("usage") or {})
     text = str(response.get("output_text") or "").strip()
     if not text:
         for output in response.get("output") or []:
@@ -301,14 +462,15 @@ def openai_text(
         reason = response.get("incomplete_details") or response.get("error") or "no completion detail"
         raise ModelRequestError(
             f"OpenAI returned no text content (status={response.get('status')!r}, "
-            f"reason={reason!r}, output={output_shapes!r})."
+            f"reason={reason!r}, output={output_shapes!r}).",
+            usage=usage,
         )
     if response.get("status") == "incomplete":
         reason = response.get("incomplete_details") or "no completion detail"
         raise ModelRequestError(
-            f"OpenAI returned incomplete text content (reason={reason!r})."
+            f"OpenAI returned incomplete text content (reason={reason!r}).",
+            usage=usage,
         )
-    usage = dict(response.get("usage") or {})
     web_search_runs = sum(1 for item in response.get("output") or [] if item.get("type") == "web_search_call")
     if web_search_runs:
         usage["web_search_runs"] = web_search_runs
@@ -320,6 +482,19 @@ def request_text(course_slug: str, role: str, prompt: str, *, max_tokens: int = 
     # service. Existing environment values always take precedence.
     load_env_file(ROOT / ".env.local")
     binding, provider = binding_for(role)
+    cache_path = text_cache_path(binding, role, prompt, max_tokens)
+    cache_allowed = not web_search and bool(_REQUEST_CONTEXT.get("stage"))
+    if cache_allowed:
+        cached = read_text_cache(cache_path)
+        if cached is not None:
+            append_usage(
+                course_slug,
+                role=role,
+                binding=binding,
+                outcome="cache_hit",
+                detail="Reused identical local model response; no provider call was made.",
+            )
+            return cached
     provider_name = str(binding.get("provider"))
     api_key_name = str(provider.get("api_key_env") or "")
     api_key = os.environ.get(api_key_name, "")
@@ -333,6 +508,7 @@ def request_text(course_slug: str, role: str, prompt: str, *, max_tokens: int = 
         raise ModelRequestError(f"Provider `{provider_name}` needs {base_url_name} configured.")
     try:
         if provider_name == "anthropic":
+            reserve_provider_call()
             text, usage = anthropic_text(
                 base_url,
                 api_key,
@@ -345,6 +521,7 @@ def request_text(course_slug: str, role: str, prompt: str, *, max_tokens: int = 
         elif provider_name == "openai":
             reasoning = str(binding.get("reasoning") or "")
             try:
+                reserve_provider_call()
                 text, usage = openai_text(
                     base_url,
                     api_key,
@@ -366,6 +543,17 @@ def request_text(course_slug: str, role: str, prompt: str, *, max_tokens: int = 
                 ):
                     raise
                 fallback_reasoning = "high" if reasoning == "max" else "medium"
+                if error.usage:
+                    record_provider_cost(binding, error.usage)
+                append_usage(
+                    course_slug,
+                    role=role,
+                    binding=binding,
+                    outcome="retry",
+                    detail=f"Provider returned no usable text at {reasoning} reasoning; retrying at {fallback_reasoning}.",
+                    usage=error.usage or None,
+                )
+                reserve_provider_call()
                 text, usage = openai_text(
                     base_url,
                     api_key,
@@ -380,9 +568,18 @@ def request_text(course_slug: str, role: str, prompt: str, *, max_tokens: int = 
         else:
             raise ModelRequestError(f"Provider `{provider_name}` is not implemented by the production router yet.")
     except ModelRequestError as error:
-        append_usage(course_slug, role=role, binding=binding, outcome="failed", detail=str(error))
+        append_usage(
+            course_slug,
+            role=role,
+            binding=binding,
+            outcome="blocked" if isinstance(error, ModelBudgetExceeded) else "failed",
+            detail=str(error),
+        )
         raise
+    record_provider_cost(binding, usage)
     append_usage(course_slug, role=role, binding=binding, outcome="completed", usage=usage)
+    if cache_allowed:
+        write_text_cache(cache_path, text)
     return text
 
 

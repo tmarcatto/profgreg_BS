@@ -100,14 +100,33 @@ def enqueue_production_lesson_jobs(
     stage: str,
     lessons: list[int],
 ) -> list[dict[str, object]]:
-    """Queue each lesson and locale independently so one failure cannot consume a batch."""
+    """Queue each lesson once; repeated clicks reuse the active production job."""
     jobs: list[dict[str, object]] = []
+    active_jobs = [
+        job
+        for job in list_jobs(job_root)
+        if job.get("request_type") == "production_stage"
+        and job.get("state") in {"queued", "running"}
+        and str(job.get("course_slug") or "") == slugify(course)
+    ]
     stages = {
         "translations_book": ("pt_br_book", "es_book"),
         "translations_deck": ("pt_br_deck", "es_deck"),
     }.get(stage, (stage,))
     for lesson in lessons:
         for queued_stage in stages:
+            existing = next(
+                (
+                    job
+                    for job in active_jobs
+                    if int(job.get("lesson") or 0) == lesson
+                    and str((job.get("payload") or {}).get("stage") or "") == queued_stage
+                ),
+                None,
+            )
+            if existing:
+                jobs.append(existing)
+                continue
             result = enqueue_job(
                 job_root=job_root,
                 request_type="production_stage",
@@ -118,6 +137,7 @@ def enqueue_production_lesson_jobs(
             )
             if result.job:
                 jobs.append(result.job)
+                active_jobs.append(result.job)
     return jobs
 
 
@@ -260,7 +280,7 @@ def course_cost_report(course_slug: str) -> dict:
                 # Older logs predate the cost field. Recalculate them from the
                 # current versioned rate card so historic course spend is not
                 # silently omitted from the workspace total.
-                if item.get("outcome") == "completed" and item.get("usage") and not item.get("cost"):
+                if item.get("outcome") in {"completed", "retry", "failed"} and item.get("usage") and not item.get("cost"):
                     try:
                         from greg_model_router import cost_estimate
                         item["cost"] = cost_estimate(
@@ -272,9 +292,11 @@ def course_cost_report(course_slug: str) -> dict:
                 rows.append(item)
     rows.sort(key=lambda item: str(item.get("at") or ""), reverse=True)
     completed = [item for item in rows if item.get("outcome") == "completed"]
-    # Recalculate every completed request using the active, versioned rate card.
-    # This also enriches older cost entries with their component math.
-    for item in completed:
+    chargeable = [item for item in rows if item.get("outcome") in {"completed", "retry", "failed"} and item.get("usage")]
+    # Recalculate every chargeable provider response using the active,
+    # versioned rate card, including incomplete responses that triggered a
+    # billed retry. This also enriches older entries with component math.
+    for item in chargeable:
         if not item.get("usage"):
             continue
         try:
@@ -284,7 +306,7 @@ def course_cost_report(course_slug: str) -> dict:
             )
         except Exception:
             item["cost"] = {"currency": "USD", "status": "unpriced"}
-    priced = [item for item in completed if isinstance(item.get("cost"), dict) and item["cost"].get("status") == "estimated"]
+    priced = [item for item in rows if isinstance(item.get("cost"), dict) and item["cost"].get("status") == "estimated"]
     total = sum(float(item["cost"].get("estimated_usd") or 0) for item in priced)
     provider_totals: dict[tuple[str, str], float] = {}
     math: dict[tuple[str, str], dict] = {}
@@ -302,11 +324,56 @@ def course_cost_report(course_slug: str) -> dict:
         row["web_search_runs"] += int(usage.get("web_search_runs") or 0)
         for name, value in (item["cost"].get("components") or {}).items():
             row["components"][name] = round(float(row["components"].get(name) or 0) + float(value or 0), 8)
+
+    priced_cost_by_identity = {
+        id(item): float((item.get("cost") or {}).get("estimated_usd") or 0)
+        for item in priced
+    }
+
+    def grouped_breakdown(fields: tuple[str, ...]) -> list[dict]:
+        groups: dict[tuple[str, ...], dict] = {}
+        for item in rows:
+            key = tuple(str(item.get(field) or "Legacy / unspecified") for field in fields)
+            group = groups.setdefault(
+                key,
+                {
+                    **dict(zip(fields, key)),
+                    "logged_events": 0,
+                    "provider_attempts": 0,
+                    "completed_calls": 0,
+                    "cache_hits": 0,
+                    "failed_or_retry_calls": 0,
+                    "input_tokens": 0,
+                    "output_tokens": 0,
+                    "estimated_usd": 0.0,
+                },
+            )
+            outcome = str(item.get("outcome") or "")
+            usage = item.get("usage") or {}
+            group["logged_events"] += 1
+            group["provider_attempts"] += int(outcome in {"completed", "failed", "retry"})
+            group["completed_calls"] += int(outcome == "completed")
+            group["cache_hits"] += int(outcome == "cache_hit")
+            group["failed_or_retry_calls"] += int(outcome in {"failed", "retry"})
+            group["input_tokens"] += int(usage.get("input_tokens") or usage.get("prompt_tokens") or 0)
+            group["output_tokens"] += int(usage.get("output_tokens") or usage.get("completion_tokens") or 0)
+            group["estimated_usd"] += priced_cost_by_identity.get(id(item), 0)
+        result = []
+        for group in groups.values():
+            group["estimated_usd"] = round(float(group["estimated_usd"]), 8)
+            result.append(group)
+        return sorted(result, key=lambda group: (-float(group["estimated_usd"]), tuple(str(group[field]) for field in fields)))
+
+    provider_attempts = sum(str(item.get("outcome") or "") in {"completed", "failed", "retry"} for item in rows)
+    cache_hits = sum(str(item.get("outcome") or "") == "cache_hit" for item in rows)
     return {
         "course_slug": slugify(course_slug), "currency": "USD", "total_estimated_usd": round(total, 8),
-        "request_count": len(rows), "completed_count": len(completed), "unpriced_completed_count": len(completed) - len(priced),
+        "request_count": len(rows), "logged_event_count": len(rows), "provider_attempt_count": provider_attempts,
+        "cache_hit_count": cache_hits, "completed_count": len(completed), "unpriced_completed_count": len(completed) - len(priced),
         "providers": [{"provider": provider, "model": model, "estimated_usd": round(value, 8)} for (provider, model), value in sorted(provider_totals.items())],
         "math": [{**item, "estimated_usd": round(provider_totals[key], 8)} for key, item in sorted(math.items())],
+        "by_role": grouped_breakdown(("role",)),
+        "by_operation": grouped_breakdown(("job_id", "stage", "lesson", "operation")),
         "recent_requests": rows[:10],
     }
 
@@ -1244,11 +1311,15 @@ def ui_shell(default_course: str) -> str:
     </div>
 
     <section id="costs" class="card">
-      <div class="section-head"><div class="title-row"><div class="step-num">8</div><div><h2>AI Costs</h2><div class="hint">Every provider call made for this course workspace is listed separately. Totals use the configured API rate card.</div></div></div></div>
+      <div class="section-head"><div class="title-row"><div class="step-num">8</div><div><h2>AI Costs</h2><div class="hint">Provider attempts, cached reuse, failures, and completed calls are separated. Totals use the configured API rate card.</div></div></div></div>
       <div class="body">
         <div class="status-summary" id="costSummary"><div class="metric"><div class="label">Total estimated investment</div><div class="value">Loading…</div></div></div>
         <div class="cost-provider-list">Complete calculation for this course</div>
         <div class="table-wrap"><table><thead><tr><th>Provider</th><th>Model</th><th>API calls</th><th>Cost (USD)</th></tr></thead><tbody id="costMath"><tr><td colspan="4" class="muted">No cost calculation available yet.</td></tr></tbody></table></div>
+        <div class="cost-provider-list">Spend by production execution</div>
+        <div class="table-wrap"><table><thead><tr><th>Job / stage</th><th>Lesson</th><th>Operation</th><th>Provider attempts</th><th>Cache reuse</th><th>Cost (USD)</th></tr></thead><tbody id="costOperations"><tr><td colspan="6" class="muted">No attributed executions recorded yet.</td></tr></tbody></table></div>
+        <div class="cost-provider-list">Spend by agent role</div>
+        <div class="table-wrap"><table><thead><tr><th>Agent role</th><th>Completed calls</th><th>Failures / retries</th><th>Tokens in</th><th>Tokens out</th><th>Cost (USD)</th></tr></thead><tbody id="costRoles"><tr><td colspan="6" class="muted">No role calculation available yet.</td></tr></tbody></table></div>
         <div class="cost-provider-list" id="costRecentLabel">Latest API requests</div>
         <div class="table-wrap"><table><thead><tr><th>Date / time</th><th>Artifact / stage</th><th>Provider</th><th>Model</th><th>Usage</th><th>Cost (USD)</th><th>Status</th></tr></thead><tbody id="costRows"><tr><td colspan="7" class="muted">No AI calls recorded for this workspace.</td></tr></tbody></table></div>
       </div>
@@ -1673,11 +1744,19 @@ def ui_shell(default_course: str) -> str:
     const roleLabels = {{course_architect:'Course Map', source_research:'Source research', technical_content:'Course book', pedagogy_review:'Pedagogy review', citation_review:'Citation review', design_review:'Design review', visual_planning:'Visual plan', visual_review:'Visual review', image_generation:'Generated image', localization:'Translation', localization_review:'Translation review'}};
     function renderCosts(report) {{
       const total = formatUsd(report?.total_estimated_usd);
-      document.getElementById('costSummary').innerHTML = `<div class="metric"><div class="label">Total estimated investment</div><div class="value">${{total}}</div></div><div class="metric"><div class="label">Recorded API calls</div><div class="value">${{Number(report?.request_count || 0)}}</div></div>`;
+      document.getElementById('costSummary').innerHTML = `<div class="metric"><div class="label">Total estimated investment</div><div class="value">${{total}}</div></div><div class="metric"><div class="label">Provider attempts</div><div class="value">${{Number(report?.provider_attempt_count || 0)}}</div></div><div class="metric"><div class="label">Cache reuse</div><div class="value">${{Number(report?.cache_hit_count || 0)}}</div></div><div class="metric"><div class="label">Logged events</div><div class="value">${{Number(report?.logged_event_count || 0)}}</div></div>`;
       const math = report?.math || [];
       document.getElementById('costMath').innerHTML = math.length ? math.map(item => `<tr><td>${{esc(item.provider)}}</td><td>${{esc(item.model)}}</td><td>${{Number(item.calls)}}</td><td><strong>${{formatUsd(item.estimated_usd)}}</strong></td></tr>`).join('') + `<tr><td colspan="3"><strong>Total</strong></td><td><strong>${{total}}</strong></td></tr>` : '<tr><td colspan="4" class="muted">No cost calculation available yet.</td></tr>';
+      const operations = report?.by_operation || [];
+      document.getElementById('costOperations').innerHTML = operations.length ? operations.map(item => {{
+        const job = item.job_id === 'Legacy / unspecified' ? 'Legacy' : item.job_id;
+        const stage = item.stage === 'Legacy / unspecified' ? '' : ` · ${{item.stage}}`;
+        return `<tr><td>${{esc(job + stage)}}</td><td>${{esc(item.lesson === 'Legacy / unspecified' ? '—' : item.lesson)}}</td><td>${{esc(item.operation === 'Legacy / unspecified' ? '—' : item.operation)}}</td><td>${{Number(item.provider_attempts || 0)}}</td><td>${{Number(item.cache_hits || 0)}}</td><td><strong>${{formatUsd(item.estimated_usd)}}</strong></td></tr>`;
+      }}).join('') : '<tr><td colspan="6" class="muted">No attributed executions recorded yet.</td></tr>';
+      const roles = report?.by_role || [];
+      document.getElementById('costRoles').innerHTML = roles.length ? roles.map(item => `<tr><td>${{esc(roleLabels[item.role] || item.role || '—')}}</td><td>${{Number(item.completed_calls || 0)}}</td><td>${{Number(item.failed_or_retry_calls || 0)}}</td><td>${{Number(item.input_tokens || 0).toLocaleString()}}</td><td>${{Number(item.output_tokens || 0).toLocaleString()}}</td><td><strong>${{formatUsd(item.estimated_usd)}}</strong></td></tr>`).join('') : '<tr><td colspan="6" class="muted">No role calculation available yet.</td></tr>';
       const rows = report?.recent_requests || [];
-      const recentLabel = Number(report?.request_count || 0) > 10 ? `Latest 10 API requests (of ${{Number(report.request_count)}} total)` : 'API requests';
+      const recentLabel = Number(report?.logged_event_count || 0) > 10 ? `Latest 10 AI events (of ${{Number(report.logged_event_count)}} total)` : 'AI events';
       document.getElementById('costRecentLabel').textContent = recentLabel;
       document.getElementById('costRows').innerHTML = rows.length ? rows.map(item => {{
         const cost = item.cost || {{}};

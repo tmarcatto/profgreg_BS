@@ -16,6 +16,7 @@ from contextlib import contextmanager
 import hashlib
 import importlib.util
 import json
+import os
 import re
 import subprocess
 import sys
@@ -33,7 +34,16 @@ from greg_localized_deck_guard import (
     file_sha256 as localized_deck_file_sha256,
 )
 
-from greg_model_router import ModelRequestError, json_from_text, request_image as model_request_image, request_text as model_request_text
+from greg_model_router import (
+    ModelRequestError,
+    configure_request_budget,
+    configure_request_context,
+    json_from_text,
+    request_image as model_request_image,
+    request_budget_for,
+    request_text as model_request_text,
+    usd_budget_for,
+)
 from greg_revision_history import append_interaction, read_state
 from greg_security import assert_safe_run_slug
 from greg_v0_production import BRAND_ICON, NEGATIVE_WORDMARK, RUNS, lid, parse_intake, read_uploads, rel, write_json, write_text
@@ -110,6 +120,15 @@ def request_text(*args: Any, **kwargs: Any) -> str:
 def request_image(*args: Any, **kwargs: Any) -> str:
     with timed_activity("model_image"):
         return model_request_image(*args, **kwargs)
+
+
+def configure_production_budget(name: str, label: str, *, calls: int, usd: float) -> None:
+    """Install one configurable call-and-cost circuit breaker."""
+    configure_request_budget(
+        request_budget_for(name, calls),
+        label=label,
+        usd_limit=usd_budget_for(name, usd),
+    )
 
 
 def production_python() -> str:
@@ -281,7 +300,10 @@ def request_json_with_retry(course_slug: str, role: str, prompt: str, *, max_tok
     """Request JSON and alternate targeted repair with strict regeneration."""
     last_error: Exception | None = None
     malformed_output = ""
-    attempts = 4
+    # One repair is enough to distinguish a harmless formatting defect from a
+    # non-converging response. Larger retry trees multiplied every reviewer
+    # round and were a major source of invisible spend.
+    attempts = 2
     for attempt in range(attempts):
         if attempt and attempt % 2 == 1 and malformed_output:
             active_prompt = malformed_json_repair_prompt(malformed_output, last_error or "invalid JSON")
@@ -2207,6 +2229,7 @@ def targeted_study_guide_revision(
     references: str,
     *,
     level: str,
+    selected_headings: list[str] | None = None,
 ) -> str:
     """Use a model for limited section patches while preserving all other text."""
     if revision_requires_chapter_context(feedback):
@@ -2248,10 +2271,13 @@ def targeted_study_guide_revision(
     if not sections:
         raise RuntimeError("The saved course book has no editable sections.")
     headings = "\n".join(f"- {heading}" for heading in sections)
-    plan = request_json_with_retry(
-        course_slug,
-        "technical_content",
-        f"""Select the smallest set of existing course-book sections needed to address the revision request.
+    if selected_headings:
+        selected = resolve_study_guide_headings(selected_headings, sections)
+    else:
+        plan = request_json_with_retry(
+            course_slug,
+            "technical_content",
+            f"""Select the smallest set of existing course-book sections needed to address the revision request.
 Return JSON only: {{\"headings\": [\"exact heading\"]}}.
 Choose one to six headings from this exact list. References are controlled separately.
 
@@ -2261,25 +2287,25 @@ Revision request:
 Available headings:
 {headings}
 """,
-        max_tokens=4000,
-    )
-    selected = plan.get("headings")
-    if not isinstance(selected, list) or not 1 <= len(selected) <= 6 or any(not isinstance(item, str) for item in selected):
-        mentioned_numbers = {
-            int(value)
-            for value in re.findall(r"\bSection\s+0*(\d{1,2})\b", feedback, flags=re.I)
-        }
-        selected = [
-            heading
-            for heading in sections
-            if any(re.match(rf"#\s+Section\s+0*{number}\b", heading, flags=re.I) for number in mentioned_numbers)
-        ]
-        if not selected:
-            selected = [heading for heading in sections if heading.startswith("# Section ")][:5]
-        if not selected:
-            raise RuntimeError("The saved course book has no teaching sections available for automatic revision.")
-    else:
-        selected = resolve_study_guide_headings(selected, sections)
+            max_tokens=4000,
+        )
+        selected = plan.get("headings")
+        if not isinstance(selected, list) or not 1 <= len(selected) <= 6 or any(not isinstance(item, str) for item in selected):
+            mentioned_numbers = {
+                int(value)
+                for value in re.findall(r"\bSection\s+0*(\d{1,2})\b", feedback, flags=re.I)
+            }
+            selected = [
+                heading
+                for heading in sections
+                if any(re.match(rf"#\s+Section\s+0*{number}\b", heading, flags=re.I) for number in mentioned_numbers)
+            ]
+            if not selected:
+                selected = [heading for heading in sections if heading.startswith("# Section ")][:5]
+            if not selected:
+                raise RuntimeError("The saved course book has no teaching sections available for automatic revision.")
+        else:
+            selected = resolve_study_guide_headings(selected, sections)
     chapter_limit_match = re.search(r"must not exceed\s+([\d,]+)\s+words", feedback, flags=re.I)
     chapter_limit = int(chapter_limit_match.group(1).replace(",", "")) if chapter_limit_match else None
     if chapter_limit and len(draft.split()) > chapter_limit:
@@ -2863,8 +2889,10 @@ Draft:
 Source ledger:
 {json.dumps(compact_reviewer_ledger(ledger, int(lesson['lesson_number'])), ensure_ascii=False)}
 
+For every blocking change, identify the smallest exact existing Markdown heading that owns the correction. Copy headings from the draft. If a finding is truly chapter-wide, list every affected existing heading instead of returning a vague scope.
+
 Return exactly:
-{{"passed":true,"verdict":"PASS or REVISE","findings":["..."],"required_changes":["..."]}}"""
+{{"passed":true,"verdict":"PASS or REVISE","findings":["..."],"required_changes":["..."],"target_headings":["# Section NN - Exact existing name"]}}"""
 
 
 def compact_reviewer_ledger(ledger: dict[str, Any], lesson_number: int) -> dict[str, Any]:
@@ -2980,6 +3008,12 @@ def normalize_reviewer_response(role: str, data: dict[str, Any], draft: str = ""
 
     normalized["findings"] = [item for item in data.get("findings") or [] if valid(item)]
     normalized["required_changes"] = [item for item in data.get("required_changes") or [] if valid(item)]
+    available = preserved_study_guide_sections(draft)
+    normalized["target_headings"] = [
+        heading.strip()
+        for heading in data.get("target_headings") or []
+        if isinstance(heading, str) and heading.strip() in available and heading.strip() != "# References"
+    ]
     if data.get("passed") is not True and not (normalized["findings"] or normalized["required_changes"]):
         normalized.update({
             "passed": True,
@@ -3001,7 +3035,8 @@ def run_content_reviewers(
     approved_baseline: str = "",
     operator_revision_request: str = "",
     operator_allowed_headings: set[str] | None = None,
-) -> tuple[bool, list[str]]:
+    roles: set[str] | None = None,
+) -> tuple[bool, list[str], set[str], list[str]]:
     passed = True
     required_changes: list[str] = []
     labels = {
@@ -3009,6 +3044,10 @@ def run_content_reviewers(
         "citation_review": ("Citation Review", "citation_review"),
         "design_review": ("Design QA", "design_qa"),
     }
+    if roles is not None:
+        labels = {role: value for role, value in labels.items() if role in roles}
+    if not labels:
+        return True, [], set(), []
     def review_one(role: str, title: str, suffix: str) -> tuple[str, str, str, dict[str, Any]]:
         try:
             data = request_json_with_retry(
@@ -3039,6 +3078,8 @@ def run_content_reviewers(
             for context, (role, (title, suffix)) in zip(contexts, labels.items())
         ]
         results = [future.result() for future in futures]
+    failed_roles: set[str] = set()
+    target_headings: list[str] = []
     for _role, title, suffix, data in results:
         data = normalize_reviewer_response(_role, data, draft)
         if approved_baseline and operator_revision_request:
@@ -3060,6 +3101,11 @@ def run_content_reviewers(
             data["required_changes"] = [
                 item for item in data.get("required_changes") or [] if inside_targeted_scope(item)
             ]
+            data["target_headings"] = [
+                heading
+                for heading in data.get("target_headings") or []
+                if heading in (operator_allowed_headings or set())
+            ]
             if data.get("passed") is not True and original_blockers and not (
                 data["required_changes"] or data["findings"]
             ):
@@ -3073,8 +3119,10 @@ def run_content_reviewers(
         write_text(run / "review" / f"{lesson_tag}_{suffix}.md", render_review(title, data))
         if not data["passed"]:
             passed = False
+            failed_roles.add(_role)
+            target_headings.extend(str(item) for item in data.get("target_headings") or [])
             required_changes.extend(str(item) for item in data.get("required_changes") or data.get("findings") or [])
-    return passed, required_changes
+    return passed, required_changes, failed_roles, list(dict.fromkeys(target_headings))
 
 
 def visual_plan_prompt(seed, lesson: dict[str, Any], draft: str, uploads: list[dict[str, Any]]) -> str:
@@ -3502,7 +3550,9 @@ def create_visual_assets(seed, lesson: dict[str, Any], draft: str, run: Path, le
         # Allow several focused corrections before blocking, rather than
         # discarding a validated course-book draft over successive diagram
         # factual refinements.
-        max_visual_review_attempts = 6
+        # Two focused corrections plus a final confirmation. More attempts
+        # usually indicate contradictory visual rules, not useful convergence.
+        max_visual_review_attempts = 3
         for review_attempt in range(1, max_visual_review_attempts + 1):
             plan["visuals"] = visuals
             semantic_review = request_visual_semantic_review(seed, lesson, draft, plan)
@@ -3527,7 +3577,7 @@ def create_visual_assets(seed, lesson: dict[str, Any], draft: str, run: Path, le
                 changes = semantic_review.get("required_changes") or semantic_review.get("findings") or []
                 raise RuntimeError(
                     "Independent visual QA still requires changes after "
-                    f"{max_visual_review_attempts} focused review passes: {changes}"
+                    f"{max_visual_review_attempts - 1} automatic corrections and a final confirmation: {changes}"
                 )
             revision_prompt = visual_plan_prompt(seed, lesson, draft, read_uploads(seed.slug)) + (
                 "\n\nRevise the complete plan to fix every independent QA finding. Return the complete JSON object, not a patch.\n"
@@ -3757,6 +3807,23 @@ def produce_study_guide(course_slug: str, lesson_number: int) -> list[str]:
     course_map = json.loads((run / "course_map" / "course_map.json").read_text(encoding="utf-8"))
     lesson = lesson_by_number(course_map, lesson_number)
     lesson_tag = lid(lesson_number)
+    revision_feedback = feedback_for(run, lesson_tag, "study_guide")
+    configure_request_context(
+        job_id=os.environ.get("PROF_GREG_JOB_ID", ""),
+        stage="study_guide",
+        lesson=lesson_number,
+        operation="targeted_revision" if revision_feedback else "initial_generation",
+    )
+    # A correction must be much cheaper than first production. Reset the
+    # process-local circuit breaker per lesson so historical course usage never
+    # prevents a new bounded job from running.
+    budget_name = "study_guide_targeted_revision" if revision_feedback else "study_guide_initial"
+    configure_production_budget(
+        budget_name,
+        f"{lesson_tag} {'targeted correction' if revision_feedback else 'initial course book'}",
+        calls=10 if revision_feedback else 30,
+        usd=0.20 if revision_feedback else 0.75,
+    )
     ledger = json.loads((run / "sources" / "source_ledger.json").read_text(encoding="utf-8"))
     refresh_path = run / "sources" / f"{lesson_tag}_source_refresh.json"
     cached_refresh = json.loads(refresh_path.read_text(encoding="utf-8")) if refresh_path.exists() else {}
@@ -3813,7 +3880,6 @@ def produce_study_guide(course_slug: str, lesson_number: int) -> list[str]:
         block(run, "sources", f"Lesson {lesson_number} source refresh could not complete.\n\nReason: {error}")
         raise RuntimeError(str(error)) from error
 
-    revision_feedback = feedback_for(run, lesson_tag, "study_guide")
     operator_revision_request = revision_feedback
     visual_only_revision = bool(revision_feedback and study_guide_revision_is_visual_only(revision_feedback))
     working_path = run / "lesson_draft" / f"{lesson_tag}_working.md"
@@ -3884,10 +3950,12 @@ def produce_study_guide(course_slug: str, lesson_number: int) -> list[str]:
         write_text(working_path, draft)
     prior_revision_was_noop = False
     deterministic_checker = load_module("greg_study_guide_content_check_loop", "tools/greg_study_guide_content_check.py")
-    # Complex capstone lessons can expose a new, narrower finding only after a
-    # prior correction becomes visible. Keep the saved complete draft and
-    # allow focused convergence without restarting research or generation.
-    max_content_review_attempts = 7
+    # Two automatic corrections plus one confirmation review are the hard
+    # convergence boundary. A repeated blocker is a rule/prompt problem and
+    # must be surfaced instead of spending until it happens to pass.
+    max_content_review_attempts = 3
+    reviewer_roles_to_run: set[str] | None = None
+    reviewers_have_run = False
     for attempt in range(1, max_content_review_attempts + 1):
         if not draft:
             try:
@@ -3903,17 +3971,6 @@ def produce_study_guide(course_slug: str, lesson_number: int) -> list[str]:
                     "No partial draft was saved or released."
                 )
             write_text(working_path, draft)
-        reviewer_passed, changes = run_content_reviewers(
-            seed,
-            lesson,
-            draft,
-            active_ledger,
-            run,
-            lesson_tag,
-            approved_baseline=approved_complete_draft if operator_revision_request else "",
-            operator_revision_request=operator_revision_request,
-            operator_allowed_headings=operator_allowed_headings if operator_revision_request else None,
-        )
         deterministic_qa = deterministic_checker.run_checks(working_path, seed.level)
         baseline_failed_checks: set[str] = set()
         if operator_revision_request and approved_complete_path:
@@ -3927,12 +3984,35 @@ def produce_study_guide(course_slug: str, lesson_number: int) -> list[str]:
             item for item in deterministic_qa.get("findings") or []
             if item.get("status") == "fail" and str(item.get("check") or "") not in baseline_failed_checks
         ]
+        changes: list[str] = []
+        failed_reviewer_roles: set[str] = set()
+        failed_target_headings: list[str] = []
         if new_deterministic_failures:
             reviewer_passed = False
             changes.extend(
                 f"Deterministic content QA: {item['note']}"
                 for item in new_deterministic_failures
             )
+            # Do not pay reviewers to inspect a candidate that already fails a
+            # local gate. Once repaired, the first clean candidate receives the
+            # complete independent review suite.
+            if reviewers_have_run:
+                failed_reviewer_roles.add("design_review")
+        else:
+            reviewer_passed, reviewer_changes, failed_reviewer_roles, failed_target_headings = run_content_reviewers(
+                seed,
+                lesson,
+                draft,
+                active_ledger,
+                run,
+                lesson_tag,
+                approved_baseline=approved_complete_draft if operator_revision_request else "",
+                operator_revision_request=operator_revision_request,
+                operator_allowed_headings=operator_allowed_headings if operator_revision_request else None,
+                roles=reviewer_roles_to_run,
+            )
+            reviewers_have_run = True
+            changes.extend(reviewer_changes)
         if reviewer_passed:
             break
         revision_feedback = "Automatic reviewer changes required:\n- " + "\n- ".join(changes)
@@ -3951,6 +4031,7 @@ def produce_study_guide(course_slug: str, lesson_number: int) -> list[str]:
                     revision_feedback,
                     references,
                     level=seed.level,
+                    selected_headings=failed_target_headings,
                 )
             except ModelRequestError as error:
                 block(run, "lesson_draft", f"Configured technical-content model could not revise Lesson {lesson_number}.\n\nReason: {error}")
@@ -3967,6 +4048,10 @@ def produce_study_guide(course_slug: str, lesson_number: int) -> list[str]:
             draft = revised_draft
             prior_revision_was_noop = draft.strip() == force_student_references(prior_draft, references).strip()
             write_text(working_path, draft)
+            # A deterministic-only failure happened before any specialist saw
+            # the draft, so the repaired candidate still needs all reviewers.
+            # Otherwise rerun only the specialists that actually blocked it.
+            reviewer_roles_to_run = failed_reviewer_roles or None
     else:
         raise RuntimeError(
             "Independent study-guide reviewers still require changes after "
@@ -4670,6 +4755,19 @@ def _produce_deck_impl(course_slug: str, lesson_number: int) -> list[str]:
     lesson_tag = lid(lesson_number)
     approved = latest_approved_book(run, lesson_tag)
     revision_feedback = feedback_for(run, lesson_tag, "deck")
+    deck_budget = "deck_targeted_revision" if revision_feedback else "deck_initial"
+    configure_production_budget(
+        deck_budget,
+        f"{lesson_tag} {'targeted presentation correction' if revision_feedback else 'initial presentation'}",
+        calls=8 if revision_feedback else 20,
+        usd=0.30 if revision_feedback else 1.00,
+    )
+    configure_request_context(
+        job_id=os.environ.get("PROF_GREG_JOB_ID", ""),
+        stage="deck",
+        lesson=lesson_number,
+        operation="targeted_revision" if revision_feedback else "initial_generation",
+    )
     revision_requests = revision_requests_for(run, lesson_tag, "deck") if revision_feedback else []
     revision_resolutions: list[dict[str, Any]] = []
     if not revision_feedback:
@@ -5138,6 +5236,19 @@ def localize_book(course_slug: str, lesson_number: int, locale: str) -> list[str
     references = (run / "sources" / "student_references.md").read_text(encoding="utf-8")
     pending_draft = latest_complete_localized_draft(run / "localization" / folder, lesson_tag, locale)
     revision_feedback = feedback_for(run, lesson_tag, f"{locale}_study_guide")
+    configure_request_context(
+        job_id=os.environ.get("PROF_GREG_JOB_ID", ""),
+        stage=f"{locale}_book",
+        lesson=lesson_number,
+        operation="targeted_revision" if revision_feedback else "localization",
+    )
+    book_budget = "localized_book_targeted_revision" if revision_feedback else "localized_book_initial"
+    configure_production_budget(
+        book_budget,
+        f"{lesson_tag} {locale} course-book localization",
+        calls=8 if revision_feedback else 12,
+        usd=0.20 if revision_feedback else 0.35,
+    )
     pending_match = re.search(r"_r(\d+)\.md$", pending_draft.name) if pending_draft else None
     prior_translated = ""
     pending_text = pending_draft.read_text(encoding="utf-8", errors="replace") if pending_draft else ""
@@ -5586,6 +5697,22 @@ def localize_deck(course_slug: str, lesson_number: int, locale: str) -> list[str
     language, folder = localization_name(locale)
     source = json.loads(source_spec.read_text(encoding="utf-8"))
     revision_feedback = feedback_for(run, lesson_tag, f"{locale}_deck")
+    configure_request_context(
+        job_id=os.environ.get("PROF_GREG_JOB_ID", ""),
+        stage=f"{locale}_deck",
+        lesson=lesson_number,
+        operation="targeted_revision" if revision_feedback else "localization",
+    )
+    localized_deck_budget = "localized_deck_targeted_revision" if revision_feedback else "localized_deck_initial"
+    configure_production_budget(
+        localized_deck_budget,
+        f"{lesson_tag} {locale} presentation localization",
+        calls=8 if revision_feedback else 15,
+        usd=0.25 if revision_feedback else 0.50,
+    )
+    revision_requests = revision_requests_for(run, lesson_tag, f"{locale}_deck") if revision_feedback else []
+    revision_context: list[dict[str, Any]] = []
+    revision_resolutions: list[dict[str, Any]] = []
     prior_spec = latest_matching_path(run / "localization" / folder, f"{lesson_tag}_deck_{locale}_spec_r*.json") if revision_feedback else None
     if revision_feedback and prior_spec:
         prior_slides = json.loads(prior_spec.read_text(encoding="utf-8")).get("slides") or []
@@ -5750,6 +5877,19 @@ def remove_unnecessary_localized_emphasis(markdown: str) -> str:
 
 def run_stage(course_slug: str, stage: str, lessons: list[int] | None = None) -> list[str]:
     course_slug = assert_safe_run_slug(course_slug)
+    # Each stage invocation owns its budget. Study-guide production installs a
+    # tighter per-lesson limit; unrelated later stages must never inherit a
+    # spent counter when this module is used in-process.
+    configure_request_budget(None)
+    configure_request_context(job_id=os.environ.get("PROF_GREG_JOB_ID", ""), stage=stage)
+    stage_defaults = {
+        "course_map": (12, 0.50),
+        "sources": (12, 0.50),
+        "marketing": (12, 0.50),
+    }
+    if stage in stage_defaults:
+        calls, usd = stage_defaults[stage]
+        configure_production_budget(stage, stage.replace("_", " "), calls=calls, usd=usd)
     with timed_activity(f"production_stage:{stage}"):
         if stage == "course_map":
             return produce_course_map(course_slug)
@@ -5800,9 +5940,12 @@ def main() -> int:
     parser.add_argument("--stage", choices=["course_map", "sources", "marketing", "study_guide", "deck", "translations_book", "translations_deck", "pt_br_book", "pt_br_deck", "es_book", "es_deck"], required=True)
     parser.add_argument("--lessons", default="", help="Comma-separated lesson numbers for study-guide production.")
     parser.add_argument("--timing-file", help="Optional JSONL timing trace written without prompts, outputs, or credentials.")
+    parser.add_argument("--job-id", default="", help="Optional worker job identifier for cost attribution.")
     args = parser.parse_args()
     lessons = [int(value) for value in args.lessons.split(",") if value.strip()] or None
     recorder = TimingRecorder(Path(args.timing_file)) if args.timing_file else None
+    if args.job_id:
+        os.environ["PROF_GREG_JOB_ID"] = args.job_id
     token = ACTIVE_TIMING_RECORDER.set(recorder)
     try:
         print("\n".join(run_stage(args.course_slug, args.stage, lessons)))

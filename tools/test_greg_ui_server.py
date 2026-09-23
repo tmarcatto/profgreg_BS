@@ -256,6 +256,9 @@ class GregUiServerTests(unittest.TestCase):
         self.assertEqual(0.2, report["total_estimated_usd"])
         self.assertEqual(2, len(report["providers"]))
         self.assertEqual(2, report["request_count"])
+        self.assertEqual(2, report["provider_attempt_count"])
+        self.assertEqual(0, report["cache_hit_count"])
+        self.assertEqual("technical_content", report["by_role"][0]["role"])
 
     def test_cost_report_keeps_complete_math_but_only_returns_ten_recent_requests(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
@@ -272,6 +275,27 @@ class GregUiServerTests(unittest.TestCase):
         self.assertEqual(12, report["request_count"])
         self.assertEqual(10, len(report["recent_requests"]))
         self.assertEqual(0.12, report["math"][0]["estimated_usd"])
+
+    def test_cost_report_separates_provider_attempts_cache_hits_and_operations(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            run_root = Path(tmp)
+            log = run_root / "course-a" / "ops" / "model_usage_log.jsonl"
+            log.parent.mkdir(parents=True)
+            rows = [
+                {"at": "2026-09-23T10:00:00Z", "role": "technical_content", "provider": "openai", "model": "gpt-a", "outcome": "completed", "job_id": "job-1", "stage": "study_guide", "lesson": 1, "operation": "targeted_revision", "usage": {"input_tokens": 10, "output_tokens": 5}, "cost": {"status": "estimated", "estimated_usd": 0.02}},
+                {"at": "2026-09-23T10:01:00Z", "role": "technical_content", "provider": "openai", "model": "gpt-a", "outcome": "cache_hit", "job_id": "job-1", "stage": "study_guide", "lesson": 1, "operation": "targeted_revision"},
+                {"at": "2026-09-23T10:02:00Z", "role": "citation_review", "provider": "openai", "model": "gpt-a", "outcome": "retry", "job_id": "job-1", "stage": "study_guide", "lesson": 1, "operation": "targeted_revision"},
+            ]
+            log.write_text("".join(json.dumps(row) + "\n" for row in rows), encoding="utf-8")
+            with patch.object(ui, "SESSION_RUN_ROOT", run_root), patch("greg_model_router.cost_estimate", return_value={"status": "estimated", "estimated_usd": 0.02, "components": {}}):
+                report = ui.course_cost_report("course-a")
+
+        self.assertEqual(3, report["logged_event_count"])
+        self.assertEqual(2, report["provider_attempt_count"])
+        self.assertEqual(1, report["cache_hit_count"])
+        self.assertEqual(1, len(report["by_operation"]))
+        self.assertEqual("job-1", report["by_operation"][0]["job_id"])
+        self.assertEqual(1, report["by_operation"][0]["cache_hits"])
 
     def test_unfinished_workspaces_are_listed_before_completed_ones(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
@@ -661,6 +685,26 @@ class GregUiServerTests(unittest.TestCase):
                 [(job["lesson"], job["payload"]["stage"]) for job in jobs],
                 [(7, "pt_br_book"), (7, "es_book"), (8, "pt_br_book"), (8, "es_book")],
             )
+
+    def test_repeated_production_request_reuses_active_job(self) -> None:
+        (ROOT / "tmp" / "jobs").mkdir(parents=True, exist_ok=True)
+        with tempfile.TemporaryDirectory(dir=ROOT / "tmp" / "jobs") as tmp:
+            job_root = Path(tmp)
+            first = ui.enqueue_production_lesson_jobs(
+                job_root=job_root,
+                course="demo-course",
+                stage="study_guide",
+                lessons=[1],
+            )
+            repeated = ui.enqueue_production_lesson_jobs(
+                job_root=job_root,
+                course="demo-course",
+                stage="study_guide",
+                lessons=[1],
+            )
+
+            self.assertEqual(first[0]["job_id"], repeated[0]["job_id"])
+            self.assertEqual(1, len(ui.list_jobs(job_root)))
 
     def test_rejects_unsupported_upload_extension(self) -> None:
         with self.assertRaises(ValueError):

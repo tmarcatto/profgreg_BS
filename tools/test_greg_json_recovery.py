@@ -31,14 +31,14 @@ class JsonRecoveryTests(unittest.TestCase):
         self.assertIn(responses[0], repair_prompt)
         self.assertFalse(request.call_args_list[1].kwargs["web_search"])
 
-    def test_recovery_regenerates_after_a_failed_repair(self) -> None:
+    def test_recovery_stops_after_one_failed_repair(self) -> None:
         responses = ['{"a":1 "b":2}', '{"a":1 "b":2}', '{"a":1,"b":2}']
         with patch.object(production, "request_text", side_effect=responses) as request:
-            result = production.request_json_with_retry("course", "source_research", "Original task", max_tokens=2000)
+            with self.assertRaisesRegex(production.ModelRequestError, "after 1 automatic recovery attempts"):
+                production.request_json_with_retry("course", "source_research", "Original task", max_tokens=2000)
 
-        self.assertEqual({"a": 1, "b": 2}, result)
-        self.assertEqual(3, request.call_count)
-        self.assertIn("Regenerate the complete result", request.call_args_list[2].args[2])
+        self.assertEqual(2, request.call_count)
+        self.assertIn("Repair the malformed JSON object", request.call_args_list[1].args[2])
 
     def test_missing_json_object_uses_the_same_recovery_path(self) -> None:
         responses = ["I could not complete the structured response.", '{"sources":[]}']
@@ -131,6 +131,27 @@ Original summary.
 
         self.assertEqual(3, request.call_count)
         self.assertIn("A short orientation.", revised)
+        self.assertIn("Intro stays fixed.", revised)
+
+    def test_reviewer_target_heading_skips_separate_section_planning_call(self) -> None:
+        response = {
+            "patches": [{
+                "heading": "# Section 01 - Communicate",
+                "markdown": "# Section 01 - Communicate\n\nCorrected only here.",
+            }]
+        }
+        with patch.object(production, "request_json_with_retry", return_value=response) as request:
+            revised = production.targeted_study_guide_revision(
+                "course",
+                self.DRAFT,
+                "Correct the named section.",
+                "",
+                level="intermediate",
+                selected_headings=["# Section 01 - Communicate"],
+            )
+
+        self.assertEqual(1, request.call_count)
+        self.assertIn("Corrected only here.", revised)
         self.assertIn("Intro stays fixed.", revised)
 
     def test_targeted_revision_falls_back_to_plain_markdown_for_large_invalid_json(self) -> None:

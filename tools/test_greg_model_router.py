@@ -9,6 +9,10 @@ import greg_model_router
 
 
 class ModelRouterRetryTests(unittest.TestCase):
+    def tearDown(self):
+        greg_model_router.configure_request_budget(None)
+        greg_model_router.configure_request_context()
+
     @patch("greg_model_router.load_config")
     def test_cost_estimate_uses_input_cached_and_output_rates(self, load_config):
         load_config.return_value = {
@@ -23,6 +27,27 @@ class ModelRouterRetryTests(unittest.TestCase):
         )
         self.assertEqual("estimated", cost["status"])
         self.assertEqual(11.64, cost["estimated_usd"])
+
+    @patch("greg_model_router.load_config")
+    def test_named_request_budget_uses_config_and_rejects_invalid_values(self, load_config):
+        load_config.return_value = {"cost_tracking": {
+            "call_budgets": {"study_guide_initial": 30},
+            "usd_budgets": {"study_guide_initial": 0.75},
+        }}
+        self.assertEqual(30, greg_model_router.request_budget_for("study_guide_initial", 12))
+        self.assertEqual(0.75, greg_model_router.usd_budget_for("study_guide_initial", 0.5))
+        self.assertEqual(12, greg_model_router.request_budget_for("missing", 12))
+        self.assertEqual(0.5, greg_model_router.usd_budget_for("missing", 0.5))
+        load_config.return_value = {"cost_tracking": {"call_budgets": {"study_guide_initial": 0}}}
+        self.assertEqual(12, greg_model_router.request_budget_for("study_guide_initial", 12))
+
+    @patch("greg_model_router.cost_estimate", return_value={"status": "estimated", "estimated_usd": 0.2})
+    def test_usd_budget_blocks_the_next_provider_call(self, _cost_estimate):
+        greg_model_router.configure_request_budget(10, label="test correction", usd_limit=0.2)
+        greg_model_router.reserve_provider_call()
+        greg_model_router.record_provider_cost({"provider": "test"}, {"input_tokens": 1})
+        with self.assertRaisesRegex(greg_model_router.ModelBudgetExceeded, "AI cost budget reached"):
+            greg_model_router.reserve_provider_call()
 
     @patch("greg_model_router.time.sleep")
     @patch("greg_model_router.urllib.request.urlopen")
@@ -83,6 +108,62 @@ class ModelRouterRetryTests(unittest.TestCase):
         self.assertEqual({"input_tokens": 12, "output_tokens": 34}, row["usage"])
 
     @patch("greg_model_router.post_json")
+    def test_request_budget_stops_before_an_extra_provider_call(self, post_json):
+        post_json.return_value = {
+            "content": [{"type": "text", "text": "draft"}],
+            "usage": {"input_tokens": 12, "output_tokens": 34},
+        }
+        binding = {"provider": "anthropic", "model": "configured-model"}
+        provider = {"api_key_env": "TEST_ANTHROPIC_KEY", "base_url_env": ""}
+        with tempfile.TemporaryDirectory() as temporary:
+            with patch.object(greg_model_router, "ROOT", Path(temporary)), patch.object(
+                greg_model_router, "binding_for", return_value=(binding, provider)
+            ), patch.dict("os.environ", {"TEST_ANTHROPIC_KEY": "key"}):
+                greg_model_router.configure_request_budget(1, label="test correction")
+                self.assertEqual("draft", greg_model_router.request_text("course", "technical_content", "prompt"))
+                with self.assertRaisesRegex(greg_model_router.ModelBudgetExceeded, "1/1 provider calls"):
+                    greg_model_router.request_text("course", "technical_content", "prompt")
+
+        self.assertEqual(1, post_json.call_count)
+
+    @patch("greg_model_router.post_json")
+    def test_identical_non_web_request_reuses_local_cache_without_provider_call(self, post_json):
+        post_json.return_value = {
+            "content": [{"type": "text", "text": "stable review"}],
+            "usage": {"input_tokens": 12, "output_tokens": 4},
+        }
+        binding = {"provider": "anthropic", "model": "configured-model", "reasoning": "medium"}
+        provider = {"api_key_env": "TEST_ANTHROPIC_KEY", "base_url_env": ""}
+        with tempfile.TemporaryDirectory() as temporary:
+            with patch.object(greg_model_router, "ROOT", Path(temporary)), patch.object(
+                greg_model_router, "binding_for", return_value=(binding, provider)
+            ), patch.dict("os.environ", {"TEST_ANTHROPIC_KEY": "key"}):
+                greg_model_router.configure_request_context(stage="study_guide", lesson=1)
+                first = greg_model_router.request_text("course", "citation_review", "same prompt")
+                second = greg_model_router.request_text("course", "citation_review", "same prompt")
+                rows = [
+                    json.loads(line)
+                    for line in (Path(temporary) / "runs" / "course" / "ops" / "model_usage_log.jsonl").read_text(encoding="utf-8").splitlines()
+                ]
+
+        self.assertEqual("stable review", first)
+        self.assertEqual(first, second)
+        self.assertEqual(1, post_json.call_count)
+        self.assertEqual(["completed", "cache_hit"], [row["outcome"] for row in rows])
+
+    def test_model_cache_uses_server_writable_tmp_and_never_blocks_output(self):
+        binding = {"provider": "openai", "model": "configured-model"}
+        with tempfile.TemporaryDirectory() as temporary, patch.object(
+            greg_model_router, "ROOT", Path(temporary)
+        ), patch.dict("os.environ", {}, clear=True):
+            path = greg_model_router.text_cache_path(binding, "citation_review", "prompt", 100)
+            self.assertEqual(Path(temporary) / "tmp" / "model-response-cache", path.parent)
+
+        blocked_path = MagicMock()
+        blocked_path.parent.mkdir.side_effect = PermissionError("read-only cache")
+        greg_model_router.write_text_cache(blocked_path, "paid response")
+
+    @patch("greg_model_router.post_json")
     def test_openai_reasoning_effort_is_sent_from_the_binding(self, post_json):
         post_json.return_value = {"output_text": "review", "usage": {"input_tokens": 1, "output_tokens": 2}}
 
@@ -99,12 +180,14 @@ class ModelRouterRetryTests(unittest.TestCase):
             "status": "incomplete",
             "incomplete_details": {"reason": "max_output_tokens"},
             "output_text": "A sentence cut off",
+            "usage": {"input_tokens": 20, "output_tokens": 10},
         }
 
-        with self.assertRaisesRegex(greg_model_router.ModelRequestError, "incomplete text content"):
+        with self.assertRaisesRegex(greg_model_router.ModelRequestError, "incomplete text content") as raised:
             greg_model_router.openai_text(
                 "https://example.test", "secret", "gpt-5.6-luna", "prompt", 100, False, reasoning="high"
             )
+        self.assertEqual({"input_tokens": 20, "output_tokens": 10}, raised.exception.usage)
 
     @patch("greg_model_router.openai_text")
     @patch("greg_model_router.append_usage")
