@@ -1360,6 +1360,27 @@ def normalize_prose_dashes(draft: str) -> str:
             ))
             if not inside_references and not canonical_callout_label:
                 line = re.sub(r"(?<=[A-Za-z])-(?=[A-Za-z])", " ", line)
+                if re.match(r"^\s*>?\s*[-*+]\s+\S", line):
+                    lines.append(line)
+                    continue
+                # Models often flatten several records or answer checks into
+                # one sentence separated by spaced hyphens. Restore those as
+                # real Markdown bullets; a lone prose hyphen becomes normal
+                # sentence punctuation. This is deterministic formatting, not
+                # a content rewrite, and prevents identical reviewer retries.
+                stripped = line.strip()
+                quoted = stripped.startswith(">")
+                content = stripped[1:].strip() if quoted else stripped
+                parts = [part.strip() for part in re.split(r"\s+-{1,2}\s+", content)]
+                if len(parts) >= 3:
+                    prefix = "> " if quoted else ""
+                    rebuilt = []
+                    if parts[0]:
+                        rebuilt.append(prefix + parts[0])
+                    rebuilt.extend(prefix + "- " + part for part in parts[1:] if part)
+                    lines.extend(rebuilt)
+                    continue
+                line = re.sub(r"(?<=\S)\s+-{1,2}\s+(?=\S)", ", ", line)
         lines.append(line)
     return "\n".join(lines).rstrip() + "\n"
 
@@ -1432,7 +1453,7 @@ def normalize_reviewed_factual_language(draft: str) -> str:
     )
     corrected = corrected.replace(
         "Residential Construction Agreement and Exhibits A, C",
-        "Residential Construction Agreement and Exhibits A–C",
+        "Residential Construction Agreement and Exhibits A through C",
     )
     corrected = re.sub(r"\b([A-Z])-\s+(\d+)\b", r"\1-\2", corrected)
     corrected = re.sub(r"\b([A-Z]\d+)\.\s+(\d+)\b", r"\1.\2", corrected)
@@ -1454,7 +1475,7 @@ def normalize_reviewed_factual_language(draft: str) -> str:
     )
     return normalized.replace(
         "Residential Construction Agreement and Exhibits A, C",
-        "Residential Construction Agreement and Exhibits A–C",
+        "Residential Construction Agreement and Exhibits A through C",
     )
 
 
@@ -1647,7 +1668,10 @@ def normalize_callout_density(draft: str, maximum: int = 4) -> str:
                     continue
             compacted.append(body_line)
         index = end
-    return "\n".join(compacted).rstrip() + "\n"
+    # HANDS-ON reconstruction may join an answer and its records back onto a
+    # single quoted line. Run the punctuation/list normalizer last so the
+    # final saved chapter, rather than only its input, satisfies the contract.
+    return normalize_prose_dashes("\n".join(compacted).rstrip() + "\n")
 
 
 def normalize_hands_on_example_markdown(draft: str) -> str:
@@ -2066,7 +2090,11 @@ def apply_study_guide_section_patches(draft: str, patches: dict[str, str]) -> st
         normalized = replacement.strip() + "\n"
         if not normalized.startswith(heading + "\n"):
             raise RuntimeError(f"The patch for {heading} did not preserve its required heading.")
-        if not preserves_complete_study_guide_structure(revised, draft):
+        # Section replacements may legitimately condense the chapter. At this
+        # boundary only structural completeness matters; the chapter-wide
+        # length heuristic is for whole-model rewrites and can otherwise block
+        # a valid second patch after an earlier section becomes shorter.
+        if not preserves_complete_study_guide_structure(revised, ""):
             raise RuntimeError("The saved course book is incomplete; section edits cannot proceed safely.")
         revised = revised.replace(available[heading], normalized, 1)
     return revised
@@ -3208,6 +3236,20 @@ def infer_diagram_type(visual: dict[str, Any]) -> str:
     return "card-sequence"
 
 
+def compact_diagram_cell_text(value: Any) -> str:
+    """Shorten recurring legal qualifiers without changing their meaning."""
+    text = re.sub(r"\s+", " ", str(value or "")).strip()
+    replacements = (
+        (r"\bWhere applicable and as allocated by the agreement:\s*", "When assigned by the agreement, "),
+        (r"\bas required by the governing agreement\b", "as the agreement requires"),
+        (r"\bFollow agreement's change process;\s*", "Follow the agreement's change process; "),
+        (r"\bwhen the agreement permits\b", "if permitted"),
+    )
+    for pattern, replacement in replacements:
+        text = re.sub(pattern, replacement, text, flags=re.I)
+    return text
+
+
 def technical_visual_requires_operator(visual: dict[str, Any]) -> bool:
     """Reserve operator escalation for visuals whose technical fidelity is instructional."""
     description = " ".join(
@@ -3432,13 +3474,30 @@ def create_visual_assets(seed, lesson: dict[str, Any], draft: str, run: Path, le
                     visual["source_status"] = "not-required"
             if visual.get("visual_type") == "deterministic-diagram":
                 visual["diagram_type"] = infer_diagram_type(visual)
+                if visual["diagram_type"] == "comparison-matrix":
+                    for row in visual.get("diagram_rows") or []:
+                        if isinstance(row, dict) and isinstance(row.get("cells"), list):
+                            row["cells"] = [compact_diagram_cell_text(cell) for cell in row["cells"]]
         return prepared
 
     visuals = prepare_visuals(plan.get("visuals") or [])
     checker = load_module("greg_visual_plan_check", "tools/greg_visual_plan_check.py")
     prior_qa_text = prior_visual_qa.read_text(encoding="utf-8", errors="replace") if prior_visual_qa.exists() else ""
     semantic_review: dict[str, Any] = {"passed": True, "findings": ["Previously passed independent visual review."], "required_changes": []}
-    if "Independent visual review: PASS" not in prior_qa_text:
+    # A prior semantic PASS must not bypass newly added or newly failing
+    # deterministic rules. Preflight the current plan and reopen correction
+    # whenever either reviewer still has an actionable finding.
+    preflight_path = run / "review" / f"{lesson_tag}_visual_plan_preflight.json"
+    plan["visuals"] = visuals
+    write_json(preflight_path, plan)
+    preflight_qa = checker.run_checks(preflight_path)
+    preflight_path.unlink(missing_ok=True)
+    preflight_failures = [
+        finding
+        for finding in preflight_qa.get("findings") or []
+        if finding.get("status") == "fail"
+    ]
+    if "Independent visual review: PASS" not in prior_qa_text or preflight_failures:
         # Visual corrections are compact and now resume from the saved plan.
         # Allow several focused corrections before blocking, rather than
         # discarding a validated course-book draft over successive diagram

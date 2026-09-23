@@ -349,6 +349,12 @@ class VisualPlanCheckTests(unittest.TestCase):
             finding = next(item for item in result["findings"] if item["check"] == "operator_request_box")
             self.assertEqual("pass", finding["status"])
 
+    def test_purchase_order_relationship_does_not_force_process_flow(self) -> None:
+        mechanism = checker.expected_diagram_mechanism(
+            "Show the owner contract link versus subcontract, purchase order, and coordination links."
+        )
+        self.assertEqual("relationship-map", mechanism)
+
 
 if __name__ == "__main__":
     unittest.main()

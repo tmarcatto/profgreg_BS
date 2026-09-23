@@ -319,7 +319,15 @@ def run_checks(draft_path: Path, level: str | None = None) -> dict:
         stripped = line.strip()
         if not stripped or stripped.startswith(">"):
             continue
-        markers = re.findall(r"(?<!\w)(\d{1,2})\.\s+", stripped)
+        markers = [
+            marker.group(1)
+            for marker in re.finditer(r"(?<!\w)(\d{1,2})\.\s+", stripped)
+            if not re.search(
+                r"\b(?:revision|rev(?:ision)?|section|figure|record|sheet|part|unit)\s*$",
+                stripped[: marker.start()],
+                flags=re.I,
+            )
+        ]
         if len(markers) >= 2:
             inline_numbered_sequences.append((line_number, markers[:8]))
     if inline_numbered_sequences:

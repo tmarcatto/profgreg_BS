@@ -67,7 +67,11 @@ def expected_diagram_mechanism(text: str, numbered_items: int = 0) -> str | None
         return "activity-network"
     if re.search(r"\b(cumulative|additive|cost stack|price layers|allowance layers|sum to|builds to a total)\b", normalized):
         return "cost-stack"
-    if numbered_items >= 2 or re.search(r"\b(step|steps|sequence|order|workflow|process|handoff|phase|first|next|then|finally)\b", normalized):
+    # "Purchase order" names a contract relationship, not an ordered
+    # sequence. Remove that fixed term before testing sequence vocabulary so
+    # relationship maps are not falsely forced into process flows.
+    sequence_text = re.sub(r"\bpurchase order\b", "", normalized)
+    if numbered_items >= 2 or re.search(r"\b(step|steps|sequence|order|workflow|process|handoff|phase|first|next|then|finally)\b", sequence_text):
         return "process-flow"
     if re.search(r"\b(planned versus actual|planned vs actual|plan actual|variance|drift|baseline gap)\b", normalized):
         return "planned-actual"
@@ -75,6 +79,8 @@ def expected_diagram_mechanism(text: str, numbered_items: int = 0) -> str | None
         return "paired-record-rows"
     if re.search(r"\b(field verification|verification checklist|verify before|inspection checklist)\b", normalized):
         return "verification-checklist"
+    if re.search(r"\b(link|links|connection|connections)\b", normalized):
+        return "relationship-map"
     if re.search(r"\b(compare|comparison|versus|difference|differences|alternative|alternatives|same attributes)\b", normalized):
         return "comparison-matrix"
     if re.search(r"\b(role|roles|stakeholder|stakeholders|relationship|relationships|influence|responsibility map)\b", normalized):

@@ -1886,7 +1886,7 @@ Body.
         normalized = production.normalize_reviewed_factual_language(
             "Residential Construction Agreement and Exhibits A, C uses W- 3 on A2. 1.\n"
         )
-        self.assertIn("Residential Construction Agreement and Exhibits A–C", normalized)
+        self.assertIn("Residential Construction Agreement and Exhibits A through C", normalized)
         self.assertIn("W-3 on A2.1", normalized)
 
     def test_flat_complete_exercise_is_promoted_to_hands_on_callout(self) -> None:
@@ -2107,6 +2107,56 @@ Term.
         self.assertIn("Second definition.", normalized)
         self.assertIn("> **SCENARIO**", normalized)
         self.assertIn("> **HANDS-ON EXAMPLE**", normalized)
+
+    def test_prose_dash_normalizer_restores_flattened_quoted_records(self) -> None:
+        draft = (
+            "# Section 01 - Work\n\n"
+            "> Classify each record. - Record A: included. - Record B: excluded.\n\n"
+            "Use the current document - do not guess.\n"
+        )
+        normalized = production.normalize_prose_dashes(draft)
+        self.assertIn("> Classify each record.\n> - Record A: included.\n> - Record B: excluded.", normalized)
+        self.assertIn("Use the current document, do not guess.", normalized)
+        prose_lines = [line for line in normalized.splitlines() if not line.lstrip().startswith(("#", "> -", "- "))]
+        self.assertNotIn(" - ", "\n".join(prose_lines))
+
+    def test_factual_normalizer_uses_ascii_words_for_exhibit_range(self) -> None:
+        normalized = production.normalize_reviewed_factual_language(
+            "Residential Construction Agreement and Exhibits A, C"
+        )
+        self.assertIn("Exhibits A through C", normalized)
+        self.assertNotIn("–", normalized)
+
+    def test_section_patches_can_condense_without_triggering_truncation_guard(self) -> None:
+        long_body = " ".join(["Detailed instruction."] * 1900)
+        draft = (
+            "# Introduction\n\nIntro.\n\n## Learning Objectives\n\n- Apply.\n\n"
+            f"# Section 01 - One\n\n{long_body}\n\n"
+            "# Section 02 - Two\n\nOriginal two.\n\n"
+            "# Summary and Key Takeaways\n\n- One.\n- Two.\n- Three.\n- Four.\n\n"
+            "# Glossary\n\nTerm: definition.\n\n# References\n\n- Source.\n"
+        )
+        revised = production.apply_study_guide_section_patches(
+            draft,
+            {
+                "# Section 01 - One": "# Section 01 - One\n\nConcise but complete.",
+                "# Section 02 - Two": "# Section 02 - Two\n\nUpdated two.",
+            },
+        )
+        self.assertIn("Concise but complete.", revised)
+        self.assertIn("Updated two.", revised)
+
+    def test_diagram_cell_compaction_preserves_agreement_qualifiers(self) -> None:
+        first = production.compact_diagram_cell_text(
+            "Where applicable and as allocated by the agreement: track costs, forecasts, and cap remaining"
+        )
+        second = production.compact_diagram_cell_text(
+            "Follow agreement's change process; approved changes can raise the cap when the agreement permits"
+        )
+        self.assertLessEqual(len(first), 90)
+        self.assertLessEqual(len(second), 90)
+        self.assertIn("agreement", first)
+        self.assertIn("agreement", second)
 
 
 if __name__ == "__main__":

@@ -219,6 +219,17 @@ class StudyGuideContentCheckTests(unittest.TestCase):
         self.assertEqual(5400, checker.expected_word_ceiling("Intermediate"))
         self.assertEqual(6200, checker.expected_word_ceiling("Advanced"))
 
+    def test_section_references_are_not_mistaken_for_inline_numbered_steps(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "draft.md"
+            path.write_text(
+                "# Section 01 - One\n\nApply the rule under Section 01. Review the notice under Section 02. Confirm authority under Section 03.\n",
+                encoding="utf-8",
+            )
+            result = checker.run_checks(path)
+            finding = next(item for item in result["findings"] if item["check"] == "ordered_steps_one_per_line")
+            self.assertEqual("pass", finding["status"])
+
 
 if __name__ == "__main__":
     unittest.main()
