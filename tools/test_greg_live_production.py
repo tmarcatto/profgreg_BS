@@ -1586,6 +1586,11 @@ Use document-control and wall-insulation records for the two-story addition.
         self.assertIn("document control and wall insulation records for the two story addition", normalized)
         self.assertIn("Formal Work-with-Hyphens", normalized)
 
+    def test_prose_dash_normalizer_cleans_section_title_but_keeps_required_separator(self) -> None:
+        draft = "# Section 05 - Included, Excluded, and Out-of-Scope Work\n\nBody.\n"
+        normalized = production.normalize_prose_dashes(draft)
+        self.assertIn("# Section 05 - Included, Excluded, and Out of Scope Work", normalized)
+
     def test_cross_section_consistency_uses_chapter_context(self) -> None:
         feedback = (
             "Automatic reviewer changes required:\n"

@@ -1425,7 +1425,12 @@ def normalize_prose_dashes(draft: str) -> str:
     for line in draft.splitlines():
         if re.match(r"^#\s+References\s*$", line, flags=re.I):
             inside_references = True
-        if not re.match(r"^#\s+Section\s+\d{2}\s+-\s+", line):
+        section_heading = re.match(r"^(#\s+Section\s+\d{2}\s+-\s+)(.+)$", line)
+        if section_heading:
+            title = re.sub(r"(?<=[A-Za-z])-(?=[A-Za-z])", " ", section_heading.group(2))
+            title = re.sub(r"\s*[\u2013\u2014]\s*", ": ", title)
+            line = section_heading.group(1) + title
+        else:
             line = re.sub(r"(?<=\d)\s*[\u2013\u2014]\s*(?=\d)", " to ", line)
             line = re.sub(r"\s*[\u2013\u2014]\s*", ", ", line)
             canonical_callout_label = bool(re.match(
