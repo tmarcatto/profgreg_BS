@@ -2221,6 +2221,14 @@ Term.
         self.assertIn("> - The field copy is Revision 1.\n> Action:\n> 1. Remove it from the active set.", normalized)
         self.assertIn("> - The current set remains Revision 2.\n> Action:\n> 1. Trace the cloud.\n> 2. Update affected records.", normalized)
 
+    def test_study_guide_budget_covers_bounded_review_workflow(self) -> None:
+        config = json.loads((ROOT / "workspace" / "config" / "model-routing.json").read_text(encoding="utf-8"))
+        budgets = config["cost_tracking"]
+        self.assertGreaterEqual(budgets["call_budgets"]["study_guide_initial"], 60)
+        self.assertGreaterEqual(budgets["call_budgets"]["study_guide_targeted_revision"], 20)
+        self.assertGreaterEqual(budgets["usd_budgets"]["study_guide_initial"], 1.5)
+        self.assertGreaterEqual(budgets["usd_budgets"]["study_guide_targeted_revision"], 0.5)
+
 
 if __name__ == "__main__":
     unittest.main()

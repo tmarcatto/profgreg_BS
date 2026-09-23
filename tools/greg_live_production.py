@@ -3832,8 +3832,8 @@ def produce_study_guide(course_slug: str, lesson_number: int) -> list[str]:
     configure_production_budget(
         budget_name,
         f"{lesson_tag} {'targeted correction' if revision_feedback else 'initial course book'}",
-        calls=10 if revision_feedback else 30,
-        usd=0.20 if revision_feedback else 0.75,
+        calls=20 if revision_feedback else 60,
+        usd=0.50 if revision_feedback else 1.50,
     )
     ledger = json.loads((run / "sources" / "source_ledger.json").read_text(encoding="utf-8"))
     refresh_path = run / "sources" / f"{lesson_tag}_source_refresh.json"
