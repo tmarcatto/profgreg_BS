@@ -321,7 +321,7 @@ def run_checks(draft_path: Path, level: str | None = None) -> dict:
             continue
         markers = [
             marker.group(1)
-            for marker in re.finditer(r"(?<!\w)(\d{1,2})\.\s+", stripped)
+            for marker in re.finditer(r"(?<![\w-])(\d{1,2})\.\s+", stripped)
             if not re.search(
                 r"\b(?:revision|rev(?:ision)?|section|figure|record|sheet|part|unit)\s*$",
                 stripped[: marker.start()],

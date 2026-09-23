@@ -1346,7 +1346,7 @@ def normalize_inline_numbered_sequences(draft: str) -> str:
         content = stripped[1:].strip() if quoted else stripped
         markers = [
             marker
-            for marker in re.finditer(r"(?<!\w)(\d{1,2})\.\s+", content)
+            for marker in re.finditer(r"(?<![\w-])(\d{1,2})\.\s+", content)
             if not re.search(
                 r"\b(?:revision|rev(?:ision)?|section|figure|record|sheet|part|unit)\s*$",
                 content[: marker.start()],
@@ -1355,7 +1355,12 @@ def normalize_inline_numbered_sequences(draft: str) -> str:
         ]
         learner_line = bool(re.search(r"\bLearner tasks?\b", content, flags=re.I))
         embedded_action = re.search(r"(?:\s+|^)(?:\*\*)?Action(?:\*\*)?\s*:?[ \t]*$", content[: markers[0].start()] if markers else "", flags=re.I)
-        if not markers or (len(markers) == 1 and not learner_line and not embedded_action):
+        embedded_answer = bool(markers and re.search(
+            r"\*\*Answer(?:\s*/\s*(?:Result\s+)?check|\s+and\s+check)?\s*[:.]?\*\*",
+            content[markers[0].end():],
+            flags=re.I,
+        ))
+        if not markers or (len(markers) == 1 and not learner_line and not embedded_action and not embedded_answer):
             normalized.append(line)
             continue
         prefix = content[: markers[0].start()].strip()
@@ -1373,7 +1378,11 @@ def normalize_inline_numbered_sequences(draft: str) -> str:
             value = content[marker.end() : end].strip()
             tail = ""
             if marker_index == len(markers) - 1:
-                tail_match = re.search(r"\s+(?=\*\*(?:Record\s+[A-Z0-9]+|Answer(?:/check)?)\s*[:.]?\*\*)", value, flags=re.I)
+                tail_match = re.search(
+                    r"\s+(?=\*\*(?:Record\s+[A-Z0-9]+|Answer(?:\s*/\s*(?:Result\s+)?check|\s+and\s+check)?)\s*[:.]?\*\*)",
+                    value,
+                    flags=re.I,
+                )
                 if tail_match:
                     tail = value[tail_match.end() :].strip()
                     value = value[: tail_match.start()].strip()
@@ -1519,7 +1528,7 @@ def normalize_reviewed_factual_language(draft: str) -> str:
         "Residential Construction Agreement and Exhibits A, C",
         "Residential Construction Agreement and Exhibits A through C",
     )
-    corrected = re.sub(r"\b([A-Z])-\s+(\d+)\b", r"\1-\2", corrected)
+    corrected = re.sub(r"\b([A-Z]{1,4})-\s+(\d+)\b", r"\1-\2", corrected)
     corrected = re.sub(r"\b([A-Z]\d+)\.\s+(\d+)\b", r"\1.\2", corrected)
     corrected = re.sub(r"\bA2\.14, revision(?=\s*(?:$|\n|[.,]))", "A2.14, revision 3", corrected)
     corrected = re.sub(
@@ -1735,8 +1744,10 @@ def normalize_callout_density(draft: str, maximum: int = 4) -> str:
     # HANDS-ON reconstruction may join an answer and its records back onto a
     # single quoted line. Run the punctuation/list normalizer last so the
     # final saved chapter, rather than only its input, satisfies the contract.
-    rebuilt = normalize_inline_numbered_sequences("\n".join(compacted).rstrip() + "\n")
-    rebuilt = re.sub(r"\b([A-Z])-\s+(\d+)\b", r"\1-\2", rebuilt)
+    rebuilt = "\n".join(compacted).rstrip() + "\n"
+    rebuilt = re.sub(r"\b([A-Z]{1,4})-\s*\n>\s*(\d+)\b", r"\1-\2", rebuilt)
+    rebuilt = re.sub(r"\b([A-Z]{1,4})-\s+(\d+)\b", r"\1-\2", rebuilt)
+    rebuilt = normalize_inline_numbered_sequences(rebuilt)
     return normalize_prose_dashes(rebuilt)
 
 

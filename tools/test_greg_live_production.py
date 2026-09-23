@@ -2264,6 +2264,24 @@ Term.
         self.assertIn("> - The field copy is Revision 1.\n> Action:\n> 1. Remove it from the active set.", normalized)
         self.assertIn("> - The current set remains Revision 2.\n> Action:\n> 1. Trace the cloud.\n> 2. Update affected records.", normalized)
 
+    def test_numbered_task_ends_before_answer_result_check(self) -> None:
+        draft = (
+            "> 5. Verify the current drawing. 6. Compare A2.14 with SS- 14. "
+            "**Answer/Result check:** - SS-14 is not incorporated. - Keep the work on hold.\n"
+        )
+        normalized = production.normalize_callout_density(draft)
+        self.assertIn("> 6. Compare A2.14 with SS-14.\n> **Answer/Result check:**", normalized)
+        self.assertIn("> - SS-14 is not incorporated.\n> - Keep the work on hold.", normalized)
+
+    def test_single_final_task_step_ends_before_answer_result_check(self) -> None:
+        draft = (
+            "> 4. Hold installation until authorization is documented. "
+            "**Answer/Result check:** - Authorization is pending. - Installation remains on hold.\n"
+        )
+        normalized = production.normalize_callout_density(draft)
+        self.assertIn("> 4. Hold installation until authorization is documented.\n> **Answer/Result check:**", normalized)
+        self.assertIn("> - Authorization is pending.\n> - Installation remains on hold.", normalized)
+
     def test_study_guide_budget_covers_bounded_review_workflow(self) -> None:
         config = json.loads((ROOT / "workspace" / "config" / "model-routing.json").read_text(encoding="utf-8"))
         budgets = config["cost_tracking"]
