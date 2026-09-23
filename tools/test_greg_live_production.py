@@ -1752,6 +1752,13 @@ Use document-control and wall-insulation records for the two-story addition.
         self.assertIn("after the final `# References` heading", prompt)
         self.assertIn("teaching prose is not a bibliography defect", prompt)
 
+    def test_pedagogy_review_treats_references_as_bullet_only_bibliography(self) -> None:
+        seed = type("Seed", (), {"title": "Course"})()
+        lesson = {"lesson_number": 1, "title": "Lesson"}
+        prompt = production.reviewer_prompt("pedagogy_review", seed, lesson, "# References\n- Work.", {"sources": []})
+        self.assertIn("References are structural bullet-only exceptions", prompt)
+        self.assertIn("do not request an explanatory sentence", prompt)
+
     def test_design_review_allows_bold_teaching_lead_ins(self) -> None:
         seed = type("Seed", (), {"title": "Course"})()
         lesson = {"lesson_number": 1, "title": "Lesson"}
