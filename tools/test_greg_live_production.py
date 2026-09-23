@@ -2258,6 +2258,19 @@ Term.
         aba_line = next(line for line in normalized.splitlines() if "American Bar Association" in line)
         self.assertNotIn("http", aba_line)
 
+    def test_student_references_dedupe_far_part_and_remove_url(self) -> None:
+        references = """# References
+
+- Federal Acquisition Regulation, Part 16, Types of Contracts. https://www.acquisition.gov/far/part-16
+- Federal Acquisition Regulation, FAR Part 16, duplicate title. https://origin-www.acquisition.gov/far/part-16
+"""
+        normalized = production.force_student_references(
+            "# Introduction\n\nIntro.\n\n# References\n\n- Old.\n",
+            references,
+        )
+        self.assertEqual(1, normalized.lower().count("part 16"))
+        self.assertNotIn("acquisition.gov", normalized)
+
 
 if __name__ == "__main__":
     unittest.main()

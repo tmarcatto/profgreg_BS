@@ -1274,11 +1274,14 @@ def force_student_references(draft: str, references: str, locale: str = "en") ->
     seen_reference_keys: set[str] = set()
     for line in validated_references.splitlines():
         value = line.strip()
-        far_clause = re.search(r"\bFAR\s+(\d+\.\d+-\d+)\b", value, flags=re.I)
+        far_clause = re.search(r"\bFAR\s+(\d+(?:\.\d+)?(?:-\d+)?)\b", value, flags=re.I)
+        far_part = re.search(r"\b(?:Federal Acquisition Regulation[^\n]*?Part|FAR\s+Part)\s+(\d+)\b", value, flags=re.I)
         url = re.search(r"https?://\S+", value)
         key = ""
         if far_clause:
             key = "far:" + far_clause.group(1).lower()
+        elif far_part:
+            key = "far-part:" + far_part.group(1).lower()
         elif url:
             key = "url:" + re.sub(
                 r"^https?://(?:origin-)?(?:www\.)?",
@@ -1289,6 +1292,8 @@ def force_student_references(draft: str, references: str, locale: str = "en") ->
             continue
         if key:
             seen_reference_keys.add(key)
+        if key.startswith("far:") or key.startswith("far-part:"):
+            value = re.sub(r"\s+https?://\S+\s*$", "", value).rstrip()
         if re.search(r"American Bar Association.*The Construction Lawyer", value, flags=re.I):
             value = re.sub(r"\s+https?://\S+\s*$", "", value).rstrip()
         normalized_reference_lines.append(value)
