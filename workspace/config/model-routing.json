@@ -11,6 +11,32 @@
   },
   "cost_tracking": {
     "currency": "USD",
+    "call_budgets": {
+      "course_map": 12,
+      "sources": 12,
+      "marketing": 12,
+      "study_guide_initial": 30,
+      "study_guide_targeted_revision": 10,
+      "deck_initial": 20,
+      "deck_targeted_revision": 8,
+      "localized_book_initial": 12,
+      "localized_book_targeted_revision": 8,
+      "localized_deck_initial": 15,
+      "localized_deck_targeted_revision": 8
+    },
+    "usd_budgets": {
+      "course_map": 0.5,
+      "sources": 0.5,
+      "marketing": 0.5,
+      "study_guide_initial": 0.75,
+      "study_guide_targeted_revision": 0.2,
+      "deck_initial": 1.0,
+      "deck_targeted_revision": 0.3,
+      "localized_book_initial": 0.35,
+      "localized_book_targeted_revision": 0.2,
+      "localized_deck_initial": 0.5,
+      "localized_deck_targeted_revision": 0.25
+    },
     "rates": {
       "openai/gpt-5.6-luna": {
         "input_per_million_usd": 0.2,

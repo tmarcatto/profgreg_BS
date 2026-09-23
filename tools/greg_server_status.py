@@ -640,7 +640,17 @@ def execute_worker_job(job_root: Path, job: dict[str, Any], *, backup_root: Path
                 last_error=None,
             )
         trace_path = job_root / job["job_id"] / "timing.jsonl"
-        command = ["python3", "tools/greg_live_production.py", str(course_slug), "--stage", stage, "--timing-file", str(trace_path)]
+        command = [
+            "python3",
+            "tools/greg_live_production.py",
+            str(course_slug),
+            "--stage",
+            stage,
+            "--timing-file",
+            str(trace_path),
+            "--job-id",
+            str(job["job_id"]),
+        ]
         if lessons:
             command.extend(["--lessons", ",".join(str(value) for value in lessons)])
         code, output = run_command(

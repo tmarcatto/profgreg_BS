@@ -610,6 +610,31 @@ class GregLiveProductionTests(unittest.TestCase):
         self.assertEqual(["S01"], [item["source_id"] for item in compact["sources"]])
         self.assertEqual(["Mandatory operator-provided course source."], compact["sources"][0]["claims_supported"])
 
+    def test_content_review_rerun_calls_only_the_failed_specialist(self) -> None:
+        seed = SimpleNamespace(slug="demo", title="Demo Course")
+        lesson = {"lesson_number": 1, "title": "Demo Lesson"}
+        response = {"passed": True, "verdict": "PASS", "findings": [], "required_changes": []}
+        with tempfile.TemporaryDirectory() as directory:
+            run = Path(directory)
+            (run / "review").mkdir()
+            with patch.object(production, "request_json_with_retry", return_value=response) as request:
+                passed, changes, failed_roles, target_headings = production.run_content_reviewers(
+                    seed,
+                    lesson,
+                    "# Section 01 - Work\n\nBody.\n",
+                    {"sources": []},
+                    run,
+                    "lesson_01",
+                    roles={"citation_review"},
+                )
+
+        self.assertTrue(passed)
+        self.assertEqual([], changes)
+        self.assertEqual(set(), failed_roles)
+        self.assertEqual([], target_headings)
+        self.assertEqual(1, request.call_count)
+        self.assertEqual("citation_review", request.call_args.args[1])
+
     def test_localized_deck_removes_dash_punctuation_recursively(self) -> None:
         value = {"topics": ["planejar–acompanhar–ajustar", "Escopo — não tarefas"]}
         cleaned = production.normalize_localized_dash_punctuation(value)
@@ -1245,7 +1270,7 @@ Use these terms to distinguish roles.
     def test_visual_retry_policy_uses_literal_reviewer_replacements(self) -> None:
         source = Path(production.__file__).read_text(encoding="utf-8")
         self.assertIn("copy those replacements exactly", source)
-        self.assertIn("max_visual_review_attempts = 6", source)
+        self.assertIn("max_visual_review_attempts = 3", source)
         self.assertNotIn("after two review passes", source)
 
     def test_structured_visual_recovers_dropped_visual_type(self) -> None:
@@ -1329,10 +1354,11 @@ Use these terms to distinguish roles.
         self.assertIn("> **BRIDGE**", normalized)
         self.assertIn("> **APPLY IT**\n> Verify the governing record before assigning authority.", normalized)
 
-    def test_content_review_policy_allows_focused_capstone_convergence(self) -> None:
+    def test_content_review_policy_has_a_bounded_convergence_budget(self) -> None:
         source = Path(production.__file__).read_text(encoding="utf-8")
-        self.assertIn("max_content_review_attempts = 7", source)
+        self.assertIn("max_content_review_attempts = 3", source)
         self.assertIn("max_content_review_attempts - 1", source)
+        self.assertIn("roles=reviewer_roles_to_run", source)
 
     def test_visual_prompts_describe_relationship_map_renderer_contract(self) -> None:
         source = Path(production.__file__).read_text(encoding="utf-8")
@@ -1534,6 +1560,20 @@ Use document-control and wall-insulation records for the two-story addition.
         )
         self.assertTrue(response["passed"])
         self.assertEqual([], response["required_changes"])
+
+    def test_reviewer_keeps_only_exact_existing_target_headings(self) -> None:
+        draft = "# Introduction\n\nIntro.\n\n# Section 01 - Work\n\nBody.\n\n# References\n\n- Source.\n"
+        response = production.normalize_reviewer_response(
+            "citation_review",
+            {
+                "passed": False,
+                "findings": ["The claim needs correction."],
+                "required_changes": ["Correct the claim."],
+                "target_headings": ["# Section 01 - Work", "# Invented", "# References"],
+            },
+            draft,
+        )
+        self.assertEqual(["# Section 01 - Work"], response["target_headings"])
 
     def test_reviewer_cannot_reject_unboxed_admonition_as_callout(self) -> None:
         response = production.normalize_reviewer_response(

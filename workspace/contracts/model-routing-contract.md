@@ -135,6 +135,21 @@ provider and model. Rates are versioned in `cost_tracking.rates` within
 `workspace/config/model-routing.json`; a completed call with no configured rate
 must be shown as unpriced and excluded from the estimated total.
 
+### Cost circuit breakers
+
+Every production stage must use the named call and USD limits in
+`cost_tracking.call_budgets` and `cost_tracking.usd_budgets`. The limits apply
+to one worker execution or one lesson, not to the historical lifetime of the
+course. When either limit is reached, stop before the next provider request,
+preserve the last safe artifact, and report the remaining finding for operator
+review. A retry, fallback reasoning request, or regenerated JSON response
+counts as another provider attempt. A local cache hit does not.
+
+Identical non-web requests may reuse the ignored machine-local response cache.
+Usage rows must distinguish `completed`, `retry`, `failed`, `blocked`, and
+`cache_hit`, and should attribute new work to its worker job, stage, lesson,
+operation, and capability role.
+
 ## Fallback Rules
 
 If a preferred provider is unavailable:
