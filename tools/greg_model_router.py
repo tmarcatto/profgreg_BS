@@ -262,7 +262,11 @@ def text_cache_path(binding: dict[str, Any], role: str, prompt: str, max_tokens:
         separators=(",", ":"),
     )
     digest = hashlib.sha256(payload.encode("utf-8")).hexdigest()
-    return ROOT / "workspace" / ".cache" / "model-responses" / f"{digest}.json"
+    cache_root = Path(
+        os.environ.get("PROF_GREG_MODEL_CACHE_DIR")
+        or ROOT / "tmp" / "model-response-cache"
+    )
+    return cache_root / f"{digest}.json"
 
 
 def read_text_cache(path: Path) -> str | None:
@@ -275,10 +279,15 @@ def read_text_cache(path: Path) -> str | None:
 
 
 def write_text_cache(path: Path, text: str) -> None:
-    """Persist reusable output only in the ignored, machine-local cache."""
-    with _MODEL_CACHE_LOCK:
-        path.parent.mkdir(parents=True, exist_ok=True)
-        path.write_text(json.dumps({"text": text}, ensure_ascii=False), encoding="utf-8")
+    """Persist reusable output when the local cache directory is writable."""
+    try:
+        with _MODEL_CACHE_LOCK:
+            path.parent.mkdir(parents=True, exist_ok=True)
+            path.write_text(json.dumps({"text": text}, ensure_ascii=False), encoding="utf-8")
+    except OSError:
+        # Cache reuse is an optimization, never a reason to discard a paid
+        # provider response or fail an otherwise successful production stage.
+        return
 
 
 def post_json(

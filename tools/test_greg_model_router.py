@@ -151,6 +151,18 @@ class ModelRouterRetryTests(unittest.TestCase):
         self.assertEqual(1, post_json.call_count)
         self.assertEqual(["completed", "cache_hit"], [row["outcome"] for row in rows])
 
+    def test_model_cache_uses_server_writable_tmp_and_never_blocks_output(self):
+        binding = {"provider": "openai", "model": "configured-model"}
+        with tempfile.TemporaryDirectory() as temporary, patch.object(
+            greg_model_router, "ROOT", Path(temporary)
+        ), patch.dict("os.environ", {}, clear=True):
+            path = greg_model_router.text_cache_path(binding, "citation_review", "prompt", 100)
+            self.assertEqual(Path(temporary) / "tmp" / "model-response-cache", path.parent)
+
+        blocked_path = MagicMock()
+        blocked_path.parent.mkdir.side_effect = PermissionError("read-only cache")
+        greg_model_router.write_text_cache(blocked_path, "paid response")
+
     @patch("greg_model_router.post_json")
     def test_openai_reasoning_effort_is_sent_from_the_binding(self, post_json):
         post_json.return_value = {"output_text": "review", "usage": {"input_tokens": 1, "output_tokens": 2}}

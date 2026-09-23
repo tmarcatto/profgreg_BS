@@ -145,7 +145,9 @@ preserve the last safe artifact, and report the remaining finding for operator
 review. A retry, fallback reasoning request, or regenerated JSON response
 counts as another provider attempt. A local cache hit does not.
 
-Identical non-web requests may reuse the ignored machine-local response cache.
+Identical non-web requests may reuse the ignored machine-local response cache
+under `tmp/model-response-cache` (or `PROF_GREG_MODEL_CACHE_DIR`). An
+unavailable cache must never block production.
 Usage rows must distinguish `completed`, `retry`, `failed`, `blocked`, and
 `cache_hit`, and should attribute new work to its worker job, stage, lesson,
 operation, and capability role.
