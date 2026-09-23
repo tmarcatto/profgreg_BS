@@ -2174,6 +2174,15 @@ def require_targeted_study_guide_scope(baseline: str, candidate: str, allowed_he
         )
 
 
+def same_study_guide_section_heading(expected: str, actual: str) -> bool:
+    """Allow a requested title correction without changing section identity."""
+    if expected.strip() == actual.strip():
+        return True
+    expected_match = re.fullmatch(r"#\s+Section\s+0*(\d{1,2})\s+-\s+.+", expected.strip(), flags=re.I)
+    actual_match = re.fullmatch(r"#\s+Section\s+0*(\d{1,2})\s+-\s+.+", actual.strip(), flags=re.I)
+    return bool(expected_match and actual_match and int(expected_match.group(1)) == int(actual_match.group(1)))
+
+
 def apply_study_guide_section_patches(draft: str, patches: dict[str, str]) -> str:
     """Replace only complete named sections and reject malformed patches."""
     # Automatic QA may legitimately select the Introduction (for example to
@@ -2188,7 +2197,9 @@ def apply_study_guide_section_patches(draft: str, patches: dict[str, str]) -> st
     revised = draft
     for heading, replacement in patches.items():
         normalized = replacement.strip() + "\n"
-        if not normalized.startswith(heading + "\n"):
+        replacement_heading_match = re.match(r"^#{1,2}\s+.+$", normalized, flags=re.M)
+        replacement_heading = replacement_heading_match.group(0).strip() if replacement_heading_match else ""
+        if not same_study_guide_section_heading(heading, replacement_heading):
             raise RuntimeError(f"The patch for {heading} did not preserve its required heading.")
         # Section replacements may legitimately condense the chapter. At this
         # boundary only structural completeness matters; the chapter-wide
@@ -2248,7 +2259,9 @@ Section:
             value = re.sub(r"^\x60{3}(?:markdown)?\s*", "", value, count=1, flags=re.IGNORECASE)
             value = re.sub(r"\s*\x60{3}$", "", value, count=1)
             value = value.strip()
-        if not value.startswith(heading + "\n"):
+        returned_heading_match = re.match(r"^#{1,2}\s+.+$", value, flags=re.M)
+        returned_heading = returned_heading_match.group(0).strip() if returned_heading_match else ""
+        if not same_study_guide_section_heading(heading, returned_heading):
             last_error = "the required heading was not preserved"
             continue
         other_headings = [
@@ -2505,7 +2518,8 @@ Selected sections to patch:
             # patch whose actual heading is not selected.
             markdown_heading = re.match(r"(?m)^#{1,2}\s+.+$", item["markdown"].lstrip())
             heading = markdown_heading.group(0).strip() if markdown_heading else item["heading"].strip()
-            patches[heading] = item["markdown"]
+            matching_selected = [candidate for candidate in selected if same_study_guide_section_heading(candidate, heading)]
+            patches[matching_selected[0] if len(matching_selected) == 1 else heading] = item["markdown"]
         if invalid_patch:
             last_patch_error = "A patch was missing its string heading or Markdown body."
             continue

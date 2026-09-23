@@ -2224,6 +2224,20 @@ Term.
         self.assertIn("# Learning Objectives\n\n- Apply.", revised)
         self.assertIn("# References\n\n- Source.", revised)
 
+    def test_section_patch_can_correct_title_without_changing_section_identity(self) -> None:
+        draft = (
+            "# Introduction\n\nIntro.\n\n## Learning Objectives\n\n- Apply.\n\n"
+            "# Section 05 - Possible Out-of-Scope Work\n\nOld body.\n\n"
+            "# Summary and Key Takeaways\n\n- One.\n- Two.\n- Three.\n- Four.\n\n"
+            "# Glossary\n\nTerm.\n\n# References\n\n- Source.\n"
+        )
+        revised = production.apply_study_guide_section_patches(
+            draft,
+            {"# Section 05 - Possible Out-of-Scope Work": "# Section 05 - Possible Out of Scope Work\n\nNew body."},
+        )
+        self.assertIn("# Section 05 - Possible Out of Scope Work\n\nNew body.", revised)
+        self.assertNotIn("# Section 05 - Possible Out-of-Scope Work", revised)
+
     def test_diagram_cell_compaction_preserves_agreement_qualifiers(self) -> None:
         first = production.compact_diagram_cell_text(
             "Where applicable and as allocated by the agreement: track costs, forecasts, and cap remaining"
