@@ -2200,6 +2200,20 @@ Term.
         self.assertIn("The entries define this lesson's terms.", revised)
         self.assertTrue(revised.rstrip().endswith("- Validated source."))
 
+    def test_introduction_patch_does_not_consume_h1_learning_objectives_boundary(self) -> None:
+        draft = (
+            "# Introduction\n\nOld intro.\n\n# Learning Objectives\n\n- Apply.\n\n"
+            "# Section 01 - One\n\nBody.\n\n"
+            "# Summary and Key Takeaways\n\n- One.\n- Two.\n- Three.\n- Four.\n\n"
+            "# Glossary\n\nTerm.\n\n# References\n\n- Source.\n"
+        )
+        revised = production.apply_study_guide_section_patches(
+            draft,
+            {"# Introduction": "# Introduction\n\nNew intro."},
+        )
+        self.assertIn("# Learning Objectives\n\n- Apply.", revised)
+        self.assertIn("# References\n\n- Source.", revised)
+
     def test_diagram_cell_compaction_preserves_agreement_qualifiers(self) -> None:
         first = production.compact_diagram_cell_text(
             "Where applicable and as allocated by the agreement: track costs, forecasts, and cap remaining"

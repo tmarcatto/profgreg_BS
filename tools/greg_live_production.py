@@ -1491,7 +1491,8 @@ def normalize_repeated_lesson_objectives(draft: str) -> str:
 
 def normalize_reviewed_factual_language(draft: str) -> str:
     """Apply reviewer-approved factual corrections that require no new content."""
-    corrected = draft.replace(
+    corrected = re.sub(r"(?im)^#\s+Learning Objectives\s*$", "## Learning Objectives", draft)
+    corrected = corrected.replace(
         "After award, these decisions become enforceable responsibilities, payment terms, and procurement commitments, the focus of the next lesson.",
         "An estimate is not itself a binding project obligation. The applicable proposal, contract, subcontract, purchase order, and governing law control the parties' commitments as procurement and execution begin.",
     )
@@ -2062,7 +2063,7 @@ def editable_study_guide_sections(draft: str, *, include_introduction: bool = Fa
     """
     introduction = r"#\s+Introduction|" if include_introduction else ""
     heading_pattern = re.compile(
-        rf"(?im)^(?:{introduction}##\s+Learning Objectives|#\s+(?:Section\s+\d{{2}}\s+-\s+.+|Summary and Key Takeaways|Glossary|References))\s*$"
+        rf"(?im)^(?:{introduction}#{{1,2}}\s+Learning Objectives|#\s+(?:Section\s+\d{{2}}\s+-\s+.+|Summary and Key Takeaways|Glossary|References))\s*$"
     )
     matches = list(heading_pattern.finditer(draft))
     sections: dict[str, str] = {}
