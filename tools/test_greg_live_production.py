@@ -2229,6 +2229,21 @@ Term.
         self.assertGreaterEqual(budgets["usd_budgets"]["study_guide_initial"], 1.5)
         self.assertGreaterEqual(budgets["usd_budgets"]["study_guide_targeted_revision"], 0.5)
 
+    def test_student_references_dedupe_far_clause_and_clean_journal_url(self) -> None:
+        references = """# References
+
+- Federal Acquisition Regulation, FAR 52.232-5, current clause. https://origin-www.acquisition.gov/far/52.232-5
+- American Bar Association, Forum on Construction Law. Article. The Construction Lawyer, Spring 2026. https://www.americanbar.org/article
+- Federal Acquisition Regulation, FAR 52.232-5, duplicate clause. https://www.acquisition.gov/far/52.232-5
+"""
+        normalized = production.force_student_references(
+            "# Introduction\n\nIntro.\n\n# References\n\n- Old.\n",
+            references,
+        )
+        self.assertEqual(1, normalized.lower().count("far 52.232-5"))
+        aba_line = next(line for line in normalized.splitlines() if "American Bar Association" in line)
+        self.assertNotIn("http", aba_line)
+
 
 if __name__ == "__main__":
     unittest.main()

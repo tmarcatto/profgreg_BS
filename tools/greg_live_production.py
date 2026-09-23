@@ -1266,6 +1266,33 @@ def force_student_references(draft: str, references: str, locale: str = "en") ->
         validated_references,
         flags=re.I,
     )
+    # Reference refreshes can discover the same regulatory clause through
+    # alternate hostnames or titles. Keep one current bibliographic entry per
+    # FAR clause so an immutable ledger does not force reviewers into a repair
+    # loop that chapter section patches cannot reach.
+    normalized_reference_lines: list[str] = []
+    seen_reference_keys: set[str] = set()
+    for line in validated_references.splitlines():
+        value = line.strip()
+        far_clause = re.search(r"\bFAR\s+(\d+\.\d+-\d+)\b", value, flags=re.I)
+        url = re.search(r"https?://\S+", value)
+        key = ""
+        if far_clause:
+            key = "far:" + far_clause.group(1).lower()
+        elif url:
+            key = "url:" + re.sub(
+                r"^https?://(?:origin-)?(?:www\.)?",
+                "",
+                url.group(0).rstrip("/.,;)").lower(),
+            )
+        if key and key in seen_reference_keys:
+            continue
+        if key:
+            seen_reference_keys.add(key)
+        if re.search(r"American Bar Association.*The Construction Lawyer", value, flags=re.I):
+            value = re.sub(r"\s+https?://\S+\s*$", "", value).rstrip()
+        normalized_reference_lines.append(value)
+    validated_references = "\n".join(normalized_reference_lines)
     return f"{body}\n\n# {references_heading}\n\n{validated_references}\n"
 
 
