@@ -37,6 +37,18 @@ class PdfLayoutCheckUnitTests(unittest.TestCase):
         ]
         self.assertEqual(pdf_qa.find_page(pages, r"References", min_page=3, heading_only=True), 4)
 
+    def test_references_heading_is_resolved_after_glossary(self) -> None:
+        pages = [
+            "Cover",
+            "Introduction",
+            "Section 01 - Start",
+            "References\nThis word is a body sublabel.",
+            "Summary and Key Takeaways",
+            "Glossary",
+            "References",
+        ]
+        self.assertEqual(7, pdf_qa.find_references_page(pages, glossary_page=6))
+
     def test_inline_numbered_markers_are_detectable_on_one_visible_line(self) -> None:
         line = "1. Verify the data. 2. Name the cause. 3. Update the forecast."
         self.assertEqual(["1", "2", "3"], re.findall(r"(?<!\w)(\d{1,2})\.\s+", line))

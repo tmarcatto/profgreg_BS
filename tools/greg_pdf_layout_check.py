@@ -66,6 +66,17 @@ def find_page(pages: list[str], pattern: str, min_page: int = 1, heading_only: b
     return None
 
 
+def find_references_page(pages: list[str], glossary_page: int | None) -> int | None:
+    """Locate the final References heading only after the structural Glossary."""
+    min_page = max(3, (glossary_page or 2) + 1)
+    return find_page(
+        pages,
+        r"(?:References|Referências|Referencias)",
+        min_page=min_page,
+        heading_only=True,
+    )
+
+
 def contains(text: str, pattern: str) -> bool:
     return bool(re.search(pattern, text, re.IGNORECASE))
 
@@ -340,7 +351,7 @@ def run_checks(pdf_path: Path, qa_path: Path | None = None) -> dict:
     section_01_page = find_page(pages, r"(?:Section|Seção|Sección)\s+01\s*[:-]", min_page=3)
     summary_page = find_page(pages, r"(?:Summary and Key Takeaways|Resumo e Principais Conclusões|Resumen y Conclusiones Clave)", min_page=3, heading_only=True)
     glossary_page = find_page(pages, r"(?:Glossary|Glossário|Glosario)", min_page=3, heading_only=True)
-    references_page = find_page(pages, r"(?:References|Referências|Referencias)", min_page=3, heading_only=True)
+    references_page = find_references_page(pages, glossary_page)
 
     sequence = {
         "introduction": intro_page,
