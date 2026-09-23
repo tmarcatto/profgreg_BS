@@ -1274,8 +1274,6 @@ def force_student_references(draft: str, references: str, locale: str = "en") ->
     seen_reference_keys: set[str] = set()
     for line in validated_references.splitlines():
         value = line.strip()
-        if re.fullmatch(r"-\s*Construction Contract and Laws\.?", value, flags=re.I):
-            value = "- Construction Contract and Laws. Author, publisher, and date not stated in the supplied excerpt."
         far_clause = re.search(r"\bFAR\s+(\d+(?:\.\d+)?(?:-\d+)?)\b", value, flags=re.I)
         far_part = re.search(r"\b(?:Federal Acquisition Regulation[^\n]*?Part|FAR\s+Part)\s+(\d+)\b", value, flags=re.I)
         url = re.search(r"https?://\S+", value)

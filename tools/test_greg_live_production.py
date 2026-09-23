@@ -2389,15 +2389,13 @@ Term.
         entry = next(line for line in normalized.splitlines() if "New York State Department" in line)
         self.assertNotIn("http", entry)
 
-    def test_student_references_complete_mandatory_title_without_inventing_metadata(self) -> None:
+    def test_student_references_keep_only_verified_title_when_metadata_is_unavailable(self) -> None:
         normalized = production.force_student_references(
             "# Introduction\n\nIntro.\n\n# References\n\n- Old.\n",
             "# References\n\n- Construction Contract and Laws.\n- Complete source with publisher and date.\n",
         )
-        self.assertIn(
-            "Construction Contract and Laws. Author, publisher, and date not stated in the supplied excerpt.",
-            normalized,
-        )
+        self.assertIn("- Construction Contract and Laws.", normalized)
+        self.assertNotIn("supplied excerpt", normalized.lower())
         self.assertIn("Complete source with publisher and date", normalized)
 
     def test_massachusetts_home_improvement_reference_keeps_direct_content_url(self) -> None:
