@@ -463,7 +463,10 @@ def run_checks(pdf_path: Path, qa_path: Path | None = None) -> dict:
                 heading_openings.append((page_number, lines[:2]))
         for index, line in enumerate(lines):
             if re.fullmatch(r"(KEY TERM|APPLY IT|HANDS-ON EXAMPLE|SCENARIO|CALLBACK|BRIDGE|TERMO-CHAVE|APLIQUE|EXEMPLO PRÁTICO|CENÁRIO|RETOMADA|PONTE|TÉRMINO CLAVE|APLICACIÓN|EJEMPLO PRÁCTICO|ESCENARIO|RETOMAR|PUENTE)", line, flags=re.I):
-                remaining = " ".join(lines[index + 1 : index + 3])
+                # A structured callout can begin with a short sublabel such as
+                # "Setup" followed by bullets. Inspect enough following text
+                # to distinguish that valid layout from a truly isolated label.
+                remaining = " ".join(lines[index + 1 : index + 7])
                 if len(remaining.split()) < 6:
                     split_callout_labels.append((page_number, line))
             numbered_markers = re.findall(r"(?<!\w)(\d{1,2})\.\s+", line)

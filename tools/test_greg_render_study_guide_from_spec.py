@@ -93,6 +93,23 @@ class RenderStudyGuideFromSpecTests(unittest.TestCase):
         self.assertEqual(["paragraph", "bullets", "paragraph"], [item["type"] for item in structured])
         self.assertEqual("**Record A:** Ready.", structured[1]["items"][0])
 
+    def test_callout_preserves_numbered_steps_as_distinct_blocks(self) -> None:
+        if pdf_renderer is None:
+            self.skipTest("ReportLab is not installed in this Python environment.")
+        body = "**Learner tasks.**\n1. Identify the conflict.\n2. Verify authority.\n**Answer/check.**\n- Hold the work."
+        structured = pdf_renderer.structured_callout_blocks(body)
+        self.assertEqual(["paragraph", "numbered", "paragraph", "bullets"], [item["type"] for item in structured])
+        self.assertEqual([("1", "Identify the conflict."), ("2", "Verify authority.")], structured[1]["items"])
+
+    def test_bold_record_wall_becomes_separate_bullets(self) -> None:
+        if pdf_renderer is None:
+            self.skipTest("ReportLab is not installed in this Python environment.")
+        body = "**Setup:** Compare them. **Record A:** Ready. **Record B:** Wrong revision. **Record C:** Missing. **Record D:** Hold."
+        structured = pdf_renderer.structured_callout_blocks(body)
+        self.assertEqual(["paragraph", "bullets"], [item["type"] for item in structured])
+        self.assertEqual(4, len(structured[1]["items"]))
+        self.assertEqual("**Record A:** Ready.", structured[1]["items"][0])
+
     def test_legacy_record_wall_is_repaired_into_bullets(self) -> None:
         if pdf_renderer is None:
             self.skipTest("ReportLab is not installed in this Python environment.")

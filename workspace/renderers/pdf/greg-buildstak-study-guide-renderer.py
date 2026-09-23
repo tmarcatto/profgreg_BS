@@ -311,9 +311,10 @@ def structured_callout_blocks(body: str) -> list[dict[str, Any]]:
     # runs often returned them on separate source lines, but the renderer then
     # flattened those lines. Also recover a legacy single-line Record A/B/C/D
     # wall deterministically so an unchanged draft still renders readably.
-    record_matches = list(re.finditer(r"(?<!\w)(Record\s+[A-Z0-9]+)\s*:\s*", normalized, flags=re.I))
+    record_pattern = re.compile(r"(?<!\w)(?:\*\*)?(Record\s+[A-Z0-9]+)\s*:(?:\*\*)?\s*", flags=re.I)
+    record_matches = list(record_pattern.finditer(normalized))
     has_explicit_bullets = bool(re.search(r"(?m)^[-*+]\s+\S", normalized))
-    if len(record_matches) >= 3 and not has_explicit_bullets:
+    if len(record_matches) >= 3 and not has_explicit_bullets and "\n\n" not in normalized:
         first = record_matches[0].start()
         final_start = record_matches[-1].start()
         tail_match = re.search(r"\s+(?=(?:Classify|Decide|Determine|Check)\b)", normalized[final_start:], flags=re.I)
@@ -327,9 +328,8 @@ def structured_callout_blocks(body: str) -> list[dict[str, Any]]:
                 break
             end = record_matches[index + 1].start() if index + 1 < len(record_matches) else records_end
             end = min(end, records_end)
-            text = normalized[match.start():end].strip()
-            text = re.sub(r"^(Record\s+[A-Z0-9]+\s*:)", r"**\1**", text, count=1, flags=re.I)
-            items.append(text)
+            payload = normalized[match.end():end].strip()
+            items.append(f"**{match.group(1)}:** {payload}".rstrip())
         if items:
             blocks.append({"type": "bullets", "items": items})
         tail = normalized[records_end:].strip()
@@ -369,6 +369,22 @@ def structured_callout_blocks(body: str) -> list[dict[str, Any]]:
         index = 0
         prose: list[str] = []
         while index < len(source_lines):
+            line_record_matches = list(record_pattern.finditer(source_lines[index]))
+            if len(line_record_matches) >= 2:
+                if prose:
+                    blocks.append({"type": "paragraph", "text": " ".join(prose)})
+                    prose = []
+                prefix = source_lines[index][: line_record_matches[0].start()].strip()
+                if prefix:
+                    blocks.append({"type": "paragraph", "text": prefix})
+                items: list[str] = []
+                for record_index, match in enumerate(line_record_matches):
+                    end = line_record_matches[record_index + 1].start() if record_index + 1 < len(line_record_matches) else len(source_lines[index])
+                    payload = source_lines[index][match.end():end].strip()
+                    items.append(f"**{match.group(1)}:** {payload}".rstrip())
+                blocks.append({"type": "bullets", "items": items})
+                index += 1
+                continue
             if re.match(r"^[-*+]\s+\S", source_lines[index]):
                 if prose:
                     blocks.append({"type": "paragraph", "text": " ".join(prose)})
@@ -380,6 +396,19 @@ def structured_callout_blocks(body: str) -> list[dict[str, Any]]:
                     items.append(item)
                     index += 1
                 blocks.append({"type": "bullets", "items": items})
+                continue
+            if re.match(r"^\d+[.)]\s+\S", source_lines[index]):
+                if prose:
+                    blocks.append({"type": "paragraph", "text": " ".join(prose)})
+                    prose = []
+                items: list[tuple[str, str]] = []
+                while index < len(source_lines):
+                    match = re.match(r"^(\d+)[.)]\s+(\S.*)$", source_lines[index])
+                    if not match:
+                        break
+                    items.append((match.group(1), match.group(2).strip()))
+                    index += 1
+                blocks.append({"type": "numbered", "items": items})
                 continue
             prose.append(source_lines[index])
             index += 1
@@ -400,6 +429,18 @@ def callout_body_flowables(body: str, *, compact: bool = False) -> list[Any]:
                 leftIndent=14,
                 bulletFontName=FONT_REGULAR,
                 bulletFontSize=5.5,
+                spaceBefore=1,
+                spaceAfter=4 if not compact else 1,
+            ))
+        elif block["type"] == "numbered":
+            items = block["items"]
+            result.append(ListFlowable(
+                [ListItem(Paragraph(inline(item[1]), styles["BridgeBody"] if compact else styles["CalloutBullet"])) for item in items],
+                bulletType="1",
+                start=int(items[0][0]) if items else 1,
+                leftIndent=16,
+                bulletFontName=FONT_REGULAR,
+                bulletFontSize=8,
                 spaceBefore=1,
                 spaceAfter=4 if not compact else 1,
             ))
