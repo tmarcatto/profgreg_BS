@@ -2026,13 +2026,15 @@ def editable_study_guide_sections(draft: str, *, include_introduction: bool = Fa
     """
     introduction = r"#\s+Introduction|" if include_introduction else ""
     heading_pattern = re.compile(
-        rf"(?im)^(?:{introduction}##\s+Learning Objectives|#\s+(?:Section\s+\d{{2}}\s+-\s+.+|Summary and Key Takeaways|Glossary))\s*$"
+        rf"(?im)^(?:{introduction}##\s+Learning Objectives|#\s+(?:Section\s+\d{{2}}\s+-\s+.+|Summary and Key Takeaways|Glossary|References))\s*$"
     )
     matches = list(heading_pattern.finditer(draft))
     sections: dict[str, str] = {}
     for index, match in enumerate(matches):
         end = matches[index + 1].start() if index + 1 < len(matches) else len(draft)
         heading = match.group(0).strip()
+        if heading.lower() == "# references":
+            continue
         # Preserve the exact source slice, including the blank lines before
         # the next heading, so a validated replacement can splice reliably.
         sections[heading] = draft[match.start() : end]

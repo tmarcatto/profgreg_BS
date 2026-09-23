@@ -2186,6 +2186,20 @@ Term.
         self.assertIn("Concise but complete.", revised)
         self.assertIn("Updated two.", revised)
 
+    def test_glossary_patch_does_not_consume_references_boundary(self) -> None:
+        draft = (
+            "# Introduction\n\nIntro.\n\n## Learning Objectives\n\n- Apply.\n\n"
+            "# Section 01 - One\n\nBody.\n\n"
+            "# Summary and Key Takeaways\n\n- One.\n- Two.\n- Three.\n- Four.\n\n"
+            "# Glossary\n\nOld term.\n\n# References\n\n- Validated source.\n"
+        )
+        revised = production.apply_study_guide_section_patches(
+            draft,
+            {"# Glossary": "# Glossary\n\nThe entries define this lesson's terms.\n\n- Term: definition."},
+        )
+        self.assertIn("The entries define this lesson's terms.", revised)
+        self.assertTrue(revised.rstrip().endswith("- Validated source."))
+
     def test_diagram_cell_compaction_preserves_agreement_qualifiers(self) -> None:
         first = production.compact_diagram_cell_text(
             "Where applicable and as allocated by the agreement: track costs, forecasts, and cap remaining"
