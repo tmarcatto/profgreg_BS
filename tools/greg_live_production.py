@@ -3408,6 +3408,18 @@ def normalize_payment_request_visual(visual: dict[str, Any]) -> dict[str, Any]:
     return normalized
 
 
+def compact_process_flow_title(visual: dict[str, Any]) -> dict[str, Any]:
+    """Keep process-flow titles inside the renderer's 30-character limit."""
+    normalized = dict(visual)
+    title = str(normalized.get("diagram_title") or "").strip()
+    if str(normalized.get("diagram_type") or "") != "process-flow" or len(title) <= 30:
+        return normalized
+    count = len(normalized.get("diagram_nodes") or [])
+    words = {2: "Two", 3: "Three", 4: "Four", 5: "Five", 6: "Six"}
+    normalized["diagram_title"] = f"{words.get(count, str(count))}-Step Review Sequence"
+    return normalized
+
+
 def technical_visual_requires_operator(visual: dict[str, Any]) -> bool:
     """Reserve operator escalation for visuals whose technical fidelity is instructional."""
     description = " ".join(
@@ -3635,6 +3647,8 @@ def create_visual_assets(seed, lesson: dict[str, Any], draft: str, run: Path, le
                     visual["source_status"] = "not-required"
             if visual.get("visual_type") == "deterministic-diagram":
                 visual["diagram_type"] = infer_diagram_type(visual)
+                visual = compact_process_flow_title(visual)
+                prepared[index] = visual
                 if visual["diagram_type"] == "comparison-matrix":
                     for row in visual.get("diagram_rows") or []:
                         if isinstance(row, dict) and isinstance(row.get("cells"), list):

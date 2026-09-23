@@ -2255,6 +2255,16 @@ Term.
             titles,
         )
 
+    def test_process_flow_title_is_compacted_to_renderer_capacity(self) -> None:
+        visual = {
+            "diagram_type": "process-flow",
+            "diagram_title": "An Overly Long Drawing Review Sequence Title",
+            "diagram_nodes": [{"title": f"Step {index}", "detail": "Check"} for index in range(1, 7)],
+        }
+        normalized = production.compact_process_flow_title(visual)
+        self.assertEqual("Six-Step Review Sequence", normalized["diagram_title"])
+        self.assertLessEqual(len(normalized["diagram_title"]), 30)
+
     def test_embedded_action_is_separated_before_numbered_steps(self) -> None:
         draft = (
             "> - The field copy is Revision 1. **Action** 1. Remove it from the active set.\n"
