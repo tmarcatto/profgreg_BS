@@ -323,7 +323,7 @@ def run_checks(draft_path: Path, level: str | None = None) -> dict:
             marker.group(1)
             for marker in re.finditer(r"(?<![\w-])(\d{1,2})\.\s+", stripped)
             if not re.search(
-                r"\b(?:revision|rev(?:ision)?|section|figure|record|sheet|part|unit)\s*$",
+                r"\b(?:revision|rev(?:ision)?|section|figure|record|sheet|part|unit|January|February|March|April|May|June|July|August|September|October|November|December)\s*$",
                 stripped[: marker.start()],
                 flags=re.I,
             )

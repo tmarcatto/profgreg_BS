@@ -1274,6 +1274,8 @@ def force_student_references(draft: str, references: str, locale: str = "en") ->
     seen_reference_keys: set[str] = set()
     for line in validated_references.splitlines():
         value = line.strip()
+        if re.fullmatch(r"-\s*Construction Contract and Laws\.?", value, flags=re.I):
+            continue
         far_clause = re.search(r"\bFAR\s+(\d+(?:\.\d+)?(?:-\d+)?)\b", value, flags=re.I)
         far_part = re.search(r"\b(?:Federal Acquisition Regulation[^\n]*?Part|FAR\s+Part)\s+(\d+)\b", value, flags=re.I)
         url = re.search(r"https?://\S+", value)
@@ -1348,7 +1350,7 @@ def normalize_inline_numbered_sequences(draft: str) -> str:
             marker
             for marker in re.finditer(r"(?<![\w-])(\d{1,2})\.\s+", content)
             if not re.search(
-                r"\b(?:revision|rev(?:ision)?|section|figure|record|sheet|part|unit)\s*$",
+                r"\b(?:revision|rev(?:ision)?|section|figure|record|sheet|part|unit|January|February|March|April|May|June|July|August|September|October|November|December)\s*$",
                 content[: marker.start()],
                 flags=re.I,
             )
@@ -1538,6 +1540,14 @@ def normalize_reviewed_factual_language(draft: str) -> str:
         "The governing contract, applicable law, and required change or substitution procedure determine any effect.",
         corrected,
         flags=re.I,
+    )
+    corrected = corrected.replace(
+        "Approval alone does not authorize a contract change.",
+        "Approval does not automatically authorize a contract change or replace a contract requirement; follow the effect and procedure stated in the governing contract.",
+    )
+    corrected = corrected.replace(
+        "The active field set contains A2.1 Revision 2, Addendum 02, and Specification Section 08 50 00 Revision 1.",
+        "The active field set contains A2.1 Revision 2 and Addendum 02. Include Specification Section 08 50 00 Revision 1 only after confirming that it is current, authorized, and incorporated or otherwise applicable under the agreement.",
     )
     normalized = normalize_repeated_lesson_objectives(
         normalize_prose_dashes(
@@ -1745,6 +1755,11 @@ def normalize_callout_density(draft: str, maximum: int = 4) -> str:
     # single quoted line. Run the punctuation/list normalizer last so the
     # final saved chapter, rather than only its input, satisfies the contract.
     rebuilt = "\n".join(compacted).rstrip() + "\n"
+    rebuilt = re.sub(
+        r"\b(January|February|March|April|May|June|July|August|September|October|November|December)\s*\n>\s*(\d{1,2})\.",
+        r"\1 \2.",
+        rebuilt,
+    )
     rebuilt = re.sub(r"\b([A-Z]{1,4})-\s*\n>\s*(\d+)\b", r"\1-\2", rebuilt)
     rebuilt = re.sub(r"\b([A-Z]{1,4})-\s+(\d+)\b", r"\1-\2", rebuilt)
     rebuilt = normalize_inline_numbered_sequences(rebuilt)

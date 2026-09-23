@@ -2282,6 +2282,21 @@ Term.
         self.assertIn("> 4. Hold installation until authorization is documented.\n> **Answer/Result check:**", normalized)
         self.assertIn("> - Authorization is pending.\n> - Installation remains on hold.", normalized)
 
+    def test_callout_normalizer_rejoins_month_dates_and_identifiers(self) -> None:
+        draft = (
+            "> **HANDS-ON EXAMPLE**\n"
+            "> Supplied inputs:\n"
+            "> - The field copy was issued March\n"
+            "> 3. **Action:**\n"
+            "> 1. Confirm window W-\n"
+            "> 3.\n"
+        )
+        normalized = production.normalize_callout_density(draft)
+        self.assertIn("issued March 3.", normalized)
+        self.assertIn("Confirm window W-3.", normalized)
+        self.assertNotIn("March\n> 3", normalized)
+        self.assertNotIn("W-\n> 3", normalized)
+
     def test_study_guide_budget_covers_bounded_review_workflow(self) -> None:
         config = json.loads((ROOT / "workspace" / "config" / "model-routing.json").read_text(encoding="utf-8"))
         budgets = config["cost_tracking"]
@@ -2329,6 +2344,14 @@ Term.
         )
         entry = next(line for line in normalized.splitlines() if "New York State Department" in line)
         self.assertNotIn("http", entry)
+
+    def test_student_references_remove_incomplete_placeholder_title(self) -> None:
+        normalized = production.force_student_references(
+            "# Introduction\n\nIntro.\n\n# References\n\n- Old.\n",
+            "# References\n\n- Construction Contract and Laws.\n- Complete source with publisher and date.\n",
+        )
+        self.assertNotIn("Construction Contract and Laws", normalized)
+        self.assertIn("Complete source with publisher and date", normalized)
 
 
 if __name__ == "__main__":
