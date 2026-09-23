@@ -1595,7 +1595,18 @@ def normalize_callout_density(draft: str, maximum: int = 4) -> str:
         else:
             body = [block["inline"]] if block["inline"] else []
             body.extend(line.lstrip()[1:].strip() for line in lines[block["start"] + 1 : block["end"]] if line.lstrip()[1:].strip())
-            output.append(" ".join(body).strip())
+            if block["label"] == "HANDS-ON EXAMPLE":
+                # The chapter contract allows at most four callouts. Preserve
+                # overflow exercises as readable worked-example prose instead
+                # of flattening their fields and list markers into one line.
+                for body_line in body:
+                    cleaned = re.sub(r"^(?:\*\*)?Setup(?:\*\*)?\s*[:.]?", "**Worked example.**", body_line, flags=re.I)
+                    cleaned = re.sub(r"^(?:\*\*)?Supplied (?:inputs|records|information)(?:\*\*)?\s*[:.]?", "**Example records.**", cleaned, flags=re.I)
+                    cleaned = re.sub(r"^(?:\*\*)?(?:Task|Actions|Your action|Individual action)(?:\*\*)?\s*[:.]?", "**Application.**", cleaned, flags=re.I)
+                    cleaned = re.sub(r"^(?:\*\*)?Answer(?:\s*/\s*|\s+and\s+)Check(?:\*\*)?\s*[:.]?", "**Interpretation.**", cleaned, flags=re.I)
+                    output.append(cleaned)
+            else:
+                output.append(" ".join(body).strip())
         index = block["end"]
     normalized = "\n".join(output).rstrip() + "\n"
     approved_count = len(re.findall(
@@ -1641,6 +1652,11 @@ def normalize_callout_density(draft: str, maximum: int = 4) -> str:
 
 def normalize_hands_on_example_markdown(draft: str) -> str:
     """Repair provider-flattened HANDS-ON blocks without changing wording."""
+    draft = re.sub(
+        r"(?im)^(?:>[ \t]*)?\*\*HANDS ON EXAMPLE:[ \t]*Setup\*\*[ \t]*$",
+        "**HANDS ON EXAMPLE**\n\n**Setup:**",
+        draft,
+    )
     # Accept the harmless label variants providers commonly return, including
     # an inline body after the bold label, then emit the one renderer contract.
     draft = re.sub(
@@ -1674,7 +1690,7 @@ def normalize_hands_on_example_markdown(draft: str) -> str:
             current_stripped = current.strip()
             if re.match(r"^#{1,2}\s+", current_stripped):
                 break
-            if re.search(r"Answer\s*/\s*Check", current_stripped, flags=re.I):
+            if re.search(r"Answer(?:\s*/\s*|\s+and\s+)Check", current_stripped, flags=re.I):
                 saw_answer = True
             if not current_stripped:
                 probe = source_index + 1
@@ -1690,7 +1706,7 @@ def normalize_hands_on_example_markdown(draft: str) -> str:
         restored_lines.append("")
     draft = "\n".join(restored_lines)
     field_pattern = re.compile(
-        r"(?:\*\*)?(Setup|Supplied (?:inputs|records|information)|Task|Actions|Your action|Individual action|Answer\s*/\s*Check)\s*[:.]?(?:\*\*)?",
+        r"(?:\*\*)?(Setup|Supplied (?:inputs|records|information)|Task|Actions|Your action|Individual action|Answer(?:\s*/\s*|\s+and\s+)Check)\s*[:.]?(?:\*\*)?",
         flags=re.I,
     )
     label_pattern = re.compile(r"^>\s*\*\*HANDS-ON EXAMPLE\*\*\s*$", flags=re.I)
@@ -1704,7 +1720,7 @@ def normalize_hands_on_example_markdown(draft: str) -> str:
         prior = len(promoted_lines) - 1
         while prior >= 0 and not promoted_lines[prior].strip():
             prior -= 1
-        follows_early_quoted_answer = prior >= 0 and re.match(r"^>\s*(?:\*\*)?Answer\s*/\s*Check", promoted_lines[prior].strip(), flags=re.I)
+        follows_early_quoted_answer = prior >= 0 and re.match(r"^>\s*(?:\*\*)?Answer(?:\s*/\s*|\s+and\s+)Check", promoted_lines[prior].strip(), flags=re.I)
         if (
             follows_early_quoted_answer
             or lines[index].lstrip().startswith(">")
@@ -1715,11 +1731,11 @@ def normalize_hands_on_example_markdown(draft: str) -> str:
             continue
         end = index + 1
         while end < len(lines) and not re.match(r"^#{1,2}\s+", lines[end].strip()):
-            if not lines[end].strip() and re.search(r"Answer\s*/\s*Check", " ".join(lines[index:end]), flags=re.I):
+            if not lines[end].strip() and re.search(r"Answer(?:\s*/\s*|\s+and\s+)Check", " ".join(lines[index:end]), flags=re.I):
                 break
             end += 1
         candidate = " ".join(line.strip() for line in lines[index:end] if line.strip())
-        if re.search(r"(?:Your|Individual) action", candidate, flags=re.I) and re.search(r"Answer\s*/\s*Check", candidate, flags=re.I):
+        if re.search(r"(?:Your|Individual) action", candidate, flags=re.I) and re.search(r"Answer(?:\s*/\s*|\s+and\s+)Check", candidate, flags=re.I):
             promoted_lines.extend(["> **HANDS-ON EXAMPLE**", "> " + candidate, ""])
             index = end
             continue
@@ -1772,7 +1788,7 @@ def normalize_hands_on_example_markdown(draft: str) -> str:
             value = body[match.end() : end].strip()
             fields.append((match, label, value))
         def field_key(label: str) -> str:
-            return re.sub(r"\s*/\s*", "/", label.lower())
+            return re.sub(r"(?:\s*/\s*|\s+and\s+)", "/", label.lower())
 
         rank = {"setup": 0, "supplied inputs": 1, "supplied records": 1, "supplied information": 1, "task": 2, "actions": 2, "your action": 2, "individual action": 2, "answer/check": 3}
         fields.sort(key=lambda item: rank.get(field_key(item[1]), 4))
@@ -1804,7 +1820,7 @@ def normalize_hands_on_example_markdown(draft: str) -> str:
                 result.append(f"{line_prefix}{label}:" + (f" {value}" if value else ""))
             elif key == "answer/check":
                 lead, records = split_records(value)
-                canonical_label = re.sub(r"\s*/\s*", "/", label)
+                canonical_label = re.sub(r"(?:\s*/\s*|\s+and\s+)", "/", label, flags=re.I)
                 result.append(f"{line_prefix}{canonical_label}:" + (f" {lead}" if lead else ""))
                 result.extend(f"{line_prefix}- {record}" for record in records)
             else:
@@ -1837,7 +1853,7 @@ def normalize_hands_on_example_markdown(draft: str) -> str:
         # and let the field ordering below restore the learner-facing order.
         if (
             body_lines
-            and body_lines[0].lower().startswith("answer/check")
+            and re.match(r"^answer(?:\s*/\s*|\s+and\s+)check", body_lines[0], flags=re.I)
             and probe < len(lines)
             and re.match(r"^(?:\*\*)?Supplied (?:inputs|records)\b", lines[probe].strip(), flags=re.I)
         ):
@@ -1846,7 +1862,7 @@ def normalize_hands_on_example_markdown(draft: str) -> str:
                 attached_end += 1
             attached = lines[probe:attached_end]
             attached_text = " ".join(part.strip() for part in attached if part.strip())
-            if re.search(r"Your action|\*\*Task", attached_text, flags=re.I) and re.search(r"Answer/check", attached_text, flags=re.I):
+            if re.search(r"Your action|\*\*Task", attached_text, flags=re.I) and re.search(r"Answer(?:\s*/\s*|\s+and\s+)Check", attached_text, flags=re.I):
                 body_lines = [part.strip() for part in attached if part.strip()]
                 index = attached_end
             else:
@@ -3419,6 +3435,7 @@ def create_visual_assets(seed, lesson: dict[str, Any], draft: str, run: Path, le
         return prepared
 
     visuals = prepare_visuals(plan.get("visuals") or [])
+    checker = load_module("greg_visual_plan_check", "tools/greg_visual_plan_check.py")
     prior_qa_text = prior_visual_qa.read_text(encoding="utf-8", errors="replace") if prior_visual_qa.exists() else ""
     semantic_review: dict[str, Any] = {"passed": True, "findings": ["Previously passed independent visual review."], "required_changes": []}
     if "Independent visual review: PASS" not in prior_qa_text:
@@ -3430,7 +3447,20 @@ def create_visual_assets(seed, lesson: dict[str, Any], draft: str, run: Path, le
         for review_attempt in range(1, max_visual_review_attempts + 1):
             plan["visuals"] = visuals
             semantic_review = request_visual_semantic_review(seed, lesson, draft, plan)
-            write_json(run / "review" / f"{lesson_tag}_visual_plan_attempt_{review_attempt:02d}.json", plan)
+            attempt_path = run / "review" / f"{lesson_tag}_visual_plan_attempt_{review_attempt:02d}.json"
+            write_json(attempt_path, plan)
+            automatic_qa = checker.run_checks(attempt_path)
+            automatic_changes = [
+                f"{finding.get('check')}: {finding.get('note')}"
+                for finding in automatic_qa.get("findings") or []
+                if finding.get("status") == "fail"
+            ]
+            if semantic_review.get("passed") is True and automatic_changes:
+                semantic_review = {
+                    "passed": False,
+                    "findings": automatic_changes,
+                    "required_changes": automatic_changes,
+                }
             write_json(run / "review" / f"{lesson_tag}_visual_semantic_review_attempt_{review_attempt:02d}.json", semantic_review)
             if semantic_review.get("passed") is True:
                 break
@@ -3567,7 +3597,6 @@ def create_visual_assets(seed, lesson: dict[str, Any], draft: str, run: Path, le
     plan["visual_curation_required"] = bool(requests)
     plan_path = run / "review" / f"{lesson_tag}_visual_plan.json"
     write_json(plan_path, plan)
-    checker = load_module("greg_visual_plan_check", "tools/greg_visual_plan_check.py")
     qa = checker.run_checks(plan_path)
     semantic_notes = "\n".join(f"- {item}" for item in (semantic_review.get("findings") or ["Diagram content matches the lesson and visible renderer capacity."]))
     write_text(

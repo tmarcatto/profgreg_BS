@@ -1486,6 +1486,61 @@ Body.
         self.assertIn("> - Keep A5.2 revision 3 current.", normalized)
         self.assertIn("# Section 04 - Verify", normalized)
 
+    def test_setup_inside_hands_on_label_is_restored(self) -> None:
+        draft = """**HANDS ON EXAMPLE: Setup**
+
+**Supplied inputs**
+
+- Revision 2 is current.
+- The request is not authorized.
+
+**Task**
+
+1. Confirm the revision.
+2. Verify authority.
+
+**Answer / Check**
+
+- Revision 2 remains current.
+- Authorization remains pending.
+
+Following prose.
+"""
+        normalized = production.normalize_callout_density(draft)
+        self.assertIn("> **HANDS-ON EXAMPLE**\n> Setup:", normalized)
+        self.assertIn("> - Revision 2 is current.", normalized)
+        self.assertIn("> 1. Confirm the revision.\n> 2. Verify authority.", normalized)
+        self.assertIn("> - Authorization remains pending.", normalized)
+        self.assertNotIn("> Following prose.", normalized)
+
+    def test_answer_and_check_variant_is_split_after_task(self) -> None:
+        draft = """> **HANDS-ON EXAMPLE**
+> Setup: Compare the records. Supplied inputs: - A2.14 revision 3 is current. - SS-14 is unapproved. Task: 1. Compare the records. 2. Hold the order. **Answer and check:** - A2.14 remains current. - The order remains on hold.
+"""
+        normalized = production.normalize_callout_density(draft)
+        self.assertIn("> 1. Compare the records.\n> 2. Hold the order.", normalized)
+        self.assertIn("> Answer/check:\n> - A2.14 remains current.", normalized)
+        self.assertNotIn("Hold the order. **Answer", normalized)
+
+    def test_excess_hands_on_callout_becomes_structured_worked_example(self) -> None:
+        block = """> **HANDS-ON EXAMPLE**
+> Setup: Compare records.
+> Supplied inputs:
+> - A2.1 is current.
+> - A2.0 is old.
+> Individual action: Select the current record.
+> Answer/Check:
+> - A2.1 governs.
+"""
+        draft = "# Section 01 - Work\n\n" + "\n".join(block for _ in range(5))
+        normalized = production.normalize_callout_density(draft)
+        self.assertEqual(4, normalized.count("> **HANDS-ON EXAMPLE**"))
+        self.assertIn("**Worked example.** Compare records.", normalized)
+        self.assertIn("**Example records.**", normalized)
+        self.assertIn("- A2.1 is current.", normalized)
+        self.assertIn("**Application.** Select the current record.", normalized)
+        self.assertIn("**Interpretation.**", normalized)
+
     def test_prose_dash_normalizer_removes_compound_hyphens_only_before_references(self) -> None:
         draft = """# Section 01 - Work
 
