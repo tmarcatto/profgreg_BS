@@ -1200,6 +1200,10 @@ Use these terms to distinguish roles.
 
 - **Duplicate:** Remove this definition.
 
+**Summary and Key Takeaways**
+
+- Remove this repeated takeaway.
+
 # Glossary
 
 - **Canonical:** Keep this definition.
@@ -1208,6 +1212,7 @@ Use these terms to distinguish roles.
         self.assertIn("Keep this objective", revised)
         self.assertNotIn("Remove this objective", revised)
         self.assertNotIn("Remove this definition", revised)
+        self.assertNotIn("Remove this repeated takeaway", revised)
         self.assertIn("Keep this definition", revised)
 
     def test_student_reference_does_not_strip_title_containing_applied_in(self) -> None:

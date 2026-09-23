@@ -1458,7 +1458,7 @@ def normalize_repeated_lesson_objectives(draft: str) -> str:
             inside_numbered_section = True
         elif re.match(r"^#\s+(?:Summary and Key Takeaways|Glossary|References)\s*$", line):
             inside_numbered_section = False
-        embedded_label = re.fullmatch(r"\*\*(Learning Objectives|Glossary)\*\*", line.strip(), flags=re.I)
+        embedded_label = re.fullmatch(r"\*\*(Learning Objectives|Summary and Key Takeaways|Glossary)\*\*", line.strip(), flags=re.I)
         if inside_numbered_section and embedded_label:
             probe = index + 1
             while probe < len(lines) and not lines[probe].strip():
