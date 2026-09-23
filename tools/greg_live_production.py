@@ -3420,6 +3420,91 @@ def compact_process_flow_title(visual: dict[str, Any]) -> dict[str, Any]:
     return normalized
 
 
+def normalize_drawing_index_visual(visual: dict[str, Any]) -> dict[str, Any]:
+    """Replace an unavailable drawing-index photo with an honest teaching pattern."""
+    normalized = dict(visual)
+    description = " ".join(
+        str(normalized.get(key) or "")
+        for key in ("purpose", "learning_claim", "technical_object_type", "google_search_phrase")
+    ).lower()
+    if "drawing" not in description or "index" not in description or normalized.get("source_status") != "source-needed":
+        return normalized
+    normalized.update({
+        "visual_type": "deterministic-diagram",
+        "purpose": "compare an illustrative drawing-index pattern with required project verification",
+        "learning_claim": (
+            "An illustrative drawing-index pattern pairs each sheet number with a sheet title; "
+            "learners must verify the actual project index before relying on either field."
+        ),
+        "image_need": "helpful",
+        "image_need_reason": "A labeled teaching pattern makes the two index fields visible without presenting a fictional sheet as authentic project evidence.",
+        "asset_strategy": "native-diagram",
+        "asset_strategy_reason": "A clearly labeled illustrative pattern teaches index organization without requiring or implying an authentic project sheet.",
+        "request_box": {},
+        "pedagogical_strategy": "explain-with-diagram",
+        "real_example_importance": "preferred",
+        "generation_suitability": "safe",
+        "source_status": "not-required",
+        "source_id": "",
+        "source_url": "",
+        "attribution": "",
+        "selection_reason": "Use an explicitly illustrative index pattern and direct learners to verify the actual project documents.",
+        "diagram_type": "comparison-matrix",
+        "diagram_rationale": "A comparison separates the illustrative entry from what learners must verify in the actual project index.",
+        "diagram_title": "Illustrative Drawing Index",
+        "diagram_nodes": [],
+        "diagram_columns": ["Index Field", "Illustrative Pattern", "Project Verification"],
+        "diagram_rows": [
+            {"cells": ["Sheet number", "A0.00", "Confirm current index"]},
+            {"cells": ["Sheet title", "Cover and Drawing Index", "Confirm exact title"]},
+            {"cells": ["Pairing", "Same visible row", "Use only matched fields"]},
+        ],
+        "core_message_depends_on_real_example": False,
+        "technical_fidelity_required": False,
+        "technical_object_type": "",
+        "highlighted": False,
+        "highlight_reason": "",
+        "internal_text": True,
+        "internal_text_position": "inside",
+    })
+    return normalized
+
+
+def normalize_conflict_review_visual(visual: dict[str, Any]) -> dict[str, Any]:
+    """Keep contract-conflict flows conditional, complete, and authority-safe."""
+    normalized = dict(visual)
+    description = " ".join(
+        str(normalized.get(key) or "")
+        for key in ("purpose", "learning_claim", "placement", "diagram_title")
+    ).lower()
+    if "conflict" not in description or "precedence" not in description:
+        return normalized
+    normalized.update({
+        "visual_type": "deterministic-diagram",
+        "purpose": "show a condensed conflict review with grouped steps",
+        "learning_claim": (
+            "Condensed conflict review: identify the location and affected work, verify incorporated sources, "
+            "compare documents and apply the actual precedence clause, protect affected work, obtain required "
+            "direction, then record effects and follow the required process when needed."
+        ),
+        "diagram_type": "process-flow",
+        "diagram_title": "Condensed Conflict Review",
+        "diagram_nodes": [
+            {"title": "Identify Location/Work", "detail": "Find affected work area"},
+            {"title": "Verify Incorporated Sources", "detail": "Check status of each document"},
+            {"title": "Compare; Apply Precedence", "detail": "Use actual contract order"},
+            {"title": "Protect Affected Work", "detail": "Hold work if nonconforming"},
+            {"title": "Obtain Required Direction", "detail": "Get direction when required"},
+            {"title": "Record; Follow Process", "detail": "Log effects; use process if needed"},
+        ],
+        "diagram_columns": [],
+        "diagram_rows": [],
+        "highlighted": False,
+        "highlight_reason": "",
+    })
+    return normalized
+
+
 def technical_visual_requires_operator(visual: dict[str, Any]) -> bool:
     """Reserve operator escalation for visuals whose technical fidelity is instructional."""
     description = " ".join(
@@ -3631,7 +3716,11 @@ def create_visual_assets(seed, lesson: dict[str, Any], draft: str, run: Path, le
 
     def prepare_visuals(items: list[dict[str, Any]]) -> list[dict[str, Any]]:
         prepared = [
-            normalize_payment_request_visual(normalize_visual_strategy(restore_structured_visual_type(visual)))
+            normalize_conflict_review_visual(
+                normalize_payment_request_visual(
+                    normalize_visual_strategy(normalize_drawing_index_visual(restore_structured_visual_type(visual)))
+                )
+            )
             for visual in items
         ]
         generated_seen = 0

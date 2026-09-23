@@ -2265,6 +2265,40 @@ Term.
         self.assertEqual("Six-Step Review Sequence", normalized["diagram_title"])
         self.assertLessEqual(len(normalized["diagram_title"]), 30)
 
+    def test_missing_drawing_index_source_becomes_explicit_teaching_pattern(self) -> None:
+        visual = {
+            "visual_type": "trusted-source-image",
+            "purpose": "Show authentic drawing set index sheet organizing sheets",
+            "technical_object_type": "drawing set index/cover sheet",
+            "source_status": "source-needed",
+            "core_message_depends_on_real_example": True,
+            "technical_fidelity_required": True,
+        }
+        normalized = production.normalize_drawing_index_visual(visual)
+        self.assertEqual("deterministic-diagram", normalized["visual_type"])
+        self.assertEqual("comparison-matrix", normalized["diagram_type"])
+        self.assertEqual("not-required", normalized["source_status"])
+        self.assertIn("illustrative", normalized["learning_claim"].lower())
+        self.assertFalse(normalized["technical_fidelity_required"])
+
+    def test_conflict_review_visual_keeps_authority_and_change_steps_conditional(self) -> None:
+        visual = {
+            "visual_type": "deterministic-diagram",
+            "placement": "after Conflicting Information and the Order of Precedence Clause",
+            "purpose": "show a six-step conflict sequence",
+            "diagram_type": "process-flow",
+            "diagram_title": "Six-Step Review Sequence",
+            "highlighted": True,
+            "highlight_reason": "decision-point",
+        }
+        normalized = production.normalize_conflict_review_visual(visual)
+        self.assertEqual("Condensed Conflict Review", normalized["diagram_title"])
+        self.assertEqual("Compare; Apply Precedence", normalized["diagram_nodes"][2]["title"])
+        self.assertEqual("Get direction when required", normalized["diagram_nodes"][4]["detail"])
+        self.assertEqual("Record; Follow Process", normalized["diagram_nodes"][5]["title"])
+        self.assertEqual("Log effects; use process if needed", normalized["diagram_nodes"][5]["detail"])
+        self.assertFalse(normalized["highlighted"])
+
     def test_embedded_action_is_separated_before_numbered_steps(self) -> None:
         draft = (
             "> - The field copy is Revision 1. **Action** 1. Remove it from the active set.\n"
