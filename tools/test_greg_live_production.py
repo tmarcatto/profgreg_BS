@@ -2276,6 +2276,18 @@ Term.
         self.assertEqual(1, normalized.lower().count("part 16"))
         self.assertNotIn("acquisition.gov", normalized)
 
+    def test_student_references_clean_new_york_home_improvement_contract_url(self) -> None:
+        references = """# References
+
+- New York State Department of Public Service. Home Improvement Contract. https://documents.dps.ny.gov/home-improvement-contract.pdf
+"""
+        normalized = production.force_student_references(
+            "# Introduction\n\nIntro.\n\n# References\n\n- Old.\n",
+            references,
+        )
+        entry = next(line for line in normalized.splitlines() if "New York State Department" in line)
+        self.assertNotIn("http", entry)
+
 
 if __name__ == "__main__":
     unittest.main()

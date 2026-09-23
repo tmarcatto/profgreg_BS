@@ -1296,6 +1296,8 @@ def force_student_references(draft: str, references: str, locale: str = "en") ->
             value = re.sub(r"\s+https?://\S+\s*$", "", value).rstrip()
         if re.search(r"American Bar Association.*The Construction Lawyer", value, flags=re.I):
             value = re.sub(r"\s+https?://\S+\s*$", "", value).rstrip()
+        if re.search(r"New York State Department of Public Service.*Home Improvement Contract", value, flags=re.I):
+            value = re.sub(r"\s+https?://\S+\s*$", "", value).rstrip()
         normalized_reference_lines.append(value)
     validated_references = "\n".join(normalized_reference_lines)
     return f"{body}\n\n# {references_heading}\n\n{validated_references}\n"
