@@ -2212,6 +2212,15 @@ Term.
         self.assertIn("agreement", first)
         self.assertIn("agreement", second)
 
+    def test_embedded_action_is_separated_before_numbered_steps(self) -> None:
+        draft = (
+            "> - The field copy is Revision 1. **Action** 1. Remove it from the active set.\n"
+            "> - The current set remains Revision 2. **Action** 1. Trace the cloud. 2. Update affected records.\n"
+        )
+        normalized = production.normalize_inline_numbered_sequences(draft)
+        self.assertIn("> - The field copy is Revision 1.\n> Action:\n> 1. Remove it from the active set.", normalized)
+        self.assertIn("> - The current set remains Revision 2.\n> Action:\n> 1. Trace the cloud.\n> 2. Update affected records.", normalized)
+
 
 if __name__ == "__main__":
     unittest.main()

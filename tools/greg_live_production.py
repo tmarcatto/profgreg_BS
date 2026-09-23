@@ -1320,12 +1320,19 @@ def normalize_inline_numbered_sequences(draft: str) -> str:
             )
         ]
         learner_line = bool(re.search(r"\bLearner tasks?\b", content, flags=re.I))
-        if not markers or (len(markers) == 1 and not learner_line):
+        embedded_action = re.search(r"(?:\s+|^)(?:\*\*)?Action(?:\*\*)?\s*:?[ \t]*$", content[: markers[0].start()] if markers else "", flags=re.I)
+        if not markers or (len(markers) == 1 and not learner_line and not embedded_action):
             normalized.append(line)
             continue
         prefix = content[: markers[0].start()].strip()
         source_prefix = "> " if quoted else ""
-        if prefix:
+        action_match = re.search(r"(?:\s+|^)(?:\*\*)?Action(?:\*\*)?\s*:?[ \t]*$", prefix, flags=re.I)
+        if action_match:
+            preceding = prefix[: action_match.start()].strip()
+            if preceding:
+                normalized.append(source_prefix + preceding)
+            normalized.append(source_prefix + "Action:")
+        elif prefix:
             normalized.append(source_prefix + prefix)
         for marker_index, marker in enumerate(markers):
             end = markers[marker_index + 1].start() if marker_index + 1 < len(markers) else len(content)
@@ -1693,7 +1700,9 @@ def normalize_callout_density(draft: str, maximum: int = 4) -> str:
     # HANDS-ON reconstruction may join an answer and its records back onto a
     # single quoted line. Run the punctuation/list normalizer last so the
     # final saved chapter, rather than only its input, satisfies the contract.
-    return normalize_prose_dashes("\n".join(compacted).rstrip() + "\n")
+    rebuilt = normalize_inline_numbered_sequences("\n".join(compacted).rstrip() + "\n")
+    rebuilt = re.sub(r"\b([A-Z])-\s+(\d+)\b", r"\1-\2", rebuilt)
+    return normalize_prose_dashes(rebuilt)
 
 
 def normalize_hands_on_example_markdown(draft: str) -> str:
