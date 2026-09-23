@@ -3344,6 +3344,44 @@ def compact_diagram_cell_text(value: Any) -> str:
     return text
 
 
+def normalize_payment_request_visual(visual: dict[str, Any]) -> dict[str, Any]:
+    """Keep the payment-request calculation order visible and nonduplicated."""
+    normalized = dict(visual)
+    headline = " ".join(
+        str(normalized.get(key) or "")
+        for key in ("purpose", "learning_claim", "diagram_title")
+    )
+    description = headline + " " + " ".join(
+        f"{node.get('title') or ''} {node.get('detail') or ''}"
+        for node in (normalized.get("diagram_nodes") or [])
+        if isinstance(node, dict)
+    )
+    lowered = description.lower()
+    if not all(term in lowered for term in ("payment", "retainage", "prior payment")):
+        return normalized
+    if not re.search(r"\b(amount|calculate|calculation|building)\b", headline.lower()):
+        return normalized
+    if "stored material" not in lowered and "materials" not in lowered:
+        return normalized
+    normalized["diagram_type"] = "process-flow"
+    normalized["diagram_title"] = "Payment Request Amount Sequence"
+    normalized["learning_claim"] = (
+        "Calculate the current payment request by adding approved changes and permitted stored materials, "
+        "then subtracting credits or deductions, retainage, and prior payments once in that order."
+    )
+    normalized["diagram_nodes"] = [
+        {"title": "Start with accepted base work", "detail": ""},
+        {"title": "Add approved changes", "detail": ""},
+        {"title": "Add stored materials", "detail": "Only when contract permits"},
+        {"title": "Subtract credits/deductions", "detail": "Value before retainage"},
+        {"title": "Subtract retainage", "detail": ""},
+        {"title": "Subtract prior payments", "detail": "Current request"},
+    ]
+    normalized["diagram_columns"] = []
+    normalized["diagram_rows"] = []
+    return normalized
+
+
 def technical_visual_requires_operator(visual: dict[str, Any]) -> bool:
     """Reserve operator escalation for visuals whose technical fidelity is instructional."""
     description = " ".join(
@@ -3554,7 +3592,10 @@ def create_visual_assets(seed, lesson: dict[str, Any], draft: str, run: Path, le
     section_headings = re.findall(r"(?im)^#\s+(Section\s+\d{2}\s+-\s+[^\n]+)$", draft)
 
     def prepare_visuals(items: list[dict[str, Any]]) -> list[dict[str, Any]]:
-        prepared = [normalize_visual_strategy(restore_structured_visual_type(visual)) for visual in items]
+        prepared = [
+            normalize_payment_request_visual(normalize_visual_strategy(restore_structured_visual_type(visual)))
+            for visual in items
+        ]
         generated_seen = 0
         for index, visual in enumerate(prepared):
             placement = str(visual.get("placement") or "")

@@ -2231,6 +2231,30 @@ Term.
         self.assertIn("agreement", first)
         self.assertIn("agreement", second)
 
+    def test_payment_request_visual_has_one_canonical_calculation_order(self) -> None:
+        visual = {
+            "purpose": "Show the payment request calculation",
+            "learning_claim": "Include stored materials, retainage, and prior payments.",
+            "diagram_title": "Payment amount",
+            "diagram_nodes": [
+                {"title": "Add approved changes/materials", "detail": ""},
+                {"title": "Subtract prior payments", "detail": ""},
+                {"title": "Subtract retainage", "detail": ""},
+                {"title": "Subtract prior payments again", "detail": ""},
+            ],
+        }
+        normalized = production.normalize_payment_request_visual(visual)
+        titles = [node["title"] for node in normalized["diagram_nodes"]]
+        self.assertEqual("process-flow", normalized["diagram_type"])
+        self.assertEqual(1, titles.count("Subtract prior payments"))
+        self.assertEqual(
+            [
+                "Start with accepted base work", "Add approved changes", "Add stored materials",
+                "Subtract credits/deductions", "Subtract retainage", "Subtract prior payments",
+            ],
+            titles,
+        )
+
     def test_embedded_action_is_separated_before_numbered_steps(self) -> None:
         draft = (
             "> - The field copy is Revision 1. **Action** 1. Remove it from the active set.\n"
