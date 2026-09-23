@@ -80,6 +80,7 @@ styles.add(ParagraphStyle(name="CalloutLabel", parent=styles["BodyGreg"], fontNa
 styles.add(ParagraphStyle(name="CalloutBody", parent=styles["BodyGreg"], fontSize=9.5, leading=13, textColor=INK, spaceAfter=0))
 styles.add(ParagraphStyle(name="CalloutBodySpaced", parent=styles["CalloutBody"], spaceAfter=5))
 styles.add(ParagraphStyle(name="CalloutBullet", parent=styles["CalloutBody"], fontSize=9.1, leading=12, leftIndent=0, spaceAfter=1))
+styles.add(ParagraphStyle(name="NumberedStep", parent=styles["BodyGreg"], fontSize=9.7, leading=13.2, spaceAfter=2.5))
 styles.add(ParagraphStyle(name="BridgeLabel", parent=styles["CalloutLabel"], fontSize=9, leading=10))
 styles.add(ParagraphStyle(name="BridgeBody", parent=styles["CalloutBody"], fontSize=8.5, leading=10.5))
 styles.add(ParagraphStyle(name="BridgeLead", parent=styles["BodyGreg"], fontSize=9.2, leading=12, textColor=MUTED, spaceAfter=10))
@@ -301,7 +302,13 @@ class Callout:
                 ("BOTTOMPADDING", (0, row_index), (-1, row_index), padding if row_index == len(rows) - 1 else (1 if compact_bridge else 2)),
             ])
         table.setStyle(TableStyle(table_style))
-        return KeepTogether([Spacer(1, 3 if compact_bridge else 7), table, Spacer(1, 3 if compact_bridge else 9)])
+        # Short boxes should travel as one teaching unit. Long structured
+        # exercises must be allowed to split between their internal rows;
+        # forcing the entire box onto the next page strands the preceding
+        # content and can create a mostly blank page.
+        if compact_bridge or (len(body_flowables) <= 3 and len(self.body) <= 900):
+            return KeepTogether([Spacer(1, 3 if compact_bridge else 7), table, Spacer(1, 3 if compact_bridge else 9)])
+        return table
 
 
 def structured_callout_blocks(body: str) -> list[dict[str, Any]]:
@@ -1074,8 +1081,9 @@ def bullets(items: list[str], style: str = "BodyGreg"):
 
 def numbered_steps(items: list[tuple[str, str]], style: str = "BodyGreg"):
     """Render each ordered Markdown step as its own visible table row."""
+    selected_style = "NumberedStep" if style == "BodyGreg" and len(items) >= 8 else style
     rows = [
-        [Paragraph(inline(f"{number}."), styles[style]), Paragraph(inline(item), styles[style])]
+        [Paragraph(inline(f"{number}."), styles[selected_style]), Paragraph(inline(item), styles[selected_style])]
         for number, item in items
     ]
     table = Table(rows, colWidths=[20, 6.28 * inch], hAlign="LEFT")
@@ -1084,7 +1092,7 @@ def numbered_steps(items: list[tuple[str, str]], style: str = "BodyGreg"):
         ("LEFTPADDING", (0, 0), (-1, -1), 0),
         ("RIGHTPADDING", (0, 0), (-1, -1), 0),
         ("TOPPADDING", (0, 0), (-1, -1), 0),
-        ("BOTTOMPADDING", (0, 0), (-1, -1), 4),
+        ("BOTTOMPADDING", (0, 0), (-1, -1), 2 if selected_style == "NumberedStep" else 4),
     ]))
     return table
 

@@ -101,6 +101,28 @@ class RenderStudyGuideFromSpecTests(unittest.TestCase):
         self.assertEqual(["paragraph", "numbered", "paragraph", "bullets"], [item["type"] for item in structured])
         self.assertEqual([("1", "Identify the conflict."), ("2", "Verify authority.")], structured[1]["items"])
 
+    def test_long_structured_callout_can_split_between_rows(self) -> None:
+        if pdf_renderer is None:
+            self.skipTest("ReportLab is not installed in this Python environment.")
+        body = (
+            "Supplied inputs:\n\n"
+            + "\n".join(f"- Record {index}: A current project fact with enough detail." for index in range(1, 7))
+            + "\n\nTask: Compare the records.\n\n"
+            + "\n".join(f"{index}. Check record {index}." for index in range(1, 7))
+            + "\n\nAnswer/check: Keep only current records."
+        )
+        flowable = pdf_renderer.Callout("HANDS-ON EXAMPLE", body).flowable()
+        self.assertIsInstance(flowable, pdf_renderer.Table)
+        self.assertEqual(1, flowable.splitByRow)
+
+    def test_long_numbered_procedure_uses_compact_readable_style(self) -> None:
+        if pdf_renderer is None:
+            self.skipTest("ReportLab is not installed in this Python environment.")
+        table = pdf_renderer.numbered_steps([(str(index), f"Step {index}") for index in range(1, 13)])
+        paragraph = table._cellvalues[0][1]
+        self.assertEqual("NumberedStep", paragraph.style.name)
+        self.assertLess(paragraph.style.leading, pdf_renderer.styles["BodyGreg"].leading)
+
     def test_bold_record_wall_becomes_separate_bullets(self) -> None:
         if pdf_renderer is None:
             self.skipTest("ReportLab is not installed in this Python environment.")
