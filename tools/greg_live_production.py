@@ -1702,11 +1702,32 @@ def normalize_ordinary_practice_blocks(draft: str, *, level: str = "basic") -> s
         draft = draft[:start] + replacement + draft[absolute_end:]
 
     cleaned: list[str] = []
+    explained_records = False
+    practice_example = False
     for line in draft.splitlines():
         if line.lstrip().startswith(">"):
-            cleaned.append(line)
+            if practice_example:
+                cleaned.append(re.sub(r"^>\s*[*-]\s*", "- ", line))
+            else:
+                cleaned.append(line)
             continue
         stripped = line.strip()
+        if re.match(r"^#{1,2}\s+", stripped):
+            explained_records = False
+            practice_example = False
+        if re.match(r"^\*\*Example records\.\*\*", stripped, flags=re.I):
+            explained_records = True
+        if explained_records and re.match(r"^\d+\.\s+(?:Classify|Identify|Decide|State|Compare|Calculate|Review|Select)\b", stripped, flags=re.I):
+            continue
+        if re.match(r"^\*\*Explanation\.\*\*", stripped, flags=re.I):
+            explained_records = False
+        if re.match(r"^\*\*Practice task\.\*\*", stripped, flags=re.I):
+            practice_example = True
+            cleaned.append("**Worked example.** The following records demonstrate the classification rule.")
+            continue
+        if practice_example and re.match(r"^\*\*Answer(?:/Result)?\s*check\.\*\*", stripped, flags=re.I):
+            cleaned.append("**Explanation.**")
+            continue
         if stripped == "Inputs:" or re.match(r"^(?:\*\*)?Action:\s*", stripped, flags=re.I):
             continue
         if re.match(r"^\*\*Application\.\*\*", stripped, flags=re.I):
@@ -1838,6 +1859,7 @@ def normalize_callout_density(draft: str, maximum: int = 5, *, level: str = "bas
     auxiliary_orange = [
         block for block in body_blocks
         if block["label"] in {"APPLY IT", "SCENARIO"}
+        and block["body_word_count"] > 0
         and not (block["label"] == "SCENARIO" and block["contains_learner_task"])
     ]
     keep_blocks = [*selected_hands_on]
@@ -1990,9 +2012,25 @@ def normalize_callout_density(draft: str, maximum: int = 5, *, level: str = "bas
     rebuilt = normalize_prose_dashes(rebuilt)
     final_lines: list[str] = []
     for line in rebuilt.splitlines():
-        if re.match(r"^>\s*\*\*Answer(?:/Result)?\s*check\s*[.:]\s*\*\*", line.strip(), re.I):
+        line = re.sub(
+            r"^>\s*(?:\*\*)?Answer(?:\s*/\s*(?:Result\s*)?)?check\s*[.:]\s*(?:\*\*)?\s*",
+            "> **Answer/Result check:** ",
+            line,
+            flags=re.I,
+        ).rstrip()
+        answer_match = re.match(
+            r"^(>\s*\*\*Answer(?:\s*/\s*(?:Result\s*)?)?check\s*[.:]\s*\*\*)(.*)$",
+            line.strip(),
+            re.I,
+        )
+        if answer_match:
             if not final_lines or final_lines[-1].strip() != ">":
                 final_lines.append(">")
+            final_lines.append("> **Answer/Result check:**")
+            answer_text = answer_match.group(2).strip()
+            if answer_text:
+                final_lines.append("> " + answer_text)
+            continue
         if line.strip() == ">" and final_lines and final_lines[-1].strip() == ">":
             continue
         final_lines.append(line)
@@ -2001,6 +2039,11 @@ def normalize_callout_density(draft: str, maximum: int = 5, *, level: str = "bas
 
 def normalize_hands_on_example_markdown(draft: str) -> str:
     """Repair provider-flattened HANDS-ON blocks without changing wording."""
+    draft = re.sub(
+        r"(?im)^\*\*Hands?[ -]on example(?:,\s*(?:setup|field response))?\.\*\*\s*(.*)$",
+        lambda match: "**HANDS ON EXAMPLE**\n\n**Setup:** " + match.group(1).strip(),
+        draft,
+    )
     draft = re.sub(
         r"(?im)^(?:>[ \t]*)?\*\*HANDS ON EXAMPLE:[ \t]*Setup\*\*[ \t]*$",
         "**HANDS ON EXAMPLE**\n\n**Setup:**",
@@ -2055,7 +2098,7 @@ def normalize_hands_on_example_markdown(draft: str) -> str:
         restored_lines.append("")
     draft = "\n".join(restored_lines)
     field_pattern = re.compile(
-        r"(?:\*\*)?(Setup|Supplied (?:inputs|records|information)|Task|Actions|Your action|Individual action|Answer(?:\s*/\s*|\s+and\s+)Check)\s*[:.]?(?:\*\*)?",
+        r"(?:\*\*)?(Setup|Supplied (?:inputs|records|information)|Task|Actions|Your action|Individual action|Field response|Answer(?:\s*/\s*|\s+and\s+)Check)\s*[:.]?(?:\*\*)?",
         flags=re.I,
     )
     label_pattern = re.compile(r"^>\s*\*\*HANDS-ON EXAMPLE\*\*\s*$", flags=re.I)
@@ -2139,7 +2182,7 @@ def normalize_hands_on_example_markdown(draft: str) -> str:
         def field_key(label: str) -> str:
             return re.sub(r"(?:\s*/\s*|\s+and\s+)", "/", label.lower())
 
-        rank = {"setup": 0, "supplied inputs": 1, "supplied records": 1, "supplied information": 1, "task": 2, "actions": 2, "your action": 2, "individual action": 2, "answer/check": 3}
+        rank = {"setup": 0, "supplied inputs": 1, "supplied records": 1, "supplied information": 1, "task": 2, "actions": 2, "your action": 2, "individual action": 2, "field response": 2, "answer/check": 3}
         fields.sort(key=lambda item: rank.get(field_key(item[1]), 4))
         for _match, label, value in fields:
             key = field_key(label)
@@ -2164,9 +2207,9 @@ def normalize_hands_on_example_markdown(draft: str) -> str:
                     result.extend(f"{line_prefix}{number}. {step}" for number, step in steps if step)
                 elif value:
                     result.append(f"{line_prefix}{value}")
-            elif key in {"your action", "individual action"}:
+            elif key in {"your action", "individual action", "field response"}:
                 add_break()
-                result.append(f"{line_prefix}{label}:" + (f" {value}" if value else ""))
+                result.append(f"{line_prefix}{'Task' if key == 'field response' else label}:" + (f" {value}" if value else ""))
             elif key == "answer/check":
                 lead, records = split_records(value)
                 canonical_label = re.sub(r"(?:\s*/\s*|\s+and\s+)", "/", label, flags=re.I)

@@ -1366,7 +1366,7 @@ Use these terms to distinguish roles.
         self.assertIn("> - **Record B:** Old photo.", normalized)
         self.assertIn("> 1. Check the revision.", normalized)
         self.assertIn("> 2. Hold changed work.", normalized)
-        self.assertIn("> Answer/check: The current plan governs.", normalized)
+        self.assertIn("> **Answer/Result check:**\n> The current plan governs.", normalized)
         self.assertNotIn("Actions.** 1.", normalized)
 
     def test_callout_normalizer_unboxes_unapproved_labels(self) -> None:
@@ -1504,7 +1504,7 @@ Term.
         self.assertIn("> **HANDS-ON EXAMPLE**", normalized)
         self.assertIn("> Supplied inputs:\n> - Drawing A4.1 is current.", normalized)
         self.assertIn("> Task:\n> 1. Confirm A4.1, revision 3.\n> 2. Hold the affected work.", normalized)
-        self.assertIn("> Answer/Check:\n> - The current drawing is recorded.", normalized)
+        self.assertIn("> **Answer/Result check:**\n> - The current drawing is recorded.", normalized)
         self.assertNotIn("HANDS ON EXAMPLE", normalized)
 
     def test_hands_on_step_splitter_does_not_treat_revision_as_a_step(self) -> None:
@@ -1515,7 +1515,7 @@ Term.
         self.assertIn("> 2. Compare A2.14, revision 3.", normalized)
         self.assertIn("> 3. Check the register.", normalized)
         self.assertNotIn("> 3. 3. Check", normalized)
-        self.assertIn("> Answer/Check: A2.14, revision 3, remains current.", normalized)
+        self.assertIn("> **Answer/Result check:**\n> A2.14, revision 3, remains current.", normalized)
 
     def test_unquoted_multiline_hands_on_block_is_restored(self) -> None:
         draft = """# Section 02 - Coordinate
@@ -1595,7 +1595,7 @@ Following prose.
 """
         normalized = production.normalize_callout_density(draft)
         self.assertIn("> 1. Compare the records.\n> 2. Hold the order.", normalized)
-        self.assertIn("> Answer/check:\n> - A2.14 remains current.", normalized)
+        self.assertIn("> **Answer/Result check:**\n> - A2.14 remains current.", normalized)
         self.assertNotIn("Hold the order. **Answer", normalized)
 
     def test_answer_result_period_variant_is_canonicalized_with_blank_quote(self) -> None:
@@ -2039,7 +2039,7 @@ Term.
         self.assertIn("> Setup: Revision 2 is current.", normalized)
         self.assertIn("> Task:\n> 1. Confirm the revision.\n> 2. Compare the request.", normalized)
         self.assertIn("> 3. Verify authority.\n> 4. Record the result.", normalized)
-        self.assertIn("> Answer/Check: Revision 2 governs.", normalized)
+        self.assertIn("> **Answer/Result check:**\n> Revision 2 governs.", normalized)
         self.assertNotIn("1. Confirm the revision. 2.", normalized)
 
     def test_hands_on_normalizer_recovers_adjacent_exercise_after_early_answer(self) -> None:
@@ -2060,9 +2060,9 @@ Body.
         self.assertIn("> Supplied inputs:\n> Use these records:", normalized)
         self.assertIn("> - A5.2 Revision 3 is current.", normalized)
         self.assertIn("> Your action: Prepare the control record.", normalized)
-        self.assertIn("> Answer/check: Mark Addendum 02 as incorporated", normalized)
+        self.assertIn("> **Answer/Result check:**\n> Mark Addendum 02 as incorporated", normalized)
         self.assertLess(normalized.index("> Supplied inputs:"), normalized.index("> Your action:"))
-        self.assertLess(normalized.index("> Your action:"), normalized.index("> Answer/check:"))
+        self.assertLess(normalized.index("> Your action:"), normalized.index("> **Answer/Result check:**"))
         self.assertNotIn("Stale answer", normalized)
 
     def test_factual_normalizer_repairs_course_book_source_title_and_sheet_spacing(self) -> None:
@@ -2081,7 +2081,7 @@ Supplied inputs: - Record A is current. - Record B is old. Task: 1. Compare the 
         self.assertIn("> **HANDS-ON EXAMPLE**", normalized)
         self.assertIn("> Supplied inputs:", normalized)
         self.assertIn("> 1. Compare the records.\n> 2. Choose the current record.", normalized)
-        self.assertIn("> Answer/Check: Record A governs.", normalized)
+        self.assertIn("> **Answer/Result check:**\n> Record A governs.", normalized)
 
     def test_inline_step_normalizer_does_not_split_revision_number(self) -> None:
         draft = (
@@ -2212,7 +2212,7 @@ Term.
 > **Answer/check:** Four.
 """
         normalized = production.normalize_callout_density(draft)
-        self.assertLessEqual(sum(1 for line in normalized.splitlines() if line.strip() == ">"), 2)
+        self.assertLessEqual(sum(1 for line in normalized.splitlines() if line.strip() == ">"), 3)
 
     def test_reviewed_factual_language_softens_submittal_effect_claim(self) -> None:
         draft = (
