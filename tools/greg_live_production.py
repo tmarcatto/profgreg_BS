@@ -1761,6 +1761,29 @@ def normalize_ordinary_practice_blocks(draft: str, *, level: str = "basic") -> s
         cleaned.append(line)
     normalized = "\n".join(cleaned).rstrip() + "\n"
     normalized = re.sub(r"\b(Section\s+\d{2}\s+\d{2}\s+\d{2})\.,\s*", r"\1. ", normalized)
+    normalized = re.sub(
+        r"(?im)^Using those facts,\s*(?:apply|classify|identify|compare)\s+(.+?)\s*$",
+        lambda match: "The model review applies " + match.group(1).rstrip(".") + ".",
+        normalized,
+    )
+    if str(level).lower() == "basic":
+        # Optional public-procurement examples repeatedly crowd out the core
+        # residential document-control sequence in introductory books. Keep
+        # that specialist context for later levels rather than asking the
+        # correction model to remove the same tangent on every run.
+        normalized = re.sub(
+            r"(?im)^(?:On federal or public work|For public or federally funded work|Public or federal sources)[^\n]*(?:\n|$)",
+            "",
+            normalized,
+        )
+        normalized = re.sub(r"(?im)^-\s+\*\*[^*]*(?:Utah|federal procurement)[^*]*\*\*:[^\n]*(?:\n|$)", "", normalized)
+        teaching, separator, references = normalized.partition("# References")
+        teaching = re.sub(
+            r"(?im)^[^\n]*(?:federal(?:ly)? funded|federal procurement|public infrastructure|Utah (?:form|context|contract))[^\n]*(?:\n|$)",
+            "",
+            teaching,
+        )
+        normalized = teaching + (separator + references if separator else "")
     return normalized
 
 
@@ -2233,6 +2256,8 @@ def normalize_hands_on_example_markdown(draft: str) -> str:
             elif key == "setup":
                 lead, records = split_records(value)
                 lead = re.sub(r"^Setup\s*:\s*", "", lead, flags=re.I)
+                if re.match(r"^[,;]\s*(?:identify|compare|decide|calculate|verify|apply|check)\b", lead, flags=re.I):
+                    continue
                 result.append(f"{line_prefix}Setup:" + (f" {lead}" if lead else ""))
                 if records:
                     result.append(f"{line_prefix}Supplied inputs:")
@@ -2248,6 +2273,15 @@ def normalize_hands_on_example_markdown(draft: str) -> str:
                     value,
                     flags=re.I,
                 )
+                if len(re.findall(r"[A-Za-z0-9]+", value)) < 6 or not re.search(
+                    r"\b(calculate|compute|identify|compare|decide|check|complete|estimate|forecast|reconcile|mark|write|choose|review|explain|verify|apply|state|confirm|hold)\b",
+                    value,
+                    flags=re.I,
+                ):
+                    value = (
+                        "Using the supplied records, identify the conflict, decide which current "
+                        "requirement controls, and state the next authorized step."
+                    )
                 result.append(f"{line_prefix}{'Task' if key == 'task' else 'Actions'}:")
                 steps = split_steps(value)
                 if steps:

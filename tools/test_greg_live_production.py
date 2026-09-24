@@ -1829,6 +1829,31 @@ Use document-control and wall-insulation records for the two-story addition.
         self.assertNotIn("**Action**", normalized)
         self.assertNotIn("**Answer/check**", normalized)
 
+    def test_basic_normalization_removes_public_procurement_tangent(self) -> None:
+        source = (
+            "# Section 03 - Documents\n\n"
+            "Using those facts, apply each document according to its function and contractual status.\n\n"
+            "For public or federally funded work, also check incorporated solicitation requirements.\n\n"
+            "Residential contracts use the incorporated document set.\n"
+        )
+        normalized = production.normalize_ordinary_practice_blocks(source, level="basic")
+        self.assertIn("The model review applies each document", normalized)
+        self.assertNotIn("federally funded", normalized)
+        self.assertIn("Residential contracts", normalized)
+
+    def test_incomplete_hands_on_task_gets_concrete_action(self) -> None:
+        source = (
+            "# Section 05 - Resolve\n\n"
+            "> **HANDS-ON EXAMPLE**\n"
+            "> Setup: Two current records conflict.\n"
+            "> Setup: , identify the conflict and apply precedence.\n"
+            ">\n> Task:\n> Using the supplied\n>\n"
+            "> **Answer/Result check:**\n> The incorporated detail governs.\n"
+        )
+        normalized = production.normalize_callout_density(source, level="basic")
+        self.assertNotIn("Setup: , identify", normalized)
+        self.assertIn("Using the supplied records, identify the conflict", normalized)
+
     def test_reviewer_ledger_uses_normalized_student_reference(self) -> None:
         ledger = {
             "course_slug": "course",
