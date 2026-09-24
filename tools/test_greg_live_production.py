@@ -1652,6 +1652,20 @@ Use document-control and wall-insulation records for the two-story addition.
         )
         self.assertTrue(response["passed"])
 
+    def test_reviewer_cannot_apply_advanced_hands_on_count_to_basic_course(self) -> None:
+        response = production.normalize_reviewer_response(
+            "pedagogy_review",
+            {
+                "passed": False,
+                "findings": ["The advanced-level rule requires exactly three hands-on examples."],
+                "required_changes": ["Add a third HANDS-ON EXAMPLE."],
+            },
+            "# Section 01 - Work\n\n> **HANDS-ON EXAMPLE**\n> Using supplied values, calculate the result.\n",
+            "Basic",
+        )
+        self.assertTrue(response["passed"])
+        self.assertEqual([], response["required_changes"])
+
     def test_reviewer_ledger_uses_normalized_student_reference(self) -> None:
         ledger = {
             "course_slug": "course",

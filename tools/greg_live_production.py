@@ -1796,7 +1796,7 @@ def normalize_callout_density(draft: str, maximum: int = 5, *, level: str = "bas
     neutralized_lines: list[str] = []
     for prose_line in normalized.splitlines():
         if not prose_line.lstrip().startswith(">"):
-            prose_line = re.sub(r"\*\*(?:Learner tasks?|Your tasks?|Task)\.?\*\*", "**Field response.**", prose_line, flags=re.I)
+            prose_line = re.sub(r"\*\*(?:Learner tasks?|Learner action|Your tasks?|Task)\.?\*\*", "**Field response.**", prose_line, flags=re.I)
             prose_line = re.sub(r"\*\*Answer(?:/Result)?\s*check\.?\*\*", "**Reasoning.**", prose_line, flags=re.I)
         neutralized_lines.append(prose_line)
     normalized = "\n".join(neutralized_lines).rstrip() + "\n"
@@ -3034,6 +3034,8 @@ def reviewer_prompt(
     # student-facing projection so they cannot mistake the marker itself for
     # a missing student artifact.
     review_draft = re.sub(r"(?im)^<!--\s*VISUAL_REQUIRED:.*?-->\s*$\n?", "", draft)
+    configured_level = str(getattr(seed, "level", "basic") or "basic")
+    configured_hands_on = {"basic": 1, "intermediate": 2, "advanced": 3}.get(configured_level.lower(), 1)
     criteria = {
         "pedagogy_review": "Check only learning progression, depth for level, MECE sections, residential examples, explanations before bullets, no classroom/group activities or quizzes, and no audience boilerplate. Learning Objectives, Summary and Key Takeaways, and References are structural bullet-only exceptions and must not receive an orienting or framing paragraph. References is a bibliography owned by the citation pipeline; do not request an explanatory sentence before its entries. Enforce the level rule: basic has exactly one HANDS-ON EXAMPLE, intermediate exactly two, and advanced exactly three, distributed across distinct and well-separated numbered sections. A HANDS-ON EXAMPLE must give supplied inputs, a concrete learner action, and an answer/result check after a deliberate blank quoted line; reject explanatory prose mislabeled as hands-on and keep each box concise enough for one page. A SCENARIO is a fully explained case, never a learner task and never followed by an answer/check. Reject every learner task or activity placed in ordinary teaching prose. Visual-dependent exercises are verified by deterministic authoring markers that are intentionally omitted from this reviewer projection and resolved by the next visual stage; do not fail the Markdown because the final visual is not yet inserted. Any ordered procedure must use a real numbered Markdown list with exactly one step per source line; reject `1. ... 2. ... 3. ...` embedded in one paragraph because it hides the sequence from the learner and renderer. The Summary and Key Takeaways section must contain only 4-6 bullets, with no framing sentence or prose. Require a readable Markdown table only for one uninterrupted list of seven or more comparable items that repeatedly state category, quantity or amount, and the same condition or comment. Do not demand tables for conceptual lists, short examples, WBS vocabulary, or distinct decision steps. After a table, require prose to add a decision, exception, or interpretation rather than restating its rows. Citation style and reference formatting belong to the citation reviewer; do not fail this review merely because ordinary claims lack inline citations. Figures are planned and inserted by a separate visual pipeline after this review. Do not request ASCII diagrams, Markdown tables used as figures, fenced visual source, or final figure rendering inside the chapter Markdown.",
         "citation_review": "Check factual support against the ledger, current applicability, clean student references, no invented claims, and no internal/local source language. Internal/local source language means file paths, ledger mechanics, reviewer rationale, or private production notes; neutral student-facing references to documented authority, organizational procedures, or project procedures are allowed. Do not demand inline citations for every source or every ordinary claim. References may include materially consulted sources even when they are not named decoratively in the teaching prose. List each work only once, even when multiple chapters or claims used it; omit chapter, section, and page details from the final References section. Evaluate that bibliography rule only against the text after the final `# References` heading. Count the actual bibliography lines, not duplicate ledger records: if the final References text contains only one Part 16 entry, do not report a duplicate Part 16 work. A chapter, section, or direct-content hyperlink discussed in the teaching prose is not a bibliography defect and must not be reported as one. Never request or add accessed/retrieved dates. Books, codes, standards, regulations, reports, manuals, and paginated formal publications must remain bibliographic references without URLs even when the research ledger records an official online location; do not demand URLs for those formal works. Only sources actually classified as webpages may retain the direct content URL used. A direct standalone PDF is cited by its normalized corporate author and document title; do not demand that a parent marketing collection be restored when the normalized ledger entry omits it. The Summary and Key Takeaways section must be only 4-6 bullets, with no introductory prose; never request a summary opener.",
@@ -3066,6 +3068,7 @@ Candidate diff from approved baseline:
 """
     return f"""Return JSON only as an independent Prof Greg reviewer.
 Review Lesson {lesson['lesson_number']}: {lesson['title']} for {seed.title}.
+Configured course level: {configured_level.upper()}. This exact level requires exactly {configured_hands_on} HANDS-ON EXAMPLE box(es). Never request the count assigned to another level.
 {criteria}
 The artifact must be genuinely student-ready, not merely present. Apply only your assigned specialist criteria. Do not invent new requirements outside that scope or repeat another reviewer's job.
 {revision_scope}
@@ -3178,12 +3181,22 @@ def archive_review_report(run: Path, lesson_tag: str, suffix: str, revision: int
         write_text(run / "review" / f"{lesson_tag}_{suffix}_r{revision:02d}.md", source.read_text(encoding="utf-8", errors="replace"))
 
 
-def normalize_reviewer_response(role: str, data: dict[str, Any], draft: str = "") -> dict[str, Any]:
+def normalize_reviewer_response(role: str, data: dict[str, Any], draft: str = "", level: str = "") -> dict[str, Any]:
     """Remove reviewer requests that directly contradict deterministic policy."""
     normalized = dict(data)
 
     def valid(item: Any) -> bool:
         text = str(item)
+        expected_hands_on = {"basic": 1, "intermediate": 2, "advanced": 3}.get(str(level).lower())
+        wrong_level_patterns = {
+            1: r"\badvanced[- ]level\b|\bexactly three\b|\bthird\s+HANDS-ON\b|\bthree\s+hands-on\b",
+            2: r"\bbasic[- ]level\b.*\bhands-on\b|\badvanced[- ]level\b.*\bhands-on\b|\bexactly (?:one|three)\b.*\bhands-on\b",
+            3: r"\bbasic[- ]level\b.*\bhands-on\b|\bintermediate[- ]level\b.*\bhands-on\b|\bexactly (?:one|two)\b.*\bhands-on\b",
+        }
+        if expected_hands_on and re.search(wrong_level_patterns[expected_hands_on], text, flags=re.I):
+            return False
+        if re.search(r"\bGlossary\b", text, flags=re.I) and re.search(r"\b(?:add|needs?|require)\b.*\b(?:paragraph|orienting|explanatory)\b", text, flags=re.I):
+            return False
         if role == "design_review" and re.search(
             r"\bBRIDGE\b.*\b(?:replace|remove|invalid|not approved|approved label)\b|"
             r"\b(?:replace|remove)\b.*\bBRIDGE\b",
@@ -3272,7 +3285,7 @@ def run_content_reviewers(
     failed_roles: set[str] = set()
     target_headings: list[str] = []
     for _role, title, suffix, data in results:
-        data = normalize_reviewer_response(_role, data, draft)
+        data = normalize_reviewer_response(_role, data, draft, str(getattr(seed, "level", "basic") or "basic"))
         if approved_baseline and operator_revision_request:
             allowed_numbers = {
                 int(match.group(1))
