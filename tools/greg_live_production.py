@@ -1780,14 +1780,14 @@ def normalize_ordinary_practice_blocks(draft: str, *, level: str = "basic") -> s
         # that specialist context for later levels rather than asking the
         # correction model to remove the same tangent on every run.
         normalized = re.sub(
-            r"(?im)^(?:On federal or public work|For public or federally funded work|Public or federal sources)[^\n]*(?:\n|$)",
+            r"(?im)^(?![^\n]*(?:not universal|does not automatically|governing [^\n]* control))(?:On federal or public work|For public or federally funded work|Public or federal sources)[^\n]*(?:\n|$)",
             "",
             normalized,
         )
         normalized = re.sub(r"(?im)^-\s+\*\*[^*]*(?:Utah|federal procurement)[^*]*\*\*:[^\n]*(?:\n|$)", "", normalized)
         teaching, separator, references = normalized.partition("# References")
         teaching = re.sub(
-            r"(?im)^[^\n]*(?:federal(?:ly)? funded|federal procurement|public infrastructure|Utah (?:form|context|contract))[^\n]*(?:\n|$)",
+            r"(?im)^(?![^\n]*(?:not universal|does not automatically|governing [^\n]* control))[^\n]*(?:federal(?:ly)? funded|federal procurement|public infrastructure|Utah (?:form|context|contract))[^\n]*(?:\n|$)",
             "",
             teaching,
         )
@@ -1812,6 +1812,15 @@ def normalize_ordinary_practice_blocks(draft: str, *, level: str = "basic") -> s
         teaching = teaching.replace("residential-construction contract form", "residential construction contract form")
         normalized = teaching + (separator + references if separator else "")
         normalized = normalized.replace("residential-construction contract form", "residential construction contract form")
+    if "# References" in normalized and not re.search(
+        r"(?im)^-\s+Construction Contract and Laws\.\s*$",
+        normalized,
+    ):
+        normalized = normalized.replace(
+            "# References",
+            "# References\n\n- Construction Contract and Laws.",
+            1,
+        )
     return normalized
 
 
@@ -2029,7 +2038,6 @@ def normalize_callout_density(draft: str, maximum: int = 5, *, level: str = "bas
             prose_line = re.sub(r"\*\*Answer(?:/Result)?\s*check\.?\*\*", "**Reasoning.**", prose_line, flags=re.I)
         neutralized_lines.append(prose_line)
     normalized = "\n".join(neutralized_lines).rstrip() + "\n"
-    normalized = re.sub(r"(?im)^-\s+Construction Contract and Laws\.\s*$\n?", "", normalized)
     normalized = re.sub(
         r"(?im)^7\.\s+Confirm that the response identifies the document, material, method, approval, and price or time effect\.\s*$",
         "7. When applicable, confirm the document, material, method, approval, and price or time effect. Record any pending, unknown, or not-applicable effect explicitly.",

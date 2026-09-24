@@ -1855,6 +1855,22 @@ Use document-control and wall-insulation records for the two-story addition.
         self.assertNotIn("federally funded", normalized)
         self.assertIn("Residential contracts", normalized)
 
+    def test_basic_normalization_preserves_public_context_qualifier(self) -> None:
+        source = (
+            "# Section 04 - Coordinate\n\n"
+            "Federal and public infrastructure materials are technical examples, not universal residential law; "
+            "the governing contract and jurisdiction control.\n\n"
+            "# References\n\n- Construction Contract and Laws.\n"
+        )
+        normalized = production.normalize_callout_density(source, level="basic")
+        self.assertIn("not universal residential law", normalized)
+        self.assertIn("- Construction Contract and Laws.", normalized)
+
+    def test_missing_required_course_work_is_added_to_references(self) -> None:
+        source = "# Section 01 - Work\n\nBody.\n\n# References\n\n- Existing source.\n"
+        normalized = production.normalize_ordinary_practice_blocks(source, level="basic")
+        self.assertEqual(1, normalized.count("- Construction Contract and Laws."))
+
     def test_field_response_prompt_becomes_model_explanation(self) -> None:
         source = (
             "# Section 03 - Status\n\n"
