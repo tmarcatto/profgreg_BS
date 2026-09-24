@@ -1607,9 +1607,100 @@ def restore_truncated_revision(candidate: str, baseline: str) -> str:
     return baseline if not preserves_complete_study_guide_structure(candidate, baseline) else candidate
 
 
+def normalize_ordinary_practice_blocks(draft: str, *, level: str = "basic") -> str:
+    """Keep learner work inside complete hands-on boxes only.
+
+    Review models sometimes repair an excess exercise by dropping its box
+    while leaving ``Application`` and ``Interpretation`` fields in ordinary
+    teaching prose.  If the chapter is missing a required exercise, promote
+    the shortest complete worked-record block.  All remaining body activities
+    become explained examples by removing their learner prompt and retaining
+    the records plus explanation.
+    """
+    target = {"basic": 1, "intermediate": 2, "advanced": 3}.get(str(level).lower(), 1)
+    hands_on_count = len(re.findall(r"(?im)^>\s*\*\*HANDS-ON EXAMPLE\*\*\s*$", draft))
+    missing = max(0, target - hands_on_count)
+
+    section_pattern = re.compile(r"(?ms)^# Section \d{2} - .+?(?=^# Section \d{2} - |^# Summary and Key Takeaways|\Z)")
+    candidates: list[tuple[int, int, str]] = []
+    application_pattern = re.compile(
+        r"(?ms)^\*\*Example records\.\*\*\s*\n(?P<inputs>.*?)"
+        r"^\*\*Application\.\*\*\s*(?P<task>.*?)\n"
+        r"^\*\*Interpretation\.\*\*\s*(?P<answer>.*?)(?=\n\n|\Z)"
+    )
+    for section in section_pattern.finditer(draft):
+        for match in application_pattern.finditer(section.group(0)):
+            text = match.group(0)
+            word_count = len(re.findall(r"[A-Za-z0-9][A-Za-z0-9'-]*", text))
+            if word_count > 260:
+                continue
+            inputs = match.group("inputs").strip()
+            task = match.group("task").strip()
+            answer = match.group("answer").strip()
+            quoted_inputs = [f"> {line}" if line.strip() else ">" for line in inputs.splitlines()]
+            quoted_answer = [f"> {line}" if line.strip() else ">" for line in answer.splitlines()]
+            replacement = "\n".join([
+                "> **HANDS-ON EXAMPLE**",
+                "> Supplied inputs:",
+                *quoted_inputs,
+                ">",
+                "> Task:",
+                f"> {task}",
+                ">",
+                "> **Answer/Result check:**",
+                *quoted_answer,
+            ])
+            candidates.append((word_count, section.start() + match.start(), replacement))
+
+    selected = sorted(candidates, key=lambda item: (item[0], item[1]))[:missing]
+    for _words, start, replacement in sorted(selected, key=lambda item: item[1], reverse=True):
+        original = next(
+            match for section in section_pattern.finditer(draft)
+            for match in application_pattern.finditer(section.group(0))
+            if section.start() + match.start() == start
+        )
+        absolute_end = start + len(original.group(0))
+        draft = draft[:start] + replacement + draft[absolute_end:]
+
+    cleaned: list[str] = []
+    for line in draft.splitlines():
+        if line.lstrip().startswith(">"):
+            cleaned.append(line)
+            continue
+        stripped = line.strip()
+        if stripped == "Inputs:" or re.match(r"^(?:\*\*)?Action:\s*", stripped, flags=re.I):
+            continue
+        if re.match(r"^\*\*Application\.\*\*", stripped, flags=re.I):
+            continue
+        if re.match(r"^\*\*Interpretation\.\*\*\s*Verify the result", stripped, flags=re.I):
+            continue
+        line = re.sub(r"\*\*Interpretation\.\*\*", "**Explanation.**", line, flags=re.I)
+        cleaned.append(line)
+    return "\n".join(cleaned).rstrip() + "\n"
+
+
+def normalize_prose_sequences(draft: str) -> str:
+    """Render explicitly introduced action sequences as real Markdown lists."""
+    output: list[str] = []
+    action = re.compile(r"^(check|confirm|record|ask|pause|identify|compare|verify|notify|obtain|document)\b", re.I)
+    for line in draft.splitlines():
+        if line.lstrip().startswith(">") or " sequence:" not in line.lower():
+            output.append(line)
+            continue
+        lead, values = line.split(":", 1)
+        parts = [part.strip().rstrip(".") for part in re.split(r",\s*(?:and\s+)?|;\s*(?:and\s+)?", values) if part.strip()]
+        if len(parts) < 3 or not all(action.match(part) for part in parts):
+            output.append(line)
+            continue
+        output.append(lead.rstrip() + ":")
+        output.extend(f"{index}. {part[0].upper() + part[1:]}." for index, part in enumerate(parts, start=1))
+    return "\n".join(output).rstrip() + "\n"
+
+
 def normalize_callout_density(draft: str, maximum: int = 5, *, level: str = "basic") -> str:
     """Keep useful body callouts; structural sections are always unboxed prose."""
-    draft = normalize_hands_on_example_markdown(draft)
+    draft = normalize_prose_sequences(normalize_hands_on_example_markdown(draft))
+    draft = normalize_ordinary_practice_blocks(draft, level=level)
     raw_lines = draft.splitlines()
     approved_labels = {"KEY TERM", "APPLY IT", "HANDS-ON EXAMPLE", "SCENARIO", "CALLBACK", "BRIDGE"}
     # Revisions sometimes invent Markdown boxes such as NOTE, WARNING, or a
@@ -1774,10 +1865,11 @@ def normalize_callout_density(draft: str, maximum: int = 5, *, level: str = "bas
                 for body_line in body:
                     cleaned = re.sub(r"^(?:\*\*)?Setup(?:\*\*)?\s*[:.]?", "**Worked example.**", body_line, flags=re.I)
                     cleaned = re.sub(r"^(?:\*\*)?Supplied (?:inputs|records|information)(?:\*\*)?\s*[:.]?", "**Example records.**", cleaned, flags=re.I)
-                    cleaned = re.sub(r"^(?:\*\*)?(?:Task|Actions|Your action|Individual action)(?:\*\*)?\s*[:.]?", "**Application.**", cleaned, flags=re.I)
+                    if re.match(r"^(?:\*\*)?(?:Task|Actions|Your action|Individual action)(?:\*\*)?\s*[:.]?", cleaned, flags=re.I):
+                        continue
                     cleaned = re.sub(
                         r"(?:\*\*)?Answer(?:\s*/\s*(?:Result\s*)?|\s+and\s+)?Check\s*:?(?:\*\*)?",
-                        "**Interpretation.**",
+                        "**Explanation.**",
                         cleaned,
                         flags=re.I,
                     )
@@ -2103,6 +2195,9 @@ def normalize_hands_on_example_markdown(draft: str) -> str:
     )
     input_pattern = re.compile(r"\b(using|use|given|start with|from the|assume|based on|supplied|inputs?|records?|figures?|amounts?|values?|report|table|diagram)\b", flags=re.I)
     check_pattern = re.compile(r"\b(answer|check|result|should|then|compare your|verify|expected|why)\b", flags=re.I)
+    explicit_input_field = re.compile(r"\b(?:Setup|Supplied (?:inputs|records|information))\s*[:.]", flags=re.I)
+    explicit_action_field = re.compile(r"\b(?:Task|Actions|Your action|Individual action)\s*[:.]", flags=re.I)
+    explicit_check_field = re.compile(r"\bAnswer(?:\s*/\s*(?:Result\s*)?|\s+and\s+)?Check\s*[:.]", flags=re.I)
     while index < len(output):
         if not label_pattern.match(output[index].strip()):
             normalized.append(output[index])
@@ -2113,7 +2208,21 @@ def normalize_hands_on_example_markdown(draft: str) -> str:
             end += 1
         body_lines = [line.lstrip()[1:].strip() for line in output[index + 1 : end] if line.lstrip()[1:].strip()]
         body = " ".join(body_lines)
-        if not (action_pattern.search(body) and input_pattern.search(body) and check_pattern.search(body)):
+        semantic_fields = bool(action_pattern.search(body) and input_pattern.search(body) and check_pattern.search(body))
+        explicit_fields = bool(
+            explicit_input_field.search(body)
+            and explicit_action_field.search(body)
+            and explicit_check_field.search(body)
+        )
+        # A single provider-flattened sentence can still be repaired below;
+        # a multi-line explanatory procedure cannot masquerade as an exercise
+        # merely because it happens to contain words such as "check".
+        repairable_flat_exercise = bool(
+            len(body_lines) == 1
+            and semantic_fields
+            and re.search(r"\b(?:supplied (?:inputs|records|values)|given values?|using supplied)\b", body, flags=re.I)
+        )
+        if not (semantic_fields and explicit_fields) and not repairable_flat_exercise:
             normalized.append("> **APPLY IT**")
             normalized.extend(output[index + 1 : end])
             index = end

@@ -1555,10 +1555,52 @@ Following prose.
 
     def test_answer_result_period_variant_is_canonicalized_with_blank_quote(self) -> None:
         draft = """> **HANDS-ON EXAMPLE**
-> Using supplied values, calculate the result. **Answer/Result check.** The result is 10.
+> Setup: Use the supplied values. Task: Calculate the result. **Answer/Result check.** The result is 10.
 """
         normalized = production.normalize_callout_density(draft, level="basic")
         self.assertIn(">\n> **Answer/Result check:**\n> The result is 10.", normalized)
+
+    def test_generic_procedure_is_not_accepted_as_hands_on_example(self) -> None:
+        draft = """# Section 01 - Explain
+
+> **HANDS-ON EXAMPLE**
+> Use this sequence to stop, ask, and document:
+> 1. Check the current record.
+> 2. Ask for direction.
+>
+> **Answer/Result check:**
+> The process is complete when the record is clear.
+"""
+        normalized = production.normalize_callout_density(draft, level="basic")
+        self.assertNotIn("> **HANDS-ON EXAMPLE**", normalized)
+        self.assertIn("> **APPLY IT**", normalized)
+
+    def test_ordinary_application_is_promoted_and_other_tasks_are_removed(self) -> None:
+        draft = """# Section 01 - Explain
+
+When the rulebook is unclear, use this basic sequence: check the current document, confirm authority, record the condition, and ask for written direction.
+
+**Application.** Decide what applies.
+Action: Select the record.
+**Interpretation.** The current record governs.
+
+# Section 02 - Practice
+
+**Example records.**
+- A2.1 is current.
+- A2.0 is old.
+**Application.** Identify the current record.
+**Interpretation.**
+- A2.1 governs.
+"""
+        normalized = production.normalize_callout_density(draft, level="basic")
+        self.assertEqual(1, normalized.count("> **HANDS-ON EXAMPLE**"))
+        self.assertIn("> Supplied inputs:\n> - A2.1 is current.", normalized)
+        self.assertIn("> Task:\n> Identify the current record.", normalized)
+        self.assertIn(">\n> **Answer/Result check:**\n> - A2.1 governs.", normalized)
+        self.assertNotIn("Action: Select", normalized)
+        self.assertNotIn("**Application.** Decide", normalized)
+        self.assertIn("use this basic sequence:\n1. Check the current document.\n2. Confirm authority.", normalized)
 
     def test_excess_hands_on_callout_becomes_structured_worked_example(self) -> None:
         block = """> **HANDS-ON EXAMPLE**
@@ -1576,8 +1618,8 @@ Following prose.
         self.assertIn("**Worked example.** Compare records.", normalized)
         self.assertIn("**Example records.**", normalized)
         self.assertIn("- A2.1 is current.", normalized)
-        self.assertIn("**Application.** Select the current record.", normalized)
-        self.assertIn("**Interpretation.**", normalized)
+        self.assertNotIn("**Application.** Select the current record.", normalized)
+        self.assertIn("**Explanation.**", normalized)
 
     def test_prose_dash_normalizer_removes_compound_hyphens_only_before_references(self) -> None:
         draft = """# Section 01 - Work
