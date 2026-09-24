@@ -132,6 +132,19 @@ def _markdown_table_first_cells(markdown: str) -> list[list[str]]:
     return tables
 
 
+def _markdown_table_headers(markdown: str) -> list[list[str]]:
+    lines = markdown.splitlines()
+    headers: list[list[str]] = []
+    delimiter = re.compile(r"^\s*\|?\s*:?-{3,}:?\s*(?:\|\s*:?-{3,}:?\s*)+\|?\s*$")
+    for index in range(len(lines) - 1):
+        if lines[index].strip().startswith("|") and delimiter.match(lines[index + 1]):
+            headers.append([
+                re.sub(r"[*_`]+", "", cell).strip()
+                for cell in lines[index].strip().strip("|").split("|")
+            ])
+    return headers
+
+
 def table_orphan_row_issues(pages: list[str], source_markdown: str) -> list[str]:
     """Reject a page segment that strands only one body row of a split table."""
     normalized_pages = [norm(page).casefold() for page in pages]
@@ -155,10 +168,18 @@ def table_orphan_row_issues(pages: list[str], source_markdown: str) -> list[str]
 def broken_table_label_issues(pages: list[str], source_markdown: str) -> list[str]:
     """Reject first-column words that are wrapped inside the word itself."""
     issues: list[str] = []
+    table_headers = _markdown_table_headers(source_markdown)
     for table_number, first_cells in enumerate(_markdown_table_first_cells(source_markdown), start=1):
+        headers = table_headers[table_number - 1] if table_number <= len(table_headers) else []
         for cell in first_cells:
             for word in re.findall(r"[A-Za-z][A-Za-z'’-]{4,}", cell):
                 for page_number, page in enumerate(pages, start=1):
+                    if headers and not all(
+                        re.search(rf"\b{re.escape(header_word)}\b", page, flags=re.I)
+                        for header in headers
+                        for header_word in re.findall(r"[A-Za-z][A-Za-z'’-]{2,}", header)
+                    ):
+                        continue
                     if re.search(rf"\b{re.escape(word)}\b", page, flags=re.I):
                         continue
                     # Only a line break *inside this exact word* is evidence
