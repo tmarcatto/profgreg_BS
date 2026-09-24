@@ -1814,6 +1814,17 @@ Use document-control and wall-insulation records for the two-story addition.
         self.assertIn(">\n> **Answer/Result check:**", normalized)
         self.assertNotIn("> Setup: Setup:", normalized)
 
+    def test_level_qualified_hands_on_label_becomes_canonical_exercise(self) -> None:
+        source = (
+            "# Section 05 - Resolve\n\n"
+            "**HANDS ON EXAMPLE, BASIC.** Setup: Two records conflict. "
+            "Supplied inputs: Record A and Record B. Task: Identify the conflict and decide which governs. "
+            "**Answer/Result check:** Record A governs.\n"
+        )
+        normalized = production.normalize_callout_density(source, level="basic")
+        self.assertEqual(1, normalized.count("> **HANDS-ON EXAMPLE**"))
+        self.assertIn("> Supplied inputs:", normalized)
+
     def test_unboxed_input_action_answer_sequence_becomes_worked_example(self) -> None:
         source = (
             "# Section 01 - Documents\n\n"
@@ -1823,9 +1834,12 @@ Use document-control and wall-insulation records for the two-story addition.
         )
         normalized = production.normalize_ordinary_practice_blocks(source, level="basic")
         self.assertIn("**Worked example inputs.**", normalized)
+        self.assertIn("The following records establish the facts", normalized)
         self.assertIn("**Model process.**", normalized)
+        self.assertIn("The model uses these steps", normalized)
         self.assertIn("The demonstrated process is to label the input by function.", normalized)
         self.assertIn("**Model result.**", normalized)
+        self.assertIn("The completed review reaches", normalized)
         self.assertNotIn("**Action**", normalized)
         self.assertNotIn("**Answer/check**", normalized)
 
@@ -1864,6 +1878,17 @@ Use document-control and wall-insulation records for the two-story addition.
         workflow = normalized.split("**Conflict workflow**", 1)[1].split("# Summary", 1)[0]
         self.assertEqual(4, sum(1 for line in workflow.splitlines() if line[:3] in {"1. ", "2. ", "3. ", "4. "}))
         self.assertIn("Apply the contract's precedence rule", workflow)
+
+    def test_basic_section_two_keeps_only_one_worked_example_sequence(self) -> None:
+        example = (
+            "**Worked example inputs.**\nThe following records establish the facts.\n- Record.\n\n"
+            "**Model process.**\nThe model reviews it.\n- Review.\n\n"
+            "**Model result.**\nThe result follows.\n- Result.\n\n"
+        )
+        source = "# Section 02 - Functions\n\n" + example + example + "# Section 03 - Status\n\nBody.\n"
+        normalized = production.normalize_ordinary_practice_blocks(source, level="basic")
+        section_two = normalized.split("# Section 03", 1)[0]
+        self.assertEqual(1, section_two.count("**Worked example inputs.**"))
 
     def test_reviewer_ledger_uses_normalized_student_reference(self) -> None:
         ledger = {

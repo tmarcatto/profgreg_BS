@@ -1723,14 +1723,17 @@ def normalize_ordinary_practice_blocks(draft: str, *, level: str = "basic") -> s
             ordinary_worked_example = True
             ordinary_model_process = False
             cleaned.append("**Worked example inputs.**")
+            cleaned.append("The following records establish the facts for the modeled review.")
             continue
         if ordinary_worked_example and re.match(r"^\*\*(?:Action|Task)\.?\*\*\s*$", stripped, flags=re.I):
             ordinary_model_process = True
             cleaned.append("**Model process.**")
+            cleaned.append("The model uses these steps to interpret the supplied records.")
             continue
         if ordinary_worked_example and re.match(r"^\*\*Answer(?:/Result|/)?\s*check\.?\*\*\s*$", stripped, flags=re.I):
             ordinary_model_process = False
             cleaned.append("**Model result.**")
+            cleaned.append("The completed review reaches the following result.")
             continue
         if ordinary_worked_example and ordinary_model_process:
             list_match = re.match(r"^(?P<indent>\s*)(?P<marker>(?:[-*]|\d+\.))\s+(?P<body>.+)$", line)
@@ -1794,7 +1797,16 @@ def normalize_ordinary_practice_blocks(draft: str, *, level: str = "basic") -> s
             ),
             teaching,
         )
+        section_two = re.search(r"(?ms)^# Section 02 - .+?(?=^# Section 03 - |\Z)", teaching)
+        if section_two:
+            section_text = section_two.group(0)
+            examples = list(re.finditer(r"(?m)^\*\*Worked example inputs\.\*\*\s*$", section_text))
+            if len(examples) > 1:
+                trimmed = section_text[:examples[1].start()].rstrip() + "\n"
+                teaching = teaching[:section_two.start()] + trimmed + teaching[section_two.end():]
+        teaching = teaching.replace("residential-construction contract form", "residential construction contract form")
         normalized = teaching + (separator + references if separator else "")
+        normalized = normalized.replace("residential-construction contract form", "residential construction contract form")
     return normalized
 
 
@@ -2099,7 +2111,7 @@ def normalize_callout_density(draft: str, maximum: int = 5, *, level: str = "bas
 def normalize_hands_on_example_markdown(draft: str) -> str:
     """Repair provider-flattened HANDS-ON blocks without changing wording."""
     draft = re.sub(
-        r"(?im)^\*\*(?:APPLY IT\s*,\s*)?HANDS?[ -]ON EXAMPLE(?:,\s*(?:setup|field response))?\.\*\*\s*(.*)$",
+        r"(?im)^\*\*(?:APPLY IT\s*,\s*)?HANDS?[ -]ON EXAMPLE(?:,\s*(?:basic|intermediate|advanced|setup|field response))?\.\*\*\s*(.*)$",
         lambda match: "**HANDS ON EXAMPLE**\n\n" + (
             match.group(1).strip()
             if re.match(r"^(?:\*\*)?Setup\s*:", match.group(1).strip(), flags=re.I)
@@ -2166,7 +2178,7 @@ def normalize_hands_on_example_markdown(draft: str) -> str:
         restored_lines.append("")
     draft = "\n".join(restored_lines)
     field_pattern = re.compile(
-        r"(?:\*\*)?(Setup|Supplied (?:inputs|records|information)|Task|Actions|Your action|Individual action|Field response|Answer(?:\s*/\s*(?:Result\s*)?|\s+and\s+)Check)\s*[:.]?(?:\*\*)?",
+        r"(?:\*\*)?(Setup|Supplied (?:inputs|records|information)|Task|Actions|Your action|Individual action|Field response|Answer(?:\s*/\s*(?:Result\s*)?|\s+and\s+)Check)(?:\s*[:.]\s*\*\*|\*\*\s*[:.]?|\s*[:.])",
         flags=re.I,
     )
     label_pattern = re.compile(r"^>\s*\*\*HANDS-ON EXAMPLE\*\*\s*$", flags=re.I)
