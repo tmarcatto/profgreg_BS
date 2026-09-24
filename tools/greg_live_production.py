@@ -1618,6 +1618,45 @@ def normalize_ordinary_practice_blocks(draft: str, *, level: str = "basic") -> s
     the records plus explanation.
     """
     target = {"basic": 1, "intermediate": 2, "advanced": 3}.get(str(level).lower(), 1)
+    # A focused revision can demote the only exercise to APPLY IT and place
+    # the worked answer under a misleading ``Task`` label. Recover the
+    # exercise contract deterministically: keep the supplied records, ask one
+    # concrete comparison decision, then put the existing solution after a
+    # deliberate answer break.
+    source_lines = draft.splitlines()
+    repaired_lines: list[str] = []
+    index = 0
+    existing_hands_on = sum(bool(re.match(r"^>\s*\*\*HANDS-ON EXAMPLE\*\*\s*$", line, re.I)) for line in source_lines)
+    while index < len(source_lines):
+        if existing_hands_on >= target or not re.match(r"^>\s*\*\*APPLY IT\*\*\s*$", source_lines[index], re.I):
+            repaired_lines.append(source_lines[index])
+            index += 1
+            continue
+        end = index + 1
+        while end < len(source_lines) and source_lines[end].lstrip().startswith(">"):
+            end += 1
+        body = source_lines[index + 1 : end]
+        task_at = next((position for position, line in enumerate(body) if re.match(r"^>\s*Task:\s*$", line, re.I)), -1)
+        has_inputs = any(re.match(r"^>\s*Supplied inputs:\s*$", line, re.I) for line in body)
+        has_answer = any(re.search(r"Answer(?:/Result)?\s*check", line, re.I) for line in body)
+        solution = body[task_at + 1 :] if task_at >= 0 else []
+        if not (has_inputs and task_at >= 0 and solution and not has_answer):
+            repaired_lines.extend(source_lines[index:end])
+            index = end
+            continue
+        repaired_lines.append("> **HANDS-ON EXAMPLE**")
+        repaired_lines.extend(body[:task_at])
+        repaired_lines.extend([
+            ">",
+            "> Task:",
+            "> Compare the supplied records, decide which requirement governs, and state the authorized response.",
+            ">",
+            "> **Answer/Result check:**",
+            *solution,
+        ])
+        existing_hands_on += 1
+        index = end
+    draft = "\n".join(repaired_lines).rstrip() + "\n"
     hands_on_count = len(re.findall(r"(?im)^>\s*\*\*HANDS-ON EXAMPLE\*\*\s*$", draft))
     missing = max(0, target - hands_on_count)
 
@@ -1948,7 +1987,16 @@ def normalize_callout_density(draft: str, maximum: int = 5, *, level: str = "bas
     rebuilt = re.sub(r"\b([A-Z]{1,4})-\s*\n>\s*(\d+)\b", r"\1-\2", rebuilt)
     rebuilt = re.sub(r"\b([A-Z]{1,4})-\s+(\d+)\b", r"\1-\2", rebuilt)
     rebuilt = normalize_inline_numbered_sequences(rebuilt)
-    return normalize_prose_dashes(rebuilt)
+    rebuilt = normalize_prose_dashes(rebuilt)
+    final_lines: list[str] = []
+    for line in rebuilt.splitlines():
+        if re.match(r"^>\s*\*\*Answer(?:/Result)?\s*check\s*[.:]\s*\*\*", line.strip(), re.I):
+            if not final_lines or final_lines[-1].strip() != ">":
+                final_lines.append(">")
+        if line.strip() == ">" and final_lines and final_lines[-1].strip() == ">":
+            continue
+        final_lines.append(line)
+    return "\n".join(final_lines).rstrip() + "\n"
 
 
 def normalize_hands_on_example_markdown(draft: str) -> str:

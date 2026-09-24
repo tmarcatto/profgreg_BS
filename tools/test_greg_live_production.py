@@ -1647,6 +1647,24 @@ Action: Select the record.
         self.assertNotIn("**Application.** Decide", normalized)
         self.assertIn("use this basic sequence:\n1. Check the current document.\n2. Confirm authority.", normalized)
 
+    def test_apply_it_with_solution_under_task_is_recovered_as_hands_on(self) -> None:
+        draft = """# Section 02 - Compare
+
+> **APPLY IT**
+> Supplied inputs:
+> - A2.14 shows 60 inches.
+> - SS-14 shows 72 inches but is unapproved.
+>
+> Task:
+> 1. The current requirement remains 60 inches.
+> 2. Pause installation and route the conflict.
+"""
+        normalized = production.normalize_callout_density(draft, level="basic")
+        self.assertIn("> **HANDS-ON EXAMPLE**", normalized)
+        self.assertIn("> Task:\n> Compare the supplied records", normalized)
+        self.assertIn(">\n> **Answer/Result check:**\n> 1. The current requirement remains 60 inches.", normalized)
+        self.assertNotIn("> **APPLY IT**", normalized)
+
     def test_excess_hands_on_callout_becomes_structured_worked_example(self) -> None:
         block = """> **HANDS-ON EXAMPLE**
 > Setup: Compare records.
@@ -2449,7 +2467,7 @@ Term.
             "**Answer/Result check:** - SS-14 is not incorporated. - Keep the work on hold.\n"
         )
         normalized = production.normalize_callout_density(draft)
-        self.assertIn("> 6. Compare A2.14 with SS-14.\n> **Answer/Result check:**", normalized)
+        self.assertIn("> 6. Compare A2.14 with SS-14.\n>\n> **Answer/Result check:**", normalized)
         self.assertIn("> - SS-14 is not incorporated.\n> - Keep the work on hold.", normalized)
 
     def test_single_final_task_step_ends_before_answer_result_check(self) -> None:
@@ -2458,7 +2476,7 @@ Term.
             "**Answer/Result check:** - Authorization is pending. - Installation remains on hold.\n"
         )
         normalized = production.normalize_callout_density(draft)
-        self.assertIn("> 4. Hold installation until authorization is documented.\n> **Answer/Result check:**", normalized)
+        self.assertIn("> 4. Hold installation until authorization is documented.\n>\n> **Answer/Result check:**", normalized)
         self.assertIn("> - Authorization is pending.\n> - Installation remains on hold.", normalized)
 
     def test_callout_normalizer_rejoins_month_dates_and_identifiers(self) -> None:
