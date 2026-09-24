@@ -1783,6 +1783,17 @@ def normalize_ordinary_practice_blocks(draft: str, *, level: str = "basic") -> s
             "",
             teaching,
         )
+        teaching = re.sub(
+            r"(?ms)(^\*\*Conflict workflow\*\*\s*\n\s*\n)(?:\d+\.\s+[^\n]+\n?){5,}",
+            lambda match: (
+                match.group(1)
+                + "1. Identify the location, affected work, and conflicting sources.\n"
+                + "2. Verify that each source is current, incorporated, and applicable.\n"
+                + "3. Apply the contract's precedence rule, protect the work, and obtain required direction.\n"
+                + "4. Record likely effects, follow the change procedure when needed, and update affected project records.\n"
+            ),
+            teaching,
+        )
         normalized = teaching + (separator + references if separator else "")
     return normalized
 

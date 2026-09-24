@@ -1854,6 +1854,17 @@ Use document-control and wall-insulation records for the two-story addition.
         self.assertNotIn("Setup: , identify", normalized)
         self.assertIn("Using the supplied records, identify the conflict", normalized)
 
+    def test_basic_conflict_workflow_is_consolidated_to_four_steps(self) -> None:
+        source = (
+            "# Section 05 - Resolve\n\n**Conflict workflow**\n\n"
+            + "\n".join(f"{index}. Step {index}." for index in range(1, 8))
+            + "\n\n# Summary and Key Takeaways\n\n- Keep records.\n"
+        )
+        normalized = production.normalize_ordinary_practice_blocks(source, level="basic")
+        workflow = normalized.split("**Conflict workflow**", 1)[1].split("# Summary", 1)[0]
+        self.assertEqual(4, sum(1 for line in workflow.splitlines() if line[:3] in {"1. ", "2. ", "3. ", "4. "}))
+        self.assertIn("Apply the contract's precedence rule", workflow)
+
     def test_reviewer_ledger_uses_normalized_student_reference(self) -> None:
         ledger = {
             "course_slug": "course",
