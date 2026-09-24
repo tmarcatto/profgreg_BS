@@ -1607,7 +1607,7 @@ def restore_truncated_revision(candidate: str, baseline: str) -> str:
     return baseline if not preserves_complete_study_guide_structure(candidate, baseline) else candidate
 
 
-def normalize_callout_density(draft: str, maximum: int = 4) -> str:
+def normalize_callout_density(draft: str, maximum: int = 5, *, level: str = "basic") -> str:
     """Keep useful body callouts; structural sections are always unboxed prose."""
     draft = normalize_hands_on_example_markdown(draft)
     raw_lines = draft.splitlines()
@@ -1677,20 +1677,55 @@ def normalize_callout_density(draft: str, maximum: int = 4) -> str:
         end = index + 1
         while end < len(lines) and lines[end].lstrip().startswith(">"):
             end += 1
-        blocks.append({"start": index, "end": end, "label": match.group(1).upper(), "inline": (match.group(2) or "").strip(), "section": current_section})
+        raw_body = "\n".join(lines[index + 1 : end])
+        blocks.append({
+            "start": index,
+            "end": end,
+            "label": match.group(1).upper(),
+            "inline": (match.group(2) or "").strip(),
+            "section": current_section,
+            "body_word_count": len(re.findall(r"[A-Za-z0-9][A-Za-z0-9'-]*", raw_body)),
+            "contains_learner_task": bool(re.search(r"\b(learner tasks?|your tasks?|task|answer(?:/result)?\s*check|calculate|complete the)\b", raw_body, re.I)),
+        })
         index = end
 
     priority = {"SCENARIO": 6, "HANDS-ON EXAMPLE": 5, "APPLY IT": 4, "BRIDGE": 3, "CALLBACK": 2, "KEY TERM": 1}
     structural = {"introduction", "learning objectives", "summary", "summary and key takeaways", "key takeaways", "glossary", "references"}
     body_blocks = [block for block in blocks if block["section"] not in structural]
-    keep = {
-        item[1]["start"]
-        for item in sorted(enumerate(body_blocks), key=lambda item: (-priority[item[1]["label"]], -item[0]))[:maximum]
-    }
+    target_hands_on = {"basic": 1, "intermediate": 2, "advanced": 3}.get(str(level).lower(), 1)
+    hands_on = [block for block in body_blocks if block["label"] == "HANDS-ON EXAMPLE"]
+    # Prefer concise exercises and then spread the required count across the
+    # book. This makes the level contract deterministic even when a revision
+    # model adds extra exercises instead of removing them.
+    if len(hands_on) <= target_hands_on:
+        selected_hands_on = hands_on
+    elif target_hands_on == 1:
+        selected_hands_on = [min(hands_on, key=lambda block: (block["body_word_count"], abs(hands_on.index(block) - (len(hands_on) - 1) / 2)))]
+    else:
+        slots = [round(index * (len(hands_on) - 1) / (target_hands_on - 1)) for index in range(target_hands_on)]
+        selected_hands_on = [hands_on[index] for index in dict.fromkeys(slots)]
+    blue = [block for block in body_blocks if block["label"] in {"KEY TERM", "CALLBACK", "BRIDGE"}]
+    auxiliary_orange = [
+        block for block in body_blocks
+        if block["label"] in {"APPLY IT", "SCENARIO"}
+        and not (block["label"] == "SCENARIO" and block["contains_learner_task"])
+    ]
+    keep_blocks = [*selected_hands_on]
+    if blue:
+        keep_blocks.append(max(blue, key=lambda block: priority[block["label"]]))
+    if auxiliary_orange:
+        keep_blocks.append(max(auxiliary_orange, key=lambda block: priority[block["label"]]))
+    keep = {block["start"] for block in keep_blocks[:maximum]}
     output: list[str] = []
     block_by_start = {block["start"]: block for block in blocks}
     index = 0
     while index < len(lines):
+        if "VISUAL_REQUIRED" in lines[index]:
+            # Requirements are recreated immediately before the selected
+            # exercise below; orphaned markers from removed exercises cannot
+            # leak into visual planning.
+            index += 1
+            continue
         block = block_by_start.get(index)
         if not block:
             output.append(lines[index])
@@ -1701,10 +1736,34 @@ def normalize_callout_density(draft: str, maximum: int = 4) -> str:
             # occasionally put a comma and the body on the bold label line;
             # the renderer recognizes the label but can leave the closing
             # Markdown markers visible in the student PDF.
+            if block["label"] == "HANDS-ON EXAMPLE":
+                nearby = "\n".join(lines[max(0, block["start"] - 4) : block["start"]])
+                marker = re.search(r"(?im)^<!--\s*VISUAL_REQUIRED:\s*([^|]+?)\s*\|\s*(.+?)\s*-->$", nearby)
+                block_text = "\n".join(lines[block["start"] : block["end"]])
+                if marker or re.search(r"\b(photo(?:graph)?|image|diagram|drawing|plan sheet|schedule image|figure)\b", block_text, re.I):
+                    raw_id = marker.group(1) if marker else f"AUTO_VISUAL_{len([line for line in output if 'VISUAL_REQUIRED' in line]) + 1:02d}"
+                    requirement_id = re.sub(r"[^A-Z0-9_-]+", "_", raw_id.upper()).strip("_")
+                    purpose = marker.group(2).strip() if marker else "provide the visual object required by this hands-on task"
+                    output.append(f"<!-- VISUAL_REQUIRED: {requirement_id} | {purpose} -->")
             output.append(f'> **{block["label"]}**')
             if block["inline"]:
                 output.append(f'> {block["inline"]}')
-            output.extend(lines[block["start"] + 1 : block["end"]])
+            kept_body = lines[block["start"] + 1 : block["end"]]
+            for body_line in kept_body:
+                if block["label"] == "HANDS-ON EXAMPLE" and re.search(r"\*\*Answer(?:/Result)?\s*check:\*\*", body_line, re.I):
+                    before, after = re.split(r"\*\*Answer(?:/Result)?\s*check:\*\*", body_line, maxsplit=1, flags=re.I)
+                    if before.strip() and before.strip() != ">":
+                        output.append(before.rstrip())
+                    if not output or output[-1].strip() != ">":
+                        output.append(">")
+                    output.append("> **Answer/Result check:**")
+                    if after.strip():
+                        output.append("> " + after.strip().lstrip(">").strip())
+                    continue
+                if block["label"] == "HANDS-ON EXAMPLE" and re.match(r"^>\s*\*\*Answer(?:/Result)?\s*check:\*\*", body_line.strip(), re.I):
+                    if not output or output[-1].strip() != ">":
+                        output.append(">")
+                output.append(body_line)
         else:
             body = [block["inline"]] if block["inline"] else []
             body.extend(line.lstrip()[1:].strip() for line in lines[block["start"] + 1 : block["end"]] if line.lstrip()[1:].strip())
@@ -1716,8 +1775,16 @@ def normalize_callout_density(draft: str, maximum: int = 4) -> str:
                     cleaned = re.sub(r"^(?:\*\*)?Setup(?:\*\*)?\s*[:.]?", "**Worked example.**", body_line, flags=re.I)
                     cleaned = re.sub(r"^(?:\*\*)?Supplied (?:inputs|records|information)(?:\*\*)?\s*[:.]?", "**Example records.**", cleaned, flags=re.I)
                     cleaned = re.sub(r"^(?:\*\*)?(?:Task|Actions|Your action|Individual action)(?:\*\*)?\s*[:.]?", "**Application.**", cleaned, flags=re.I)
-                    cleaned = re.sub(r"^(?:\*\*)?Answer(?:\s*/\s*|\s+and\s+)Check(?:\*\*)?\s*[:.]?", "**Interpretation.**", cleaned, flags=re.I)
-                    output.append(cleaned)
+                    cleaned = re.sub(
+                        r"(?:\*\*)?Answer(?:\s*/\s*(?:Result\s*)?|\s+and\s+)?Check\s*:?(?:\*\*)?",
+                        "**Interpretation.**",
+                        cleaned,
+                        flags=re.I,
+                    )
+                    if cleaned.startswith("- ") and " - " in cleaned:
+                        output.extend(f"- {item.strip()}" for item in re.split(r"\s+-\s+", cleaned[2:]) if item.strip())
+                    else:
+                        output.append(cleaned)
             else:
                 output.append(" ".join(body).strip())
         index = block["end"]
@@ -2349,7 +2416,7 @@ def targeted_study_guide_revision(
                 revised = re.sub(r"^\x60{3}(?:markdown)?\s*", "", revised, count=1, flags=re.I)
                 revised = re.sub(r"\s*\x60{3}$", "", revised, count=1).strip()
             revised = normalize_reviewed_factual_language(force_student_references(revised, references))
-            revised = normalize_callout_density(revised)
+            revised = normalize_callout_density(revised, level=level)
             if preserves_complete_study_guide_structure(revised, draft):
                 return revised
             missing = [
@@ -4086,7 +4153,7 @@ def produce_study_guide(course_slug: str, lesson_number: int) -> list[str]:
     if pending_images.exists() and prior_drafts and reusable_sources_current and latest_prior_passes_current_rules:
         draft_path = prior_drafts[-1]
         draft_path, revision = revisioned_resumed_study_guide_draft(run, lesson_tag, draft_path)
-        draft = normalize_callout_density(draft_path.read_text(encoding="utf-8", errors="replace"))
+        draft = normalize_callout_density(draft_path.read_text(encoding="utf-8", errors="replace"), level=seed.level)
         write_text(draft_path, draft)
         render_visuals, waiting_images = create_visual_assets(seed, lesson, draft, run, lesson_tag)
         if waiting_images:
@@ -4097,7 +4164,7 @@ def produce_study_guide(course_slug: str, lesson_number: int) -> list[str]:
         match = re.search(r"_r(\d+)\.md$", draft_path.name)
         if match and latest_prior_passes_current_rules and not feedback_for(run, lesson_tag, "study_guide") and reviewed_draft_can_resume_visuals(run, lesson_tag, int(match.group(1))):
             draft_path, revision = revisioned_resumed_study_guide_draft(run, lesson_tag, draft_path)
-            draft = normalize_callout_density(draft_path.read_text(encoding="utf-8", errors="replace"))
+            draft = normalize_callout_density(draft_path.read_text(encoding="utf-8", errors="replace"), level=seed.level)
             write_text(draft_path, draft)
             render_visuals, waiting_images = create_visual_assets(seed, lesson, draft, run, lesson_tag)
             if waiting_images:
@@ -4168,7 +4235,7 @@ def produce_study_guide(course_slug: str, lesson_number: int) -> list[str]:
         # prose is reused. This invalidates a stale reference section without
         # needlessly rewriting the complete lesson.
         draft = normalize_reviewed_factual_language(force_student_references(draft, references))
-        draft = normalize_callout_density(draft)
+        draft = normalize_callout_density(draft, level=seed.level)
         write_text(working_path, draft)
     revision_scope_baseline = ""
     operator_allowed_headings: set[str] = set()
@@ -4213,7 +4280,7 @@ def produce_study_guide(course_slug: str, lesson_number: int) -> list[str]:
                 block(run, "lesson_draft", f"Configured technical-content model could not produce Lesson {lesson_number}.\n\nReason: {error}")
                 raise RuntimeError(str(error)) from error
             draft = normalize_reviewed_factual_language(force_student_references(draft, references))
-            draft = normalize_callout_density(draft)
+            draft = normalize_callout_density(draft, level=seed.level)
             if not preserves_complete_study_guide_structure(draft, ""):
                 raise RuntimeError(
                     "The technical-content model returned an incomplete course book. "
@@ -4290,7 +4357,7 @@ def produce_study_guide(course_slug: str, lesson_number: int) -> list[str]:
                 require_targeted_study_guide_scope(revision_scope_baseline, revised_draft, operator_allowed_headings)
             else:
                 revised_draft = normalize_reviewed_factual_language(force_student_references(revised_draft, references))
-                revised_draft = normalize_callout_density(revised_draft)
+                revised_draft = normalize_callout_density(revised_draft, level=seed.level)
             if not preserves_complete_study_guide_structure(revised_draft, prior_draft):
                 prior_revision_was_noop = True
                 continue

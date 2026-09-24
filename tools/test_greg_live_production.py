@@ -1565,7 +1565,7 @@ Following prose.
 """
         draft = "# Section 01 - Work\n\n" + "\n".join(block for _ in range(5))
         normalized = production.normalize_callout_density(draft)
-        self.assertEqual(4, normalized.count("> **HANDS-ON EXAMPLE**"))
+        self.assertEqual(1, normalized.count("> **HANDS-ON EXAMPLE**"))
         self.assertIn("**Worked example.** Compare records.", normalized)
         self.assertIn("**Example records.**", normalized)
         self.assertIn("- A2.1 is current.", normalized)
@@ -2147,7 +2147,7 @@ Term.
         self.assertTrue(production.technical_visual_requires_operator(visual))
         self.assertEqual(production.normalize_visual_strategy(visual)["visual_type"], "trusted-source-image")
 
-    def test_callout_normalization_keeps_four_and_preserves_excess_body(self) -> None:
+    def test_callout_normalization_enforces_type_limits_and_preserves_excess_body(self) -> None:
         draft = "\n\n".join(
             [
                 "> **KEY TERM**\n> First definition.",
@@ -2159,11 +2159,12 @@ Term.
             ]
         )
         normalized = production.normalize_callout_density(draft)
-        self.assertEqual(normalized.count("> **"), 4)
+        self.assertEqual(normalized.count("> **"), 3)
         self.assertIn("First definition.", normalized)
         self.assertIn("Second definition.", normalized)
         self.assertIn("> **SCENARIO**", normalized)
         self.assertIn("> **HANDS-ON EXAMPLE**", normalized)
+        self.assertLessEqual(sum(normalized.count(f"> **{label}**") for label in ("KEY TERM", "CALLBACK", "BRIDGE")), 1)
 
     def test_prose_dash_normalizer_restores_flattened_quoted_records(self) -> None:
         draft = (
