@@ -1778,6 +1778,29 @@ Use document-control and wall-insulation records for the two-story addition.
         self.assertTrue(response["passed"])
         self.assertEqual([], response["required_changes"])
 
+    def test_reviewer_cannot_request_hands_on_gap_that_already_exists(self) -> None:
+        response = production.normalize_reviewer_response(
+            "pedagogy_review",
+            {
+                "passed": False,
+                "findings": ["The exercise lacks a blank quoted line before the Answer/Result check."],
+                "required_changes": ["Add a deliberate blank quoted line before Answer/Result check."],
+            },
+            (
+                "# Section 01 - Work\n\n"
+                "> **HANDS-ON EXAMPLE**\n"
+                "> Setup: Use the supplied records.\n"
+                ">\n"
+                "> Task: Identify the controlling record.\n"
+                ">\n"
+                "> **Answer/Result check:**\n"
+                "> The current approved record controls.\n"
+            ),
+            "basic",
+        )
+        self.assertTrue(response["passed"])
+        self.assertEqual([], response["required_changes"])
+
     def test_reviewer_ledger_uses_normalized_student_reference(self) -> None:
         ledger = {
             "course_slug": "course",

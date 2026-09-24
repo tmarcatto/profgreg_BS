@@ -3385,6 +3385,16 @@ def normalize_reviewer_response(role: str, data: dict[str, Any], draft: str = ""
     """Remove reviewer requests that directly contradict deterministic policy."""
     normalized = dict(data)
 
+    # Review models occasionally overlook a syntactically empty blockquote
+    # because Markdown renders `>` as whitespace.  The authoring contract is
+    # deterministic here: a standalone quoted line immediately before the
+    # canonical answer heading is the required learner-response separation.
+    # Do not spend correction rounds trying to add a line that already exists.
+    has_hands_on_answer_gap = bool(re.search(
+        r"(?m)^>\s*$\n>\s*\*\*Answer/Result check:\*\*\s*$",
+        draft,
+    ))
+
     def valid(item: Any) -> bool:
         text = str(item)
         expected_hands_on = {"basic": 1, "intermediate": 2, "advanced": 3}.get(str(level).lower())
@@ -3394,6 +3404,13 @@ def normalize_reviewer_response(role: str, data: dict[str, Any], draft: str = ""
             3: r"\bbasic[- ]level\b.*\bhands-on\b|\bintermediate[- ]level\b.*\bhands-on\b|\bexactly (?:one|two)\b.*\bhands-on\b",
         }
         if expected_hands_on and re.search(wrong_level_patterns[expected_hands_on], text, flags=re.I):
+            return False
+        if (
+            role == "pedagogy_review"
+            and has_hands_on_answer_gap
+            and re.search(r"\b(?:blank|space|separation|gap)\b", text, flags=re.I)
+            and re.search(r"\bAnswer(?:/Result)?\s*check\b", text, flags=re.I)
+        ):
             return False
         if re.search(r"\bGlossary\b", text, flags=re.I) and re.search(r"\b(?:add|needs?|require)\b.*\b(?:paragraph|orienting|explanatory)\b", text, flags=re.I):
             return False
