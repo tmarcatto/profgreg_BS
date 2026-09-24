@@ -20,6 +20,23 @@ spec.loader.exec_module(checker)
 
 
 class VisualPlanCheckTests(unittest.TestCase):
+    def test_study_guide_required_visual_must_resolve_one_to_one(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "visual_plan.json"
+            path.write_text(json.dumps({"artifact_type": "study-guide", "visuals": []}), encoding="utf-8")
+            result = checker.run_checks(path, source_markdown="<!-- VISUAL_REQUIRED: L01R01 | inspect the supplied drawing -->")
+            finding = next(item for item in result["findings"] if item["check"] == "required_visual_resolution")
+            self.assertEqual("fail", finding["status"])
+
+    def test_study_guide_visuals_cannot_share_insertion_heading(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "visual_plan.json"
+            base = {"visual_type": "trusted-source-image", "placement": "after Section 01 - Work", "purpose": "Supports inspection of a construction record.", "learning_claim": "The record exposes the controlling field condition.", "teaching_explanation": "Use the labeled condition to connect the record to the decision.", "source_status": "verified", "source_id": "source", "context_focus": "U.S. residential construction"}
+            path.write_text(json.dumps({"artifact_type": "study-guide", "visuals": [{**base, "visual_id": "V1"}, {**base, "visual_id": "V2", "learning_claim": "The second record confirms the coordination decision."}]}), encoding="utf-8")
+            result = checker.run_checks(path)
+            finding = next(item for item in result["findings"] if item["check"] == "visual_narrative_spacing")
+            self.assertEqual("fail", finding["status"])
+
     def test_clean_deck_plan_passes(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             path = Path(tmp) / "visual_plan.json"

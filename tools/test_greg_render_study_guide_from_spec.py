@@ -31,6 +31,18 @@ except ModuleNotFoundError as error:
 
 
 class RenderStudyGuideFromSpecTests(unittest.TestCase):
+    def test_internal_visual_requirement_marker_is_not_rendered(self) -> None:
+        if pdf_renderer is None:
+            self.skipTest("ReportLab is not installed in this Python environment.")
+        blocks = pdf_renderer.parse_markdown("<!-- VISUAL_REQUIRED: L01R01 | inspect the supplied drawing -->\n\nTeaching text.")
+        self.assertEqual([{"type": "paragraph", "text": "Teaching text."}], blocks)
+
+    def test_two_column_table_reserves_legible_label_width(self) -> None:
+        if pdf_renderer is None:
+            self.skipTest("ReportLab is not installed in this Python environment.")
+        table = pdf_renderer.markdown_table(["Party", "Role and boundary"], [["Owner", "Controls the property."], ["General contractor", "Coordinates construction."]])
+        self.assertGreaterEqual(table._colWidths[0], 1.35 * pdf_renderer.inch)
+
     def test_render_source_allows_markdown_bullets_inside_callouts(self) -> None:
         if pdf_renderer is None:
             self.skipTest("ReportLab is not installed in this Python environment.")
@@ -101,7 +113,7 @@ class RenderStudyGuideFromSpecTests(unittest.TestCase):
         self.assertEqual(["paragraph", "numbered", "paragraph", "bullets"], [item["type"] for item in structured])
         self.assertEqual([("1", "Identify the conflict."), ("2", "Verify authority.")], structured[1]["items"])
 
-    def test_long_structured_callout_can_split_between_rows(self) -> None:
+    def test_hands_on_callout_never_splits_between_pages(self) -> None:
         if pdf_renderer is None:
             self.skipTest("ReportLab is not installed in this Python environment.")
         body = (
@@ -112,8 +124,7 @@ class RenderStudyGuideFromSpecTests(unittest.TestCase):
             + "\n\nAnswer/check: Keep only current records."
         )
         flowable = pdf_renderer.Callout("HANDS-ON EXAMPLE", body).flowable()
-        self.assertIsInstance(flowable, pdf_renderer.Table)
-        self.assertEqual(1, flowable.splitByRow)
+        self.assertIsInstance(flowable, pdf_renderer.KeepTogether)
 
     def test_long_numbered_procedure_uses_compact_readable_style(self) -> None:
         if pdf_renderer is None:

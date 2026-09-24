@@ -24,6 +24,7 @@ from reportlab.platypus import (
     BaseDocTemplate,
     Flowable,
     Frame,
+    HRFlowable,
     Image,
     KeepTogether,
     ListFlowable,
@@ -302,11 +303,11 @@ class Callout:
                 ("BOTTOMPADDING", (0, row_index), (-1, row_index), padding if row_index == len(rows) - 1 else (1 if compact_bridge else 2)),
             ])
         table.setStyle(TableStyle(table_style))
-        # Short boxes should travel as one teaching unit. Long structured
-        # exercises must be allowed to split between their internal rows;
-        # forcing the entire box onto the next page strands the preceding
-        # content and can create a mostly blank page.
-        if compact_bridge or (len(body_flowables) <= 3 and len(self.body) <= 900):
+        # A learner must be able to complete a hands-on task without turning a
+        # page in the middle of the instructions or seeing the answer first.
+        # Content QA caps these boxes to a page-safe size, so keep the whole
+        # exercise together. Other compact callouts also travel as one unit.
+        if self.label.upper() in {"HANDS-ON EXAMPLE", "EJEMPLO PRÁCTICO", "EXEMPLO PRÁTICO"} or compact_bridge or (len(body_flowables) <= 3 and len(self.body) <= 900):
             return KeepTogether([Spacer(1, 3 if compact_bridge else 7), table, Spacer(1, 3 if compact_bridge else 9)])
         return table
 
@@ -452,6 +453,12 @@ def callout_body_flowables(body: str, *, compact: bool = False) -> list[Any]:
                 spaceAfter=4 if not compact else 1,
             ))
         else:
+            if re.match(r"^\*\*(?:Answer(?:/Result)? check|Answer and check)\s*:?\*\*", block["text"], flags=re.I):
+                # Retrieval practice needs a deliberate pause before feedback.
+                # The visible rule and whitespace prevent the solution from
+                # reading as the next line of the task.
+                result.append(Spacer(1, 16))
+                result.append(HRFlowable(width="100%", thickness=0.5, color=colors.HexColor("#D1D9E6"), spaceBefore=0, spaceAfter=7))
             result.append(Paragraph(inline(block["text"]), paragraph_style))
     return result
 
@@ -1110,6 +1117,22 @@ def markdown_table(headers: list[str], rows: list[list[str]]):
         widths = [available * ratio for ratio in (0.18, 0.30, 0.13, 0.39)]
     else:
         header_minimums = [stringWidth(re.sub(r"[*_`]+", "", header), FONT_BOLD, 7.5) + 12 for header in headers]
+        # A narrow label column can make ReportLab wrap inside a word (for
+        # example, "Owner" as "Owne" + "r"). Reserve enough width for the
+        # longest atomic word in each column at the normal body size.
+        for column in range(columns):
+            atomic_words = [
+                word
+                for value in [headers[column], *(row[column] for row in rows)]
+                for word in re.findall(r"[A-Za-z][A-Za-z'’-]*", re.sub(r"[*_`]+", "", value))
+            ]
+            if atomic_words:
+                header_minimums[column] = max(
+                    header_minimums[column],
+                    max(stringWidth(word, FONT_BOLD if column == 0 else FONT_REGULAR, 9.0) + 18 for word in atomic_words),
+                )
+        if columns == 2:
+            header_minimums[0] = max(header_minimums[0], 1.35 * inch)
         numeric = re.compile(r"^\s*(?:[$€£]\s*)?[+-]?\d[\d.,]*(?:\s*(?:%|SF|LF|EA))?\s*$", flags=re.I)
         for column in range(columns):
             atomic_values = [re.sub(r"[*_`]+", "", row[column]).strip() for row in rows if numeric.fullmatch(re.sub(r"[*_`]+", "", row[column]).strip())]
@@ -1164,6 +1187,13 @@ def parse_markdown(markdown: str, locale: str = "en") -> list[dict[str, Any]]:
     while index < len(lines):
         line = lines[index].strip()
         if not line:
+            index += 1
+            continue
+        if line.startswith("<!--"):
+            # Internal visual requirements are authoring/QA metadata. They
+            # must stay visible to planners and reviewers, never to students.
+            while index < len(lines) and "-->" not in lines[index]:
+                index += 1
             index += 1
             continue
         if line == "---":
@@ -1408,7 +1438,13 @@ def visual_flowables(visual: dict[str, Any]) -> list[Any]:
     result = [flowable]
     if visual.get("caption"):
         result.append(Paragraph(inline(visual["caption"]), styles["Caption"]))
-    return [KeepTogether(result)]
+    rendered: list[Any] = [KeepTogether(result)]
+    if visual.get("teaching_explanation"):
+        rendered.extend([
+            Spacer(1, 6),
+            KeepTogether([Paragraph(inline(str(visual["teaching_explanation"])), styles["BodyGreg"])]),
+        ])
+    return rendered
 
 
 _COUNT_WORDS = {

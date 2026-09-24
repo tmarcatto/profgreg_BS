@@ -116,7 +116,7 @@ def placement_number(visual: dict[str, Any], fallback: int) -> int:
     return int(match.group(1)) if match else fallback + 1
 
 
-def run_checks(plan_path: Path) -> dict[str, Any]:
+def run_checks(plan_path: Path, source_markdown: str | None = None) -> dict[str, Any]:
     findings: list[Finding] = []
     plan = load_json(plan_path)
     visuals = plan.get("visuals") or []
@@ -162,6 +162,7 @@ def run_checks(plan_path: Path) -> dict[str, Any]:
     asset_strategy_gaps = []
     operator_request_box_gaps = []
     unresolved_online_searches = []
+    explanation_gaps = []
 
     for index, visual in enumerate(visuals):
         label = visual_label(visual, index)
@@ -183,6 +184,8 @@ def run_checks(plan_path: Path) -> dict[str, Any]:
             missing_learning_claim.append(label)
         else:
             learning_claims.setdefault(normalize(learning_claim), []).append(label)
+        if artifact_type in {"study-guide", "study_guide", "course-book", "course_book"} and len(str(visual.get("teaching_explanation") or "").split()) < 8:
+            explanation_gaps.append(label)
 
         source_status = str(visual.get("source_status") or "").strip()
         asset_strategy = str(visual.get("asset_strategy") or "").strip()
@@ -412,6 +415,46 @@ def run_checks(plan_path: Path) -> dict[str, Any]:
         findings.append(Finding("fail", "visual_mece", f"Repeated visual learning claims: {repeated_claims}."))
     else:
         findings.append(Finding("pass", "visual_mece", "Visual learning claims are distinct."))
+
+    if explanation_gaps:
+        findings.append(Finding("fail", "visual_teaching_explanation", f"Every visual needs explanatory teaching text that the renderer places after it: {explanation_gaps}."))
+    else:
+        findings.append(Finding("pass", "visual_teaching_explanation", "Every visual is followed by explanatory teaching text."))
+
+    placements: dict[str, list[str]] = {}
+    for index, visual in enumerate(visuals):
+        if is_brand(visual):
+            continue
+        placement = normalize(str(visual.get("placement") or visual.get("after_heading") or ""))
+        if placement:
+            placements.setdefault(placement, []).append(visual_label(visual, index))
+    duplicate_placements = {
+        placement: labels
+        for placement, labels in placements.items()
+        if len(labels) > 1 and artifact_type in {"study-guide", "study_guide", "course-book", "course_book"}
+    }
+    if duplicate_placements:
+        findings.append(Finding("fail", "visual_narrative_spacing", f"Multiple visuals share one insertion point and would appear back-to-back without lesson prose: {duplicate_placements}."))
+    else:
+        findings.append(Finding("pass", "visual_narrative_spacing", "No two visuals share an insertion point."))
+
+    if source_markdown is not None:
+        required = {
+            match.group(1).upper(): match.group(2).strip()
+            for match in re.finditer(r"(?im)^<!--\s*VISUAL_REQUIRED:\s*([A-Z0-9_-]+)\s*\|\s*(.{12,180}?)\s*-->$", source_markdown)
+        }
+        resolved: dict[str, list[str]] = {}
+        for index, visual in enumerate(visuals):
+            requirement_id = str(visual.get("requirement_id") or "").strip().upper()
+            if requirement_id:
+                resolved.setdefault(requirement_id, []).append(visual_label(visual, index))
+        missing_required = sorted(set(required) - set(resolved))
+        duplicate_required = {key: value for key, value in resolved.items() if key in required and len(value) != 1}
+        unknown_required = sorted(set(resolved) - set(required))
+        if missing_required or duplicate_required or unknown_required:
+            findings.append(Finding("fail", "required_visual_resolution", f"Authored visual requirements must resolve one-to-one to inserted visuals. Missing={missing_required}; duplicate={duplicate_required}; unknown={unknown_required}."))
+        else:
+            findings.append(Finding("pass", "required_visual_resolution", f"Resolved all {len(required)} authored visual requirement(s) one-to-one."))
 
     generated_positions.sort()
     consecutive_generated = [(a_label, b_label) for (a_pos, a_label), (b_pos, b_label) in zip(generated_positions, generated_positions[1:]) if b_pos == a_pos + 1]

@@ -35,6 +35,10 @@ ALLOWED_CALLOUT_LABELS = {
     "BRIDGE",
 }
 
+BLUE_CALLOUT_LABELS = {"KEY TERM", "CALLBACK", "BRIDGE"}
+AUXILIARY_ORANGE_LABELS = {"APPLY IT", "SCENARIO"}
+VISUAL_REQUIREMENT = re.compile(r"^<!--\s*VISUAL_REQUIRED:\s*([A-Z0-9_-]+)\s*\|\s*(.{12,180}?)\s*-->$", re.I | re.M)
+
 ACTIVITY_PATTERNS = [
     r"\b(class|student|group|individual|practice|hands-on|interactive)\s+activit(?:y|ies)\b",
     r"\bactivit(?:y|ies)\s+(for|where)\s+(students|learners|the class)\b",
@@ -135,6 +139,7 @@ def callout_blocks(lines: list[str]) -> list[dict]:
                 "label": label,
                 "section": current_section,
                 "line": start,
+                "end_line": index,
                 "paragraph_count": len(paragraphs),
                 "body": body_text,
             }
@@ -274,10 +279,10 @@ def run_checks(draft_path: Path, level: str | None = None) -> dict:
         findings.append(Finding("pass", "course_focused_introduction", "Introduction does not explain the target user as metadata."))
 
     blocks = callout_blocks(lines)
-    if 2 <= len(blocks) <= 4:
-        findings.append(Finding("pass", "callout_density", f"Found {len(blocks)} purposeful callout blocks."))
+    if blocks:
+        findings.append(Finding("pass", "callout_density", f"Found {len(blocks)} purposeful callout block(s)."))
     else:
-        findings.append(Finding("fail", "callout_density", f"Found {len(blocks)} callout blocks; the approved range is 2 to 4 per lesson."))
+        findings.append(Finding("fail", "callout_density", "Every lesson needs at least one purposeful callout."))
 
     invalid_callouts = [f"{block['label']} line {block['line']}" for block in blocks if block["label"] not in ALLOWED_CALLOUT_LABELS]
     if invalid_callouts:
@@ -298,6 +303,28 @@ def run_checks(draft_path: Path, level: str | None = None) -> dict:
         findings.append(Finding("pass", "callout_length", "Callouts are 3 paragraphs or fewer."))
 
     hands_on_blocks = [block for block in blocks if block["label"] == "HANDS-ON EXAMPLE"]
+    expected_hands_on = {"basic": 1, "intermediate": 2, "advanced": 3}.get((level or "").strip().lower())
+    if expected_hands_on is None or len(hands_on_blocks) == expected_hands_on:
+        findings.append(Finding("pass", "hands_on_count_by_level", f"Found {len(hands_on_blocks)} hands-on example(s) for {level or 'unspecified'} level."))
+    else:
+        findings.append(Finding("fail", "hands_on_count_by_level", f"{level.title()} course books require exactly {expected_hands_on} hands-on example(s); found {len(hands_on_blocks)}."))
+
+    blue_blocks = [block for block in blocks if block["label"] in BLUE_CALLOUT_LABELS]
+    auxiliary_orange = [block for block in blocks if block["label"] in AUXILIARY_ORANGE_LABELS]
+    repeated_scenarios = [block for block in blocks if block["label"] == "SCENARIO"]
+    if len(blue_blocks) <= 1 and len(auxiliary_orange) <= 1 and len(repeated_scenarios) <= 1:
+        findings.append(Finding("pass", "callout_type_limits", "The lesson has at most one blue support box, one auxiliary orange box, and one scenario."))
+    else:
+        findings.append(Finding("fail", "callout_type_limits", f"Limit each course book to one blue support box and one auxiliary orange box, with no more than one scenario; found blue={len(blue_blocks)}, auxiliary orange={len(auxiliary_orange)}, scenarios={len(repeated_scenarios)}."))
+
+    scenario_tasks = []
+    for block in blocks:
+        if block["label"] == "SCENARIO" and re.search(r"\b(learner tasks?|your tasks?|task|answer(?:/result)?\s*check|calculate|complete the)\b", str(block.get("body") or ""), re.I):
+            scenario_tasks.append(f"line {block['line']}")
+    if scenario_tasks:
+        findings.append(Finding("fail", "scenario_is_explanatory", f"SCENARIO boxes must explain a complete case, not assign learner work or reveal an exercise answer: {scenario_tasks}. Use HANDS-ON EXAMPLE for learner-performed work."))
+    else:
+        findings.append(Finding("pass", "scenario_is_explanatory", "Scenarios are explanatory cases; learner-performed work is reserved for hands-on examples."))
     inactive_hands_on = []
     hands_on_action = re.compile(
         r"\b(calculate|compute|identify|compare|decide|check|complete|estimate|forecast|reconcile|mark|write|choose|review|explain|verify)\b",
@@ -313,6 +340,71 @@ def run_checks(draft_path: Path, level: str | None = None) -> dict:
         findings.append(Finding("fail", "hands_on_is_student_task", f"HANDS-ON EXAMPLE boxes must give the learner supplied inputs, a concrete action, and a way to check the result: {inactive_hands_on}."))
     else:
         findings.append(Finding("pass", "hands_on_is_student_task", "Every HANDS-ON EXAMPLE is an actionable learner task with inputs and a result check, or no HANDS-ON EXAMPLE is used."))
+
+    oversized_hands_on = [f"line {block['line']} ({word_count(str(block.get('body') or ''))} words)" for block in hands_on_blocks if word_count(str(block.get("body") or "")) > 260]
+    if oversized_hands_on:
+        findings.append(Finding("fail", "hands_on_page_fit", f"Hands-on examples must fit on one page and may not exceed 260 words: {oversized_hands_on}."))
+    else:
+        findings.append(Finding("pass", "hands_on_page_fit", "Every hands-on example is short enough to remain an unsplit teaching unit."))
+
+    answer_spacing_failures = []
+    for block in hands_on_blocks:
+        start = max(0, int(block["line"]) - 1)
+        excerpt = "\n".join(lines[start : int(block.get("end_line") or (start + 1))])
+        if not re.search(r"(?m)^>\s*$\n>\s*\*\*Answer(?:/Result)?\s*check:\*\*\s*$", excerpt, re.I):
+            answer_spacing_failures.append(f"line {block['line']}")
+    if answer_spacing_failures:
+        findings.append(Finding("fail", "hands_on_answer_separation", f"Hands-on answers need a blank quoted line and a separate `**Answer/Result check:**` heading so feedback is not read automatically: {answer_spacing_failures}."))
+    else:
+        findings.append(Finding("pass", "hands_on_answer_separation", "Every hands-on task has a deliberate pause before its answer/result check."))
+
+    section_numbers = []
+    for block in hands_on_blocks:
+        match = re.match(r"section\s+(\d+)", str(block.get("section") or ""), re.I)
+        if match:
+            section_numbers.append(int(match.group(1)))
+    spread_ok = len(section_numbers) == len(set(section_numbers))
+    if len(section_numbers) >= 2:
+        spread_ok = spread_ok and max(section_numbers) - min(section_numbers) >= len(section_numbers)
+    if spread_ok:
+        findings.append(Finding("pass", "hands_on_distribution", "Hands-on examples are separated across the course book."))
+    else:
+        findings.append(Finding("fail", "hands_on_distribution", f"Hands-on examples must occupy distinct, well-separated numbered sections; found sections {section_numbers}."))
+
+    marker_rows = [(index + 1, VISUAL_REQUIREMENT.match(line.strip())) for index, line in enumerate(lines)]
+    markers = [(line_number, match.group(1).upper(), match.group(2).strip()) for line_number, match in marker_rows if match]
+    marker_ids = [item[1] for item in markers]
+    malformed_markers = [index + 1 for index, line in enumerate(lines) if "VISUAL_REQUIRED" in line and not VISUAL_REQUIREMENT.match(line.strip())]
+    dependent_hands_on = []
+    visual_dependency = re.compile(r"\b(photo(?:graph)?|image|diagram|drawing|plan sheet|schedule image|figure)\b", re.I)
+    for block in hands_on_blocks:
+        if not visual_dependency.search(str(block.get("body") or "")):
+            continue
+        prior = "\n".join(lines[max(0, int(block["line"]) - 5) : int(block["line"]) - 1])
+        if not VISUAL_REQUIREMENT.search(prior):
+            dependent_hands_on.append(f"line {block['line']}")
+    if malformed_markers or len(marker_ids) != len(set(marker_ids)) or dependent_hands_on:
+        findings.append(Finding("fail", "required_visual_markers", f"Every visual-dependent hands-on example needs a unique adjacent `<!-- VISUAL_REQUIRED: ID | teaching purpose -->` marker. Malformed lines={malformed_markers}, dependent examples without markers={dependent_hands_on}."))
+    else:
+        findings.append(Finding("pass", "required_visual_markers", f"Found {len(markers)} explicit, unique visual requirement marker(s); all visual-dependent hands-on examples are marked."))
+
+    callout_line_numbers: set[int] = set()
+    for block in blocks:
+        start = int(block["line"]) - 1
+        cursor = start
+        while cursor < len(lines) and (cursor == start or lines[cursor].lstrip().startswith(">") or not lines[cursor].strip()):
+            callout_line_numbers.add(cursor)
+            cursor += 1
+    unboxed_tasks = []
+    for index, line in enumerate(lines):
+        if index in callout_line_numbers or line.strip().startswith("<!--"):
+            continue
+        if re.search(r"^\s*(?:\*\*)?(Learner tasks?|Your tasks?|Task|Answer(?:/Result)?\s*check)(?:\*\*)?\s*[:.]", line, re.I):
+            unboxed_tasks.append(index + 1)
+    if unboxed_tasks:
+        findings.append(Finding("fail", "no_unboxed_learner_activities", f"Learner tasks and answer checks may appear only inside HANDS-ON EXAMPLE boxes; found ordinary-body activity labels on lines {unboxed_tasks}."))
+    else:
+        findings.append(Finding("pass", "no_unboxed_learner_activities", "No learner activity is embedded in ordinary teaching prose."))
 
     inline_numbered_sequences = []
     for line_number, line in enumerate(lines, start=1):

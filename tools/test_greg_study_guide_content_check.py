@@ -124,6 +124,31 @@ class StudyGuideContentCheckTests(unittest.TestCase):
             result = checker.run_checks(path)
             finding = next(item for item in result["findings"] if item["check"] == "hands_on_is_student_task")
             self.assertEqual("pass", finding["status"])
+
+    def test_basic_level_rejects_multiple_hands_on_boxes(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "draft.md"
+            exercise = "> **HANDS-ON EXAMPLE**\n> Using supplied values, calculate the result.\n>\n> **Answer/Result check:**\n> The expected result is 10.\n"
+            path.write_text("# Section 01 - One\n\n" + exercise + "\n# Section 03 - Three\n\n" + exercise, encoding="utf-8")
+            result = checker.run_checks(path, "basic")
+            finding = next(item for item in result["findings"] if item["check"] == "hands_on_count_by_level")
+            self.assertEqual("fail", finding["status"])
+
+    def test_scenario_with_learner_task_is_rejected(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "draft.md"
+            path.write_text("# Section 01 - One\n\n> **SCENARIO**\n> Setup: A scope conflict occurs.\n> Learner tasks: decide what to do.\n> Answer/check: stop work.\n", encoding="utf-8")
+            result = checker.run_checks(path)
+            finding = next(item for item in result["findings"] if item["check"] == "scenario_is_explanatory")
+            self.assertEqual("fail", finding["status"])
+
+    def test_visual_dependent_hands_on_requires_adjacent_marker(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "draft.md"
+            path.write_text("# Section 01 - One\n\n> **HANDS-ON EXAMPLE**\n> Using the supplied drawing, identify the conflict.\n>\n> **Answer/Result check:**\n> The expected answer identifies the dimension.\n", encoding="utf-8")
+            result = checker.run_checks(path, "basic")
+            finding = next(item for item in result["findings"] if item["check"] == "required_visual_markers")
+            self.assertEqual("fail", finding["status"])
     def test_professional_use_of_exercise_is_not_a_learner_activity(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             path = Path(tmp) / "draft.md"

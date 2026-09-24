@@ -152,6 +152,21 @@ def table_orphan_row_issues(pages: list[str], source_markdown: str) -> list[str]
     return issues
 
 
+def broken_table_label_issues(pages: list[str], source_markdown: str) -> list[str]:
+    """Reject first-column words that are wrapped inside the word itself."""
+    issues: list[str] = []
+    for table_number, first_cells in enumerate(_markdown_table_first_cells(source_markdown), start=1):
+        for cell in first_cells:
+            for word in re.findall(r"[A-Za-z][A-Za-z'’-]{4,}", cell):
+                for page_number, page in enumerate(pages, start=1):
+                    if re.search(rf"\b{re.escape(word)}\b", page, flags=re.I):
+                        continue
+                    if word.casefold() in re.sub(r"\s+", "", page).casefold():
+                        issues.append(f"table {table_number} breaks `{word}` inside the word on page {page_number}")
+                        break
+    return list(dict.fromkeys(issues))
+
+
 def meaningful_lines(text: str) -> list[str]:
     lines = [line.strip() for line in text.splitlines() if line.strip()]
     return [
@@ -189,6 +204,8 @@ def expected_visible_visual_text(spec: dict) -> list[str]:
         visual_type = str(visual.get("type") or "")
         if visual.get("title"):
             expected.append(str(visual["title"]))
+        if visual.get("teaching_explanation"):
+            expected.append(str(visual["teaching_explanation"]))
         if visual_type == "process_flow":
             for node in visual.get("nodes") or []:
                 expected.extend([str(node.get("title") or ""), str(node.get("detail") or "")])
@@ -509,6 +526,17 @@ def run_checks(pdf_path: Path, qa_path: Path | None = None) -> dict:
     else:
         findings.append(Finding("pass", "split_callout_labels", "No isolated callout labels found in content pages."))
 
+    split_hands_on = []
+    hands_on_label = re.compile(r"\b(HANDS-ON EXAMPLE|EXEMPLO PRÁTICO|EJEMPLO PRÁCTICO)\b", re.I)
+    answer_label = re.compile(r"\b(Answer(?:/Result)? check|Resposta(?:/Resultado)?|Respuesta(?:/Resultado)?)\b", re.I)
+    for page_number, page_text in enumerate(pages, start=1):
+        if hands_on_label.search(page_text) and not answer_label.search(page_text):
+            split_hands_on.append(page_number)
+    if split_hands_on:
+        findings.append(Finding("fail", "hands_on_single_page", f"Hands-on boxes begin without their answer/result check on the same page: {split_hands_on}."))
+    else:
+        findings.append(Finding("pass", "hands_on_single_page", "Every hands-on task and its answer/result check remain on one page."))
+
     if inline_numbered_procedures:
         findings.append(Finding("fail", "ordered_steps_one_per_line", f"Ordered procedures render multiple numbered steps on one visible line: {inline_numbered_procedures[:5]}."))
     else:
@@ -546,9 +574,15 @@ def run_checks(pdf_path: Path, qa_path: Path | None = None) -> dict:
                 spec = json.loads(spec_path.read_text(encoding="utf-8"))
                 source_structure = spec.get("source_structure")
                 localized_source = spec.get("source_markdown")
-                if source_structure and isinstance(localized_source, str):
+                if isinstance(localized_source, str):
                     source_path = ROOT / localized_source
                     localized_text = read_text(source_path)
+                    broken_labels = broken_table_label_issues(pages, localized_text)
+                    if broken_labels:
+                        findings.append(Finding("fail", "table_words_not_split", "; ".join(broken_labels)))
+                    else:
+                        findings.append(Finding("pass", "table_words_not_split", "Table label columns do not split words internally."))
+                if source_structure and isinstance(localized_source, str):
                     structure_issues = structure_parity_issues(
                         source_structure,
                         markdown_structure(localized_text, str(spec.get("locale") or "en")),
