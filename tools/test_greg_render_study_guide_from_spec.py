@@ -245,7 +245,11 @@ class RenderStudyGuideFromSpecTests(unittest.TestCase):
             ],
         }]
         story = pdf_renderer.build_story(blocks, visuals)
-        self.assertTrue(any(isinstance(item, pdf_renderer.ProcessFlowDiagram) for item in story))
+        flattened = []
+        for item in story:
+            flattened.append(item)
+            flattened.extend(getattr(item, "_content", []))
+        self.assertTrue(any(isinstance(item, pdf_renderer.ProcessFlowDiagram) for item in flattened))
 
     def test_cost_stack_total_clears_the_title_area(self) -> None:
         if pdf_renderer is None:
