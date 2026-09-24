@@ -1769,6 +1769,11 @@ def normalize_ordinary_practice_blocks(draft: str, *, level: str = "basic") -> s
         lambda match: "The model review applies " + match.group(1).rstrip(".") + ".",
         normalized,
     )
+    normalized = re.sub(
+        r"(?im)^\*\*Field response\.\*\*\s*(?:Determine|Identify|Compare|Verify)\s+(.+?)\s*$",
+        lambda match: "**Model explanation.** The model review determines " + match.group(1).rstrip(".") + ".",
+        normalized,
+    )
     if str(level).lower() == "basic":
         # Optional public-procurement examples repeatedly crowd out the core
         # residential document-control sequence in introductory books. Keep

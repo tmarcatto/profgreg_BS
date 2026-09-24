@@ -1855,6 +1855,15 @@ Use document-control and wall-insulation records for the two-story addition.
         self.assertNotIn("federally funded", normalized)
         self.assertIn("Residential contracts", normalized)
 
+    def test_field_response_prompt_becomes_model_explanation(self) -> None:
+        source = (
+            "# Section 03 - Status\n\n"
+            "**Field response.** Determine what each document authorizes or changes for the kitchen work.\n"
+        )
+        normalized = production.normalize_ordinary_practice_blocks(source, level="basic")
+        self.assertIn("**Model explanation.** The model review determines what each document", normalized)
+        self.assertNotIn("Field response", normalized)
+
     def test_incomplete_hands_on_task_gets_concrete_action(self) -> None:
         source = (
             "# Section 05 - Resolve\n\n"
