@@ -1801,6 +1801,34 @@ Use document-control and wall-insulation records for the two-story addition.
         self.assertTrue(response["passed"])
         self.assertEqual([], response["required_changes"])
 
+    def test_hybrid_apply_it_hands_on_label_becomes_canonical_exercise(self) -> None:
+        source = (
+            "# Section 05 - Resolve\n\n"
+            "**APPLY IT, HANDS ON EXAMPLE.** Setup: Two current records conflict. "
+            "Task: Compare them and decide which governs. "
+            "**Answer/Result check:** The incorporated current record governs.\n"
+        )
+        normalized = production.normalize_callout_density(source, level="basic")
+        self.assertEqual(1, normalized.count("> **HANDS-ON EXAMPLE**"))
+        self.assertIn("> Task:", normalized)
+        self.assertIn(">\n> **Answer/Result check:**", normalized)
+        self.assertNotIn("> Setup: Setup:", normalized)
+
+    def test_unboxed_input_action_answer_sequence_becomes_worked_example(self) -> None:
+        source = (
+            "# Section 01 - Documents\n\n"
+            "**Supplied inputs**\n\n- A drawing locates the door.\n\n"
+            "**Action**\n\n- Label the input by function.\n\n"
+            "**Answer/check**\n\n- Drawing: location.\n"
+        )
+        normalized = production.normalize_ordinary_practice_blocks(source, level="basic")
+        self.assertIn("**Worked example inputs.**", normalized)
+        self.assertIn("**Model process.**", normalized)
+        self.assertIn("The demonstrated process is to label the input by function.", normalized)
+        self.assertIn("**Model result.**", normalized)
+        self.assertNotIn("**Action**", normalized)
+        self.assertNotIn("**Answer/check**", normalized)
+
     def test_reviewer_ledger_uses_normalized_student_reference(self) -> None:
         ledger = {
             "course_slug": "course",

@@ -1704,6 +1704,8 @@ def normalize_ordinary_practice_blocks(draft: str, *, level: str = "basic") -> s
     cleaned: list[str] = []
     explained_records = False
     practice_example = False
+    ordinary_worked_example = False
+    ordinary_model_process = False
     for line in draft.splitlines():
         if line.lstrip().startswith(">"):
             if practice_example:
@@ -1715,6 +1717,27 @@ def normalize_ordinary_practice_blocks(draft: str, *, level: str = "basic") -> s
         if re.match(r"^#{1,2}\s+", stripped):
             explained_records = False
             practice_example = False
+            ordinary_worked_example = False
+            ordinary_model_process = False
+        if re.match(r"^\*\*Supplied (?:inputs|records|information)\.?\*\*\s*$", stripped, flags=re.I):
+            ordinary_worked_example = True
+            ordinary_model_process = False
+            cleaned.append("**Worked example inputs.**")
+            continue
+        if ordinary_worked_example and re.match(r"^\*\*(?:Action|Task)\.?\*\*\s*$", stripped, flags=re.I):
+            ordinary_model_process = True
+            cleaned.append("**Model process.**")
+            continue
+        if ordinary_worked_example and re.match(r"^\*\*Answer(?:/Result|/)?\s*check\.?\*\*\s*$", stripped, flags=re.I):
+            ordinary_model_process = False
+            cleaned.append("**Model result.**")
+            continue
+        if ordinary_worked_example and ordinary_model_process:
+            list_match = re.match(r"^(?P<indent>\s*)(?P<marker>(?:[-*]|\d+\.))\s+(?P<body>.+)$", line)
+            if list_match and not re.match(r"^(?:The model|This example|The demonstrated)", list_match.group("body"), flags=re.I):
+                body = list_match.group("body").strip()
+                body = body[:1].lower() + body[1:] if body else body
+                line = f"{list_match.group('indent')}{list_match.group('marker')} The demonstrated process is to {body}"
         if re.match(r"^\*\*Example records\.\*\*", stripped, flags=re.I):
             explained_records = True
         if explained_records and re.match(r"^\d+\.\s+(?:Classify|Identify|Decide|State|Compare|Calculate|Review|Select)\b", stripped, flags=re.I):
@@ -1736,7 +1759,9 @@ def normalize_ordinary_practice_blocks(draft: str, *, level: str = "basic") -> s
             continue
         line = re.sub(r"\*\*Interpretation\.\*\*", "**Explanation.**", line, flags=re.I)
         cleaned.append(line)
-    return "\n".join(cleaned).rstrip() + "\n"
+    normalized = "\n".join(cleaned).rstrip() + "\n"
+    normalized = re.sub(r"\b(Section\s+\d{2}\s+\d{2}\s+\d{2})\.,\s*", r"\1. ", normalized)
+    return normalized
 
 
 def normalize_prose_sequences(draft: str) -> str:
@@ -2040,6 +2065,15 @@ def normalize_callout_density(draft: str, maximum: int = 5, *, level: str = "bas
 def normalize_hands_on_example_markdown(draft: str) -> str:
     """Repair provider-flattened HANDS-ON blocks without changing wording."""
     draft = re.sub(
+        r"(?im)^\*\*(?:APPLY IT\s*,\s*)?HANDS?[ -]ON EXAMPLE(?:,\s*(?:setup|field response))?\.\*\*\s*(.*)$",
+        lambda match: "**HANDS ON EXAMPLE**\n\n" + (
+            match.group(1).strip()
+            if re.match(r"^(?:\*\*)?Setup\s*:", match.group(1).strip(), flags=re.I)
+            else "**Setup:** " + match.group(1).strip()
+        ),
+        draft,
+    )
+    draft = re.sub(
         r"(?im)^\*\*Hands?[ -]on example(?:,\s*(?:setup|field response))?\.\*\*\s*(.*)$",
         lambda match: "**HANDS ON EXAMPLE**\n\n**Setup:** " + match.group(1).strip(),
         draft,
@@ -2082,7 +2116,7 @@ def normalize_hands_on_example_markdown(draft: str) -> str:
             current_stripped = current.strip()
             if re.match(r"^#{1,2}\s+", current_stripped):
                 break
-            if re.search(r"Answer(?:\s*/\s*|\s+and\s+)Check", current_stripped, flags=re.I):
+            if re.search(r"Answer(?:\s*/\s*(?:Result\s*)?|\s+and\s+)Check", current_stripped, flags=re.I):
                 saw_answer = True
             if not current_stripped:
                 probe = source_index + 1
@@ -2098,7 +2132,7 @@ def normalize_hands_on_example_markdown(draft: str) -> str:
         restored_lines.append("")
     draft = "\n".join(restored_lines)
     field_pattern = re.compile(
-        r"(?:\*\*)?(Setup|Supplied (?:inputs|records|information)|Task|Actions|Your action|Individual action|Field response|Answer(?:\s*/\s*|\s+and\s+)Check)\s*[:.]?(?:\*\*)?",
+        r"(?:\*\*)?(Setup|Supplied (?:inputs|records|information)|Task|Actions|Your action|Individual action|Field response|Answer(?:\s*/\s*(?:Result\s*)?|\s+and\s+)Check)\s*[:.]?(?:\*\*)?",
         flags=re.I,
     )
     label_pattern = re.compile(r"^>\s*\*\*HANDS-ON EXAMPLE\*\*\s*$", flags=re.I)
@@ -2112,7 +2146,7 @@ def normalize_hands_on_example_markdown(draft: str) -> str:
         prior = len(promoted_lines) - 1
         while prior >= 0 and not promoted_lines[prior].strip():
             prior -= 1
-        follows_early_quoted_answer = prior >= 0 and re.match(r"^>\s*(?:\*\*)?Answer(?:\s*/\s*|\s+and\s+)Check", promoted_lines[prior].strip(), flags=re.I)
+        follows_early_quoted_answer = prior >= 0 and re.match(r"^>\s*(?:\*\*)?Answer(?:\s*/\s*(?:Result\s*)?|\s+and\s+)Check", promoted_lines[prior].strip(), flags=re.I)
         if (
             follows_early_quoted_answer
             or lines[index].lstrip().startswith(">")
@@ -2123,11 +2157,11 @@ def normalize_hands_on_example_markdown(draft: str) -> str:
             continue
         end = index + 1
         while end < len(lines) and not re.match(r"^#{1,2}\s+", lines[end].strip()):
-            if not lines[end].strip() and re.search(r"Answer(?:\s*/\s*|\s+and\s+)Check", " ".join(lines[index:end]), flags=re.I):
+            if not lines[end].strip() and re.search(r"Answer(?:\s*/\s*(?:Result\s*)?|\s+and\s+)Check", " ".join(lines[index:end]), flags=re.I):
                 break
             end += 1
         candidate = " ".join(line.strip() for line in lines[index:end] if line.strip())
-        if re.search(r"(?:Your|Individual) action", candidate, flags=re.I) and re.search(r"Answer(?:\s*/\s*|\s+and\s+)Check", candidate, flags=re.I):
+        if re.search(r"(?:Your|Individual) action", candidate, flags=re.I) and re.search(r"Answer(?:\s*/\s*(?:Result\s*)?|\s+and\s+)Check", candidate, flags=re.I):
             promoted_lines.extend(["> **HANDS-ON EXAMPLE**", "> " + candidate, ""])
             index = end
             continue
@@ -2180,6 +2214,8 @@ def normalize_hands_on_example_markdown(draft: str) -> str:
             value = body[match.end() : end].strip()
             fields.append((match, label, value))
         def field_key(label: str) -> str:
+            if re.match(r"^answer\b", label, flags=re.I):
+                return "answer/check"
             return re.sub(r"(?:\s*/\s*|\s+and\s+)", "/", label.lower())
 
         rank = {"setup": 0, "supplied inputs": 1, "supplied records": 1, "supplied information": 1, "task": 2, "actions": 2, "your action": 2, "individual action": 2, "field response": 2, "answer/check": 3}
@@ -2196,11 +2232,22 @@ def normalize_hands_on_example_markdown(draft: str) -> str:
                 result.extend(f"{line_prefix}- {record}" for record in records)
             elif key == "setup":
                 lead, records = split_records(value)
+                lead = re.sub(r"^Setup\s*:\s*", "", lead, flags=re.I)
                 result.append(f"{line_prefix}Setup:" + (f" {lead}" if lead else ""))
                 if records:
                     result.append(f"{line_prefix}Supplied inputs:")
                     result.extend(f"{line_prefix}- {record}" for record in records)
             elif key in {"task", "actions"}:
+                value = re.sub(r"^The model verification\s+", "Using the supplied inputs, ", value, flags=re.I)
+                value = re.sub(
+                    r"\b(identifies|checks|applies|compares|decides|verifies)\b",
+                    lambda match: {
+                        "identifies": "identify", "checks": "check", "applies": "apply",
+                        "compares": "compare", "decides": "decide", "verifies": "verify",
+                    }[match.group(1).lower()],
+                    value,
+                    flags=re.I,
+                )
                 result.append(f"{line_prefix}{'Task' if key == 'task' else 'Actions'}:")
                 steps = split_steps(value)
                 if steps:
@@ -2254,7 +2301,7 @@ def normalize_hands_on_example_markdown(draft: str) -> str:
                 attached_end += 1
             attached = lines[probe:attached_end]
             attached_text = " ".join(part.strip() for part in attached if part.strip())
-            if re.search(r"Your action|\*\*Task", attached_text, flags=re.I) and re.search(r"Answer(?:\s*/\s*|\s+and\s+)Check", attached_text, flags=re.I):
+            if re.search(r"Your action|\*\*Task", attached_text, flags=re.I) and re.search(r"Answer(?:\s*/\s*(?:Result\s*)?|\s+and\s+)Check", attached_text, flags=re.I):
                 body_lines = [part.strip() for part in attached if part.strip()]
                 index = attached_end
             else:
@@ -2313,7 +2360,7 @@ def normalize_hands_on_example_markdown(draft: str) -> str:
             and semantic_fields
             and re.search(r"\b(?:supplied (?:inputs|records|values)|given values?|using supplied)\b", body, flags=re.I)
         )
-        if not (semantic_fields and explicit_fields) and not repairable_flat_exercise:
+        if not explicit_fields and not repairable_flat_exercise:
             normalized.append("> **APPLY IT**")
             normalized.extend(output[index + 1 : end])
             index = end
