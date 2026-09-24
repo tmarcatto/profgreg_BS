@@ -1693,6 +1693,18 @@ def build_story(blocks: list[dict[str, Any]], visuals: list[dict[str, Any]], loc
         if block_type == "page_break":
             add_page_break(story)
         elif block_type == "h1":
+            # Course-map visuals can intentionally orient the learner before
+            # the first numbered section. Insert these at the exact requested
+            # boundary instead of silently dropping every ``before Section``
+            # placement (the ordinary path inserts only after paragraphs).
+            for index, visual in enumerate(visual_after_heading):
+                requested = str(visual.get("after_heading") or "").strip()
+                if not requested.lower().startswith("before "):
+                    continue
+                target = requested[7:].strip()
+                if index not in inserted_visuals and visual_matches_heading(target, str(block.get("text") or "")):
+                    story.extend(visual_flowables(visual))
+                    inserted_visuals.add(index)
             current_heading = block["text"]
             if starts_structural_page(current_heading, locale):
                 add_page_break(story)

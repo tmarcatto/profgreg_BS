@@ -224,6 +224,29 @@ class RenderStudyGuideFromSpecTests(unittest.TestCase):
         )
         self.assertTrue(any(isinstance(item, pdf_renderer.KeepTogether) for item in story))
 
+    def test_story_inserts_visual_requested_before_first_section(self) -> None:
+        if pdf_renderer is None:
+            self.skipTest("ReportLab is not installed in this Python environment.")
+        blocks = [
+            {"type": "h2", "text": "Learning Objectives"},
+            {"type": "bullets", "items": ["Recognize the sequence."]},
+            {"type": "h1", "text": "Section 01 - Start"},
+            {"type": "paragraph", "text": "Teaching text."},
+        ]
+        visuals = [{
+            "after_heading": "before Section 01 - Start",
+            "type": "process_flow",
+            "title": "Reading Sequence",
+            "caption": "Figure 1.1. Read in order.",
+            "teaching_explanation": "Notice the ordered progression before starting.",
+            "nodes": [
+                {"title": "First", "detail": "Begin here"},
+                {"title": "Second", "detail": "Continue here"},
+            ],
+        }]
+        story = pdf_renderer.build_story(blocks, visuals)
+        self.assertTrue(any(isinstance(item, pdf_renderer.ProcessFlowDiagram) for item in story))
+
     def test_cost_stack_total_clears_the_title_area(self) -> None:
         if pdf_renderer is None:
             self.skipTest("ReportLab is not installed in this Python environment.")

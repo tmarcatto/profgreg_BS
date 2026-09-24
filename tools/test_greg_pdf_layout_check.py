@@ -165,6 +165,17 @@ class PdfLayoutCheckUnitTests(unittest.TestCase):
             pdf_qa.table_orphan_row_issues(pages, markdown),
         )
 
+    def test_table_word_split_check_requires_a_break_inside_the_exact_word(self) -> None:
+        markdown = "| Role | Responsibility |\n|---|---|\n| Owner | Pays as agreed. |\n"
+        self.assertEqual(
+            ["table 1 breaks `Owner` inside the word on page 1"],
+            pdf_qa.broken_table_label_issues(["Role\nOwne\nr\nResponsibility"], markdown),
+        )
+        self.assertEqual(
+            [],
+            pdf_qa.broken_table_label_issues(["Role\nThe show\nnear completion"], markdown),
+        )
+
 
 if __name__ == "__main__":
     unittest.main()

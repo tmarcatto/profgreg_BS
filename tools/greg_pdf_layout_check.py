@@ -161,7 +161,19 @@ def broken_table_label_issues(pages: list[str], source_markdown: str) -> list[st
                 for page_number, page in enumerate(pages, start=1):
                     if re.search(rf"\b{re.escape(word)}\b", page, flags=re.I):
                         continue
-                    if word.casefold() in re.sub(r"\s+", "", page).casefold():
+                    # Only a line break *inside this exact word* is evidence
+                    # of a split. Removing every whitespace character from a
+                    # whole page creates false positives from unrelated words
+                    # that happen to meet across paragraph or page lines.
+                    split_inside_word = any(
+                        re.search(
+                            rf"\b{re.escape(word[:split])}[ \t]*\n[ \t]*{re.escape(word[split:])}\b",
+                            page,
+                            flags=re.I,
+                        )
+                        for split in range(1, len(word))
+                    )
+                    if split_inside_word:
                         issues.append(f"table {table_number} breaks `{word}` inside the word on page {page_number}")
                         break
     return list(dict.fromkeys(issues))
