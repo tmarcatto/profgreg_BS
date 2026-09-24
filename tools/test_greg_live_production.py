@@ -1327,6 +1327,23 @@ Use these terms to distinguish roles.
         self.assertEqual("Pause; verify current records", normalized["diagram_rows"][0]["cells"][1])
         self.assertNotIn("Continue", " ".join(normalized["diagram_rows"][0]["cells"]))
 
+    def test_comparison_matrix_headers_are_compacted_without_breaking_words(self) -> None:
+        visual = {
+            "diagram_type": "comparison-matrix",
+            "diagram_columns": [
+                "Aspect",
+                "Current Documents (A2.14 Rev.3 & A6.2 Rev.2)",
+                "Selection Sheet SS-14 Rev.0",
+                "Change Log CL-07",
+            ],
+        }
+        normalized = production.compact_comparison_matrix_headers(visual)
+        self.assertEqual(
+            ["Aspect", "Current A2.14 / A6.2", "Selection SS-14", "Change Log CL-07"],
+            normalized["diagram_columns"],
+        )
+        self.assertTrue(all(len(header) <= 26 for header in normalized["diagram_columns"]))
+
     def test_callout_normalizer_repairs_inline_comma_form(self) -> None:
         draft = (
             "# Section 01 - Work\n\n"

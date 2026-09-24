@@ -3720,6 +3720,25 @@ def normalize_document_status_comparison(visual: dict[str, Any]) -> dict[str, An
     return normalized
 
 
+def compact_comparison_matrix_headers(visual: dict[str, Any]) -> dict[str, Any]:
+    """Use short, word-safe headers that fit the renderer's two-line cells."""
+    normalized = copy.deepcopy(visual)
+    if str(normalized.get("diagram_type") or "") != "comparison-matrix":
+        return normalized
+    headers: list[str] = []
+    for value in normalized.get("diagram_columns") or []:
+        text = re.sub(r"\s+", " ", str(value or "")).strip()
+        text = re.sub(r"Current Documents?\s*\(A2\.14\s*Rev\.?\s*3\s*&\s*A6\.2\s*Rev\.?\s*2\)", "Current A2.14 / A6.2", text, flags=re.I)
+        text = re.sub(r"Selection Sheet\s+(SS-?\d+)(?:\s+Rev\.?\s*\d+)?", r"Selection \1", text, flags=re.I)
+        text = re.sub(r"Change Log\s+(CL-?\d+)(?:\s+Rev\.?\s*\d+)?", r"Change Log \1", text, flags=re.I)
+        if len(text) > 26:
+            compacted = text[:27].rsplit(" ", 1)[0].rstrip(" ,;:.")
+            text = compacted or text[:26].rstrip(" ,;:.")
+        headers.append(text)
+    normalized["diagram_columns"] = headers
+    return normalized
+
+
 def normalize_drawing_index_visual(visual: dict[str, Any]) -> dict[str, Any]:
     """Replace an unavailable drawing-index photo with an honest teaching pattern."""
     normalized = dict(visual)
@@ -4017,10 +4036,12 @@ def create_visual_assets(seed, lesson: dict[str, Any], draft: str, run: Path, le
     def prepare_visuals(items: list[dict[str, Any]]) -> list[dict[str, Any]]:
         prepared = [
             normalize_process_flow_node_lengths(
-                normalize_document_status_comparison(
-                    normalize_conflict_review_visual(
-                        normalize_payment_request_visual(
-                            normalize_visual_strategy(normalize_drawing_index_visual(restore_structured_visual_type(visual)))
+                compact_comparison_matrix_headers(
+                    normalize_document_status_comparison(
+                        normalize_conflict_review_visual(
+                            normalize_payment_request_visual(
+                                normalize_visual_strategy(normalize_drawing_index_visual(restore_structured_visual_type(visual)))
+                            )
                         )
                     )
                 )
@@ -4043,6 +4064,8 @@ def create_visual_assets(seed, lesson: dict[str, Any], draft: str, run: Path, le
                 visual = normalize_process_flow_node_lengths(compact_process_flow_title(visual))
                 prepared[index] = visual
                 if visual["diagram_type"] == "comparison-matrix":
+                    visual = compact_comparison_matrix_headers(visual)
+                    prepared[index] = visual
                     for row in visual.get("diagram_rows") or []:
                         if isinstance(row, dict) and isinstance(row.get("cells"), list):
                             row["cells"] = [compact_diagram_cell_text(cell) for cell in row["cells"]]
