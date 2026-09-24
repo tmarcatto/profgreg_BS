@@ -1299,6 +1299,34 @@ Use these terms to distinguish roles.
         }
         self.assertEqual("relationship-map", production.infer_diagram_type(visual))
 
+    def test_process_flow_node_text_is_compacted_to_renderer_limits(self) -> None:
+        visual = {
+            "diagram_type": "process-flow",
+            "diagram_nodes": [{
+                "title": "Obtain Authorized Direction",
+                "detail": "Record approval; effects may be pending",
+            }],
+        }
+        normalized = production.normalize_process_flow_node_lengths(visual)
+        self.assertEqual("Record approval; effects pending", normalized["diagram_nodes"][0]["detail"])
+        self.assertLessEqual(len(normalized["diagram_nodes"][0]["detail"]), 36)
+
+    def test_document_status_matrix_uses_visible_records_and_pause_route_logic(self) -> None:
+        visual = {
+            "diagram_type": "comparison-matrix",
+            "learning_claim": "The drawing and schedule govern.",
+            "teaching_explanation": "Continue with the schedule.",
+            "diagram_columns": ["Variable", "Window Schedule", "Selection Sheet", "Change Log"],
+            "diagram_rows": [{
+                "cells": ["Required action", "Continue per this size", "Pause", "Route"],
+            }],
+        }
+        normalized = production.normalize_document_status_comparison(visual)
+        self.assertIn("visible records", normalized["learning_claim"])
+        self.assertNotIn("drawing and schedule", normalized["learning_claim"].lower())
+        self.assertEqual("Pause; verify current records", normalized["diagram_rows"][0]["cells"][1])
+        self.assertNotIn("Continue", " ".join(normalized["diagram_rows"][0]["cells"]))
+
     def test_callout_normalizer_repairs_inline_comma_form(self) -> None:
         draft = (
             "# Section 01 - Work\n\n"

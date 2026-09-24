@@ -3662,6 +3662,64 @@ def compact_process_flow_title(visual: dict[str, Any]) -> dict[str, Any]:
     return normalized
 
 
+def normalize_process_flow_node_lengths(visual: dict[str, Any]) -> dict[str, Any]:
+    """Keep every process-flow node inside the renderer's visible limits."""
+    normalized = copy.deepcopy(visual)
+    if str(normalized.get("diagram_type") or "") != "process-flow":
+        return normalized
+    replacements = (
+        (r"\beffects may be pending\b", "effects pending"),
+        (r"\bIdentify safe work to continue\b", "Identify safe continuing work"),
+        (r"\bDocument specific question\b", "Record specific question"),
+    )
+
+    def compact(value: Any, limit: int) -> str:
+        text = re.sub(r"\s+", " ", str(value or "")).strip()
+        for pattern, replacement in replacements:
+            text = re.sub(pattern, replacement, text, flags=re.I)
+        if len(text) <= limit:
+            return text
+        shortened = text[: limit + 1].rsplit(" ", 1)[0].rstrip(" ,;:.")
+        return shortened or text[:limit].rstrip(" ,;:.")
+
+    for node in normalized.get("diagram_nodes") or []:
+        if isinstance(node, dict):
+            node["title"] = compact(node.get("title"), 30)
+            node["detail"] = compact(node.get("detail"), 36)
+    return normalized
+
+
+def normalize_document_status_comparison(visual: dict[str, Any]) -> dict[str, Any]:
+    """Align document-status matrices with their visible records and hold logic."""
+    normalized = copy.deepcopy(visual)
+    if str(normalized.get("diagram_type") or "") != "comparison-matrix":
+        return normalized
+    columns = [str(column or "") for column in normalized.get("diagram_columns") or []]
+    column_text = " ".join(columns).lower()
+    if not all(term in column_text for term in ("schedule", "selection", "change log")):
+        return normalized
+    normalized["learning_claim"] = (
+        "The visible records show a current 60-inch schedule, an unapproved 72-inch selection, "
+        "and no approved change, so pause affected work and route the conflict for an authorized decision."
+    )
+    normalized["teaching_explanation"] = (
+        "Compare the current schedule with the unresolved selection and empty approved-change record; "
+        "the mismatch requires a pause and an authorized decision before installation."
+    )
+    for row in normalized.get("diagram_rows") or []:
+        if not isinstance(row, dict) or not isinstance(row.get("cells"), list) or not row["cells"]:
+            continue
+        if str(row["cells"][0]).strip().lower() != "required action":
+            continue
+        row["cells"] = [
+            row["cells"][0],
+            "Pause; verify current records",
+            "Do not install; route conflict",
+            "Obtain authorized decision",
+        ][: len(columns)]
+    return normalized
+
+
 def normalize_drawing_index_visual(visual: dict[str, Any]) -> dict[str, Any]:
     """Replace an unavailable drawing-index photo with an honest teaching pattern."""
     normalized = dict(visual)
@@ -3958,9 +4016,13 @@ def create_visual_assets(seed, lesson: dict[str, Any], draft: str, run: Path, le
 
     def prepare_visuals(items: list[dict[str, Any]]) -> list[dict[str, Any]]:
         prepared = [
-            normalize_conflict_review_visual(
-                normalize_payment_request_visual(
-                    normalize_visual_strategy(normalize_drawing_index_visual(restore_structured_visual_type(visual)))
+            normalize_process_flow_node_lengths(
+                normalize_document_status_comparison(
+                    normalize_conflict_review_visual(
+                        normalize_payment_request_visual(
+                            normalize_visual_strategy(normalize_drawing_index_visual(restore_structured_visual_type(visual)))
+                        )
+                    )
                 )
             )
             for visual in items
@@ -3978,7 +4040,7 @@ def create_visual_assets(seed, lesson: dict[str, Any], draft: str, run: Path, le
                     visual["source_status"] = "not-required"
             if visual.get("visual_type") == "deterministic-diagram":
                 visual["diagram_type"] = infer_diagram_type(visual)
-                visual = compact_process_flow_title(visual)
+                visual = normalize_process_flow_node_lengths(compact_process_flow_title(visual))
                 prepared[index] = visual
                 if visual["diagram_type"] == "comparison-matrix":
                     for row in visual.get("diagram_rows") or []:
