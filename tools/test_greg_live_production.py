@@ -1553,6 +1553,13 @@ Following prose.
         self.assertIn("> Answer/check:\n> - A2.14 remains current.", normalized)
         self.assertNotIn("Hold the order. **Answer", normalized)
 
+    def test_answer_result_period_variant_is_canonicalized_with_blank_quote(self) -> None:
+        draft = """> **HANDS-ON EXAMPLE**
+> Using supplied values, calculate the result. **Answer/Result check.** The result is 10.
+"""
+        normalized = production.normalize_callout_density(draft, level="basic")
+        self.assertIn(">\n> **Answer/Result check:**\n> The result is 10.", normalized)
+
     def test_excess_hands_on_callout_becomes_structured_worked_example(self) -> None:
         block = """> **HANDS-ON EXAMPLE**
 > Setup: Compare records.

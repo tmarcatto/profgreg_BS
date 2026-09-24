@@ -1750,8 +1750,8 @@ def normalize_callout_density(draft: str, maximum: int = 5, *, level: str = "bas
                 output.append(f'> {block["inline"]}')
             kept_body = lines[block["start"] + 1 : block["end"]]
             for body_line in kept_body:
-                if block["label"] == "HANDS-ON EXAMPLE" and re.search(r"\*\*Answer(?:/Result)?\s*check:\*\*", body_line, re.I):
-                    before, after = re.split(r"\*\*Answer(?:/Result)?\s*check:\*\*", body_line, maxsplit=1, flags=re.I)
+                if block["label"] == "HANDS-ON EXAMPLE" and re.search(r"\*\*Answer(?:/Result)?\s*check\s*[.:]\s*\*\*", body_line, re.I):
+                    before, after = re.split(r"\*\*Answer(?:/Result)?\s*check\s*[.:]\s*\*\*", body_line, maxsplit=1, flags=re.I)
                     if before.strip() and before.strip() != ">":
                         output.append(before.rstrip())
                     if not output or output[-1].strip() != ">":
@@ -1760,7 +1760,7 @@ def normalize_callout_density(draft: str, maximum: int = 5, *, level: str = "bas
                     if after.strip():
                         output.append("> " + after.strip().lstrip(">").strip())
                     continue
-                if block["label"] == "HANDS-ON EXAMPLE" and re.match(r"^>\s*\*\*Answer(?:/Result)?\s*check:\*\*", body_line.strip(), re.I):
+                if block["label"] == "HANDS-ON EXAMPLE" and re.match(r"^>\s*\*\*Answer(?:/Result)?\s*check\s*[.:]\s*\*\*", body_line.strip(), re.I):
                     if not output or output[-1].strip() != ">":
                         output.append(">")
                 output.append(body_line)
